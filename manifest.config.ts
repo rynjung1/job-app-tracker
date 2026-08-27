@@ -16,5 +16,22 @@ export default defineManifest({
     type: 'module',
   },
   permissions: ['storage', 'identity'],
-  host_permissions: [],
+  // Redundant with content_scripts.matches below for now — a statically
+  // declared content script's match pattern is enough for injection, this
+  // isn't needed for the extension to also call a host's API (chrome.scripting,
+  // fetch, etc). Do NOT assume this stays unnecessary forever: if a later
+  // phase needs chrome.scripting or tab-info APIs against linkedin.com, this
+  // will need to be added back for real, not just left as documentation.
+  host_permissions: ['*://www.linkedin.com/*'],
+  content_scripts: [
+    {
+      // Scoped to www.linkedin.com specifically, NOT *.linkedin.com — LinkedIn
+      // doesn't use per-locale subdomains for the main product, everything is
+      // www.linkedin.com/<locale-path>. This is deliberate narrowing, not an
+      // oversight — don't "fix" it into a wildcard without re-checking that.
+      matches: ['*://www.linkedin.com/jobs/*'],
+      js: ['src/content/linkedin.ts'],
+      run_at: 'document_idle',
+    },
+  ],
 })
