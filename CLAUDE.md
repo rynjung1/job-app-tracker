@@ -170,6 +170,14 @@ Do not consider a parser "done" until it has been verified against
 multiple real postings on that site, not one — per the working
 agreement above.
 
+**Locked scoping decision (confirmed 2026-08-27):** v1 only catches
+applications completed without leaving LinkedIn (Easy Apply). Some
+postings' "Apply now" button redirects entirely off linkedin.com to
+the employer's own career site — that's outside `host_permissions`
+by design, and this extension cannot and will not follow the user
+off-site to catch it. Those applications stay manual. This is a
+scope boundary, not a bug to eventually fix by widening permissions.
+
 ---
 
 ## Security (required, not optional — this is going on the Web
