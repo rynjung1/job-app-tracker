@@ -178,6 +178,11 @@ by design, and this extension cannot and will not follow the user
 off-site to catch it. Those applications stay manual. This is a
 scope boundary, not a bug to eventually fix by widening permissions.
 
+**Known v1 gap:** the LinkedIn Apply-button selector matches on the
+English aria-label text ("LinkedIn Apply..."); a non-English LinkedIn
+UI language will silently fail to detect it. Acceptable for the
+single-user personal-use target — revisit before any Web Store push.
+
 ---
 
 ## Security (required, not optional — this is going on the Web

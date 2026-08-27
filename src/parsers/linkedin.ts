@@ -1,6 +1,10 @@
 import type { JobPageParser, JobPostingData } from './types'
 
-const JOB_PAGE_PATH = /^\/jobs\/(view|search|collections)\//
+// Deliberately broad rather than enumerating known path segments (view,
+// search-results, collections, ...) — a prior version enumerated
+// "search" and missed the real "/jobs/search-results/" split-pane path,
+// so detect() silently never fired there.
+const JOB_PAGE_PATH = /^\/jobs\//
 
 interface JobPostingJsonLd {
   '@type'?: string
@@ -65,11 +69,15 @@ function extractFromDom(): { title?: string; company?: string; location?: string
 export const linkedinParser: JobPageParser = {
   siteId: 'linkedin',
 
+  // No container-class check — this page's classes are hashed/atomic CSS
+  // with no stable or semantic names (confirmed via real DOM inspection,
+  // not assumed). The only call site (content/linkedin.ts, gating the
+  // apply-button bind attempt) already fails safe when no Apply anchor is
+  // found, so a coarser URL-only check here doesn't create a correctness
+  // risk — it just means the bind attempt is tried on more /jobs/ pages,
+  // which is cheap and self-limiting.
   detect() {
-    if (!JOB_PAGE_PATH.test(window.location.pathname)) return false
-    return (
-      document.querySelector('.jobs-details, .job-view-layout, .jobs-unified-top-card') !== null
-    )
+    return JOB_PAGE_PATH.test(window.location.pathname)
   },
 
   extract() {
@@ -101,9 +109,19 @@ export const linkedinParser: JobPageParser = {
   },
 
   getApplyButtonSelector() {
-    // UNVERIFIED against a real authenticated posting — no browser automation
-    // was available to check the logged-in DOM. Confirm/correct this against
-    // the console.log output in content/linkedin.ts before trusting it.
-    return 'button[aria-label*="Easy Apply"], button.jobs-apply-button'
+    // Confirmed via real DOM inspection across 4 live authenticated
+    // postings (3 Easy Apply, 1 off-site): it's an <a>, not a <button>,
+    // aria-label="LinkedIn Apply to this job" and href into
+    // /jobs/view/{id}/apply/ — consistent across all 3 Easy Apply cases,
+    // hence the prefix match rather than requiring an exact string.
+    //
+    // This also turned out to self-scope to Easy-Apply-only with zero
+    // extra logic: the one off-site posting checked has a completely
+    // different label ("Apply on company website") and its href routes
+    // through LinkedIn's own /safety/go/?url=... redirect wrapper rather
+    // than pointing at /jobs/view/.../apply/ directly — so no separate
+    // href check is needed to enforce the Easy-Apply-only scope boundary
+    // documented in CLAUDE.md.
+    return 'a[aria-label^="LinkedIn Apply"]'
   },
 }
