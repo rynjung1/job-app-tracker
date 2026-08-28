@@ -81,6 +81,16 @@ release).
    - Manages OAuth token lifecycle (refresh, expiry) for whichever
      provider is active.
 
+**OUTSTANDING VERIFICATION (added 2026-08-28, Phase 3):** the offline
+queue (`chrome.alarms`-based retry) and the 401-detect-and-refresh
+logic inside `GoogleSheetsProvider`'s `withAuth` are both implemented
+but have never actually been exercised — the verified end-to-end run
+had a freshly-granted token throughout, so neither path fired. Do not
+consider Phase 3 fully verified until: (1) a revoked/expired-token
+`appendRow` call is confirmed to queue the row rather than drop it,
+and (2) the queue is confirmed to actually drain once access is
+restored.
+
 3. **Popup + options page**
    - Popup: shows a toast-style confirmation for ~5 seconds after an
      auto-log ("Logged: Shopify — Data Engineer Co-op — [Undo]
@@ -129,8 +139,14 @@ backend is ever added.
 ### Sheet setup (locked decision)
 
 Default: **auto-create** a new sheet on first install/auth, from a
-fixed template (Date, Company, Title, URL, Resume Version, Status,
-Notes). Zero setup required to get working.
+fixed template (Date, Company, Title, Location, URL, Resume Version,
+Status, Notes). Zero setup required to get working.
+
+**Updated 2026-08-27:** added `Location` (8th column) — the LinkedIn
+parser built in Phase 2 extracts it, and the original 7-column list
+above had no column for it, so it was being silently discarded at
+write time. Column order: Date, Company, Title, Location, URL, Resume
+Version, Status, Notes.
 
 Alternative: **link an existing sheet.** The extension reads the
 existing header row and auto-maps it to the known fields above using
@@ -197,6 +213,21 @@ Store)
 - OAuth tokens stored only in `chrome.storage.local`, never
   `localStorage`, never synced to `chrome.storage.sync` in plaintext.
 
+**Updated 2026-08-27 (Phase 3):** `GoogleSheetsProvider` uses
+`chrome.identity.getAuthToken()`, not a hand-rolled PKCE flow — no
+client secret exists for this client type at all (Google doesn't
+issue one for a "Chrome Extension" application), and the OAuth token
+itself is never written to `chrome.storage.local` or anywhere else by
+this extension's own code — Chrome caches it internally against the
+extension, and `chrome.identity.removeCachedAuthToken()` forces a
+refresh on failure. Strictly safer than the literal "stored in
+chrome.storage.local" text above; that instruction still applies as
+written to any future provider (e.g. Microsoft/MSAL) that doesn't
+have an equivalent built-in cache. The OAuth **client ID** (not a
+secret — public by design for this client type) is hardcoded in
+`manifest.config.ts`'s `oauth2` key; that's expected and fine to
+commit.
+
 **Trust boundary**
 - The background service worker is the only component allowed to
   hold tokens or call spreadsheet APIs. Content scripts only ever
@@ -214,6 +245,13 @@ Store)
 - All scraped fields are validated and length-capped before being
   passed to the provider's structured API request format — never
   string-concatenate raw scraped text into a request body.
+
+**Verified 2026-08-28 (Phase 3):** `GoogleSheetsProvider.appendRow`'s
+`RAW`-input-mode-only formula-injection defense (no character-
+prefixing) was confirmed against a real write, checked via the
+formula bar (not just cell display) for all four dangerous prefixes
+(`=`, `+`, `-`, `@`) — every cell held the literal text, none
+evaluated. No character-prefixing needed on top of `RAW` mode.
 
 **Permissions**
 - `host_permissions` scoped only to the specific job-site domains
