@@ -1,12 +1,6 @@
 import { linkedinParser } from '../parsers/linkedin'
 import type { JobPostingData } from '../parsers/types'
 
-// TEMPORARY diagnostic — unconditional, runs before any detect() gating, to
-// isolate whether the script executes at all vs. detect() specifically
-// failing. Remove once detect() is confirmed working against a real
-// authenticated posting.
-console.log('[job-app-tracker] content script loaded on', window.location.href)
-
 const DOM_SETTLE_DEBOUNCE_MS = 250
 
 let boundButton: Element | null = null
