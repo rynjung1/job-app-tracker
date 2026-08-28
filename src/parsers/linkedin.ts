@@ -19,10 +19,12 @@ interface JobPostingJsonLd {
   }
 }
 
-// LinkedIn embeds schema.org/JobPosting JSON-LD on job pages for SEO — verified
-// live against a real posting (see CLAUDE.md Phase 2 notes for the raw fetch).
-// This is far more stable than LinkedIn's CSS class names, so it's the primary
-// source for title/company/location; DOM text is only a fallback.
+// LinkedIn embeds schema.org/JobPosting JSON-LD for SEO on the LOGGED-OUT
+// guest template only — confirmed absent (0 script tags) on the real
+// authenticated SPA page, which is the only page this content script ever
+// runs on. This path is effectively dead in practice; kept as free
+// insurance in case a future LinkedIn build reintroduces it, not because
+// it's expected to fire. extractFromDom() below is the real primary path.
 function readJobPostingJsonLd(): JobPostingJsonLd | null {
   const scripts = document.querySelectorAll('script[type="application/ld+json"]')
   for (const script of scripts) {
@@ -46,24 +48,102 @@ function formatLocation(jsonLd: JobPostingJsonLd): string | null {
   return parts.length > 0 ? parts.join(', ') : null
 }
 
-// Two known templates: the authenticated in-app SPA view (class names below
-// are unverified — no logged-in session was available to check them), and
-// the logged-out "guest" view (.topcard__* classes — verified against real
-// fetched pages, see CLAUDE.md Phase 2 verification notes). Both are listed
-// since either can be what's live in the DOM depending on session state.
+// document.title carries title/company on the authenticated SPA — confirmed
+// it DOES update on client-side job navigation (not a given for an SPA).
+// Format confirmed on one real posting: "{Title} | {Company} | LinkedIn".
+// Anchored from the END rather than a naive 3-way split, since a job title
+// can itself contain " | " (e.g. "Engineer | Backend Team"), which would
+// corrupt a left-to-right split — the trailing "LinkedIn" literal and the
+// company segment right before it are far less likely to contain a pipe.
+// Only confirmed against one real posting so far — needs 2-3 more before
+// this pattern counts as settled, per the working agreement.
+function parseDocumentTitle(): { title?: string; company?: string } {
+  const parts = document.title.split(' | ')
+  if (parts.length < 3 || parts[parts.length - 1] !== 'LinkedIn') return {}
+  const company = parts[parts.length - 2]?.trim()
+  const title = parts
+    .slice(0, parts.length - 2)
+    .join(' | ')
+    .trim()
+  return { title: title || undefined, company: company || undefined }
+}
+
+const AGO_PATTERN = /\bago$/i
+const APPLICANTS_PATTERN = /applicant/i
+
+// The authenticated page has NO stable attribute for location — no class,
+// id, aria-*, data-*, or title attribute distinguishes it from its two
+// siblings (date-posted, applicant-count), which all share the exact same
+// two hashed classes (confirmed via direct DOM inspection on a real
+// posting). This is the most fragile piece of this parser: it depends on
+// DOM structure and text shape in a purely decorative metadata row with no
+// accessibility or SEO reason to stay stable. Most likely thing to
+// silently break on a future LinkedIn redesign — if location extraction
+// stops working, look here first.
+//
+// Anchored on the company-profile link (a[href*="/company/"]) rather than
+// a fixed number of parentElement hops, since exact nesting depth isn't
+// guaranteed to stay fixed either — searches outward from it, level by
+// level, for the first ancestor containing a "X ago" text node, which is
+// what actually identifies the metadata row.
+function findLocationSiblingSpans(companyLink: Element): Element[] | null {
+  let ancestor: Element | null = companyLink.parentElement
+  for (let i = 0; i < 6 && ancestor; i++, ancestor = ancestor.parentElement) {
+    const agoSpan = Array.from(ancestor.querySelectorAll('span')).find((span) =>
+      AGO_PATTERN.test(span.textContent?.trim() ?? ''),
+    )
+    if (agoSpan?.parentElement) {
+      return Array.from(agoSpan.parentElement.children).filter((el) => el.tagName === 'SPAN')
+    }
+  }
+  return null
+}
+
+// Content-shape validation, not pure position: rejects candidates that
+// look like the two known non-location siblings, rather than blindly
+// trusting "first span" — degrades to null (not a wrong guess) if the
+// order ever changes or location is absent (e.g. some remote postings).
+function extractLocationFromDom(companyLink: Element | null): string | null {
+  if (!companyLink) return null
+  const spans = findLocationSiblingSpans(companyLink)
+  if (!spans) return null
+  const location = spans
+    .map((el) => el.textContent?.trim() ?? '')
+    .find((text) => text.length > 0 && !AGO_PATTERN.test(text) && !APPLICANTS_PATTERN.test(text))
+  return location || null
+}
+
+// No stable class/id/aria/data attribute exists anywhere on the
+// authenticated SPA (confirmed via direct DOM inspection) — h1 count is 0,
+// every class is hashed/atomic CSS, JSON-LD doesn't exist here at all (see
+// readJobPostingJsonLd comment above). Every field below comes from a
+// signal that isn't DOM styling: document.title for title, with the
+// company-profile link preferred over document.title's company segment
+// when both are available (a single clean string beats depending on the
+// pipe-split heuristic holding), and structural/content-shape inference
+// for location (see findLocationSiblingSpans — the most fragile piece of
+// this parser).
 function extractFromDom(): { title?: string; company?: string; location?: string | null } {
-  const title = document.querySelector('h1')?.textContent?.trim()
-  const company = document
-    .querySelector(
-      '.job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name, .topcard__org-name-link',
-    )
-    ?.textContent?.trim()
-  const location = document
-    .querySelector(
-      '.job-details-jobs-unified-top-card__bullet, .jobs-unified-top-card__bullet, .topcard__flavor-row .topcard__flavor--bullet',
-    )
-    ?.textContent?.trim()
-  return { title, company, location: location || null }
+  const { title, company: titleCompany } = parseDocumentTitle()
+  const companyLink = document.querySelector('a[href*="/company/"]')
+  const company = companyLink?.textContent?.trim() || titleCompany
+  const location = extractLocationFromDom(companyLink)
+  return { title, company, location }
+}
+
+// Split-pane search results carry the job ID only in ?currentJobId=, not
+// the path — naively stripping query params (as this used to do
+// unconditionally) collapsed every split-pane application to the same
+// generic /jobs/search-results/ URL, a real confirmed bug, not
+// hypothetical. Reconstruct the canonical per-job URL from the ID in that
+// case; direct /jobs/view/{id}/ pages already carry the ID in the path
+// and are untouched by this branch.
+function resolveCanonicalJobUrl(): string {
+  const currentJobId = new URLSearchParams(window.location.search).get('currentJobId')
+  if (currentJobId) {
+    return `https://www.linkedin.com/jobs/view/${currentJobId}/`
+  }
+  return window.location.href.split('?')[0]
 }
 
 export const linkedinParser: JobPageParser = {
@@ -103,7 +183,7 @@ export const linkedinParser: JobPageParser = {
       title,
       company,
       location,
-      url: window.location.href.split('?')[0],
+      url: resolveCanonicalJobUrl(),
     }
     return data
   },

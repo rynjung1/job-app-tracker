@@ -13,7 +13,26 @@ let boundButton: Element | null = null
 let debounceTimer: number | undefined
 
 function sendToBackground(data: JobPostingData) {
-  chrome.runtime.sendMessage({ type: 'JOB_APPLICATION_LOGGED', payload: data })
+  // chrome.runtime becomes undefined in an orphaned content-script instance
+  // — extension reloaded/updated while this tab stayed open, and the SPA
+  // route change never did a full page load to re-inject a fresh one.
+  // Confirmed via real reproduction this session: crashed uncaught with
+  // "Cannot read properties of undefined (reading 'sendMessage')" on a
+  // stale tab, disappeared after a hard refresh. Guarding here rather than
+  // crashing — this will recur, e.g. on a real extension auto-update while
+  // a job tab has been open a while.
+  if (!chrome.runtime?.id) {
+    console.warn(
+      '[job-app-tracker] extension context invalidated — reload this page for tracking to resume',
+    )
+    return
+  }
+  try {
+    chrome.runtime.sendMessage({ type: 'JOB_APPLICATION_LOGGED', payload: data })
+    console.log('[job-app-tracker] apply logged, sent to background:', data)
+  } catch (err) {
+    console.warn('[job-app-tracker] failed to send application data to background:', err)
+  }
 }
 
 function bindApplyButton() {
