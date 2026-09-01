@@ -7,6 +7,14 @@ export default defineManifest({
   description:
     'Automatically logs job applications to your spreadsheet when you apply on supported job sites.',
   version: pkg.version,
+  // Paths are relative to the built dist/ root, not this source file —
+  // files under public/ are copied verbatim to dist/ by Vite, dropping the
+  // "public/" prefix, so "icons/icon16.png" here means public/icons/icon16.png.
+  icons: {
+    16: 'icons/icon16.png',
+    48: 'icons/icon48.png',
+    128: 'icons/icon128.png',
+  },
   action: {
     default_popup: 'src/popup/index.html',
   },
@@ -18,7 +26,11 @@ export default defineManifest({
   // "alarms" added for the offline-write-queue retry (Phase 3) — chrome.alarms
   // is what lets a retry survive the background service worker being
   // suspended, which setInterval would not.
-  permissions: ['storage', 'identity', 'alarms'],
+  // "notifications" added (Phase 4) — the auto-log toast is a real
+  // chrome.notifications system notification, not literally "the popup"
+  // rendering something proactively (a popup can't open itself without a
+  // user gesture) — see CLAUDE.md Logging behavior, Phase 4 note.
+  permissions: ['storage', 'identity', 'alarms', 'notifications'],
   // sheets.googleapis.com added (Phase 3) — the background worker calls the
   // Sheets API directly via fetch(); unlike the LinkedIn entry below (DOM-only,
   // no network call), this one genuinely needs host_permissions to avoid a

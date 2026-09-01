@@ -1,4 +1,4 @@
-import type { ColumnMapping, SheetRef, SpreadsheetProvider } from './types'
+import type { AppendedRow, ColumnMapping, SheetRef, SpreadsheetProvider } from './types'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -65,6 +65,31 @@ function normalizeHeader(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
+// Sheets API range format is "SheetName!A5:H5" (or "'Sheet Name'!A5:H5" if
+// the sheet name needs quoting) — pulls out the sheet name and the row
+// number of the first cell in the range.
+function parseAppendedRange(updatedRange: string): AppendedRow {
+  const match = updatedRange.match(/^(?:'([^']+)'|([^!]+))!([A-Z]+)(\d+)/)
+  if (!match) {
+    throw new Error(`Could not parse appended range: ${updatedRange}`)
+  }
+  const sheetName = match[1] ?? match[2]
+  return { sheetName, rowNumber: Number(match[4]) }
+}
+
+// Sheets API addresses columns by letter, not index — A, B, ... Z, AA, AB,
+// ... This is the standard base-26 (no zero digit) conversion, correct
+// past 26 columns even though this project only has 8 right now.
+function columnIndexToLetter(index: number): string {
+  let letter = ''
+  let n = index
+  while (n >= 0) {
+    letter = String.fromCharCode((n % 26) + 65) + letter
+    n = Math.floor(n / 26) - 1
+  }
+  return letter
+}
+
 export const googleSheetsProvider: SpreadsheetProvider = {
   async authenticate() {
     // Best-effort: clear whatever's cached first (even a stale/revoked
@@ -128,7 +153,7 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     return mapping
   },
 
-  async appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<void> {
+  async appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow> {
     // Reads the sheet's actual current headers to determine column order,
     // rather than trusting Object.values(row) insertion order — self-
     // correcting if the user ever reorders columns by hand, and the only
@@ -137,7 +162,7 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     const values = headers.map((header) => row[header] ?? '')
 
     const range = `${sheetRef.sheetName}!A1`
-    await withAuth((token) =>
+    const result = (await withAuth((token) =>
       apiFetch(
         `/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
         token,
@@ -146,6 +171,32 @@ export const googleSheetsProvider: SpreadsheetProvider = {
           body: JSON.stringify({ values: [values] }),
         },
       ),
+    )) as { updates?: { updatedRange?: string } }
+
+    const updatedRange = result.updates?.updatedRange
+    if (!updatedRange) {
+      throw new Error('Sheets API append response missing updates.updatedRange')
+    }
+    return parseAppendedRange(updatedRange)
+  },
+
+  async updateCell(
+    sheetRef: SheetRef,
+    rowNumber: number,
+    columnName: string,
+    value: string,
+  ): Promise<void> {
+    const headers = await this.readHeaders(sheetRef)
+    const columnIndex = headers.indexOf(columnName)
+    if (columnIndex === -1) {
+      throw new Error(`Column "${columnName}" not found in sheet headers: ${headers.join(', ')}`)
+    }
+    const range = `${sheetRef.sheetName}!${columnIndexToLetter(columnIndex)}${rowNumber}`
+    await withAuth((token) =>
+      apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, token, {
+        method: 'PUT',
+        body: JSON.stringify({ values: [[value]] }),
+      }),
     )
   },
 }

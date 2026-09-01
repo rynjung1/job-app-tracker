@@ -108,6 +108,42 @@ user's flow. The 5-second popup toast is purely a correction window
 whichever version was last used for that role type (SWE vs DE),
 inferred from job title keywords, and is editable from the toast.
 
+**Updated 2026-09-01 (Phase 4):** the "toast" is a real
+`chrome.notifications` system notification, not the extension's
+toolbar popup rendering something proactively — a popup can't open
+itself without a user gesture, so nothing could ever surface a timely
+"correction window" if it only lived inside the popup (the user isn't
+clicking the toolbar icon at the moment they click Apply on a job
+site). This is a deliberate, flagged deviation from the literal
+"Popup: shows a toast-style confirmation" architecture text above —
+the popup's own job is now just the scrollable recent-applications
+list plus the Edit UI (opened as a standalone window from the
+notification's Edit button), not the proactive alert itself. Known
+platform limits: needs the `notifications` permission; on macOS, the
+notification is routed through native Notification Center, so exact
+5-second timing isn't fully controllable by the extension — Chrome
+force-clears it around then, but the OS ultimately owns the banner's
+on-screen duration.
+
+Undo marks the row `Status: Cancelled` rather than deleting it —
+safer against the row having shifted if the user has since
+sorted/edited the sheet by hand; a wrong cell getting mislabeled is
+recoverable, a wrong row getting deleted is not. `Cancelled` is a
+fifth `Status` value alongside the four in the Status field section
+below.
+
+**Verified 2026-09-01 (Phase 4):** all of the above confirmed against
+real applications, not just a clean build — real screenshot of the
+`chrome.notifications` toast appearing after a real Apply click
+("Logged / Kepler Communications Inc. — Embedded Software Engineering
+Intern...", Undo/Edit buttons present); Undo confirmed setting
+`Status: Cancelled` in the real sheet; Edit confirmed opening the
+standalone popup window, saving a new Resume Version to the real
+sheet cell, and closing itself; the last-used-per-role-type default
+confirmed by a subsequent same-role-type application prefilling with
+the version just saved via Edit, not just accepting the write in
+isolation.
+
 ### Spreadsheet backend (locked decision: support both)
 
 A `SpreadsheetProvider` interface decouples the rest of the extension
@@ -119,9 +155,24 @@ interface SpreadsheetProvider {
   createSheet(templateColumns: string[]): Promise<SheetRef>
   readHeaders(sheetRef: SheetRef): Promise<string[]>
   mapColumns(existingHeaders: string[], knownFields: string[]): ColumnMapping
-  appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<void>
+  appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow>
+  updateCell(sheetRef: SheetRef, rowNumber: number, columnName: string, value: string): Promise<void>
 }
 ```
+
+**Updated 2026-09-01 (Phase 4):** two changes from the original
+locked shape above, both flagged and confirmed before implementing:
+- `appendRow` now returns `AppendedRow` (`{ sheetName, rowNumber }`)
+  instead of `void` — Undo/Edit need to know exactly which row was
+  just written, and the Sheets API's own append response is the only
+  race-free source for that (an extra read-after-write to infer the
+  last row would race against concurrent edits).
+- `updateCell(sheetRef, rowNumber, columnName, value)` added —  not
+  part of the original interface at all. Needed so Undo (mark
+  `Status`) and Edit (overwrite `Resume Version`) can update one cell
+  of an already-written row without providers leaking into
+  provider-agnostic code (background worker) branching on which
+  backend is active.
 
 Two implementations:
 - `GoogleSheetsProvider` — Sheets API v4, OAuth via `chrome.identity`,
@@ -163,6 +214,10 @@ Manual. Status (Applied / Interview / Rejected / Offer) is set and
 updated by the user directly in the spreadsheet or via the extension
 UI — no auto-detection of status changes in v1. This was deliberately
 descoped as a rabbit hole not worth the reliability cost.
+
+**Updated 2026-09-01 (Phase 4):** added a fifth value, `Cancelled` —
+set automatically (the one exception to "manual" above) when the user
+clicks Undo on the toast notification within its ~5-second window.
 
 ---
 
