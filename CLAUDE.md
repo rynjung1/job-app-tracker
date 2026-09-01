@@ -81,15 +81,15 @@ release).
    - Manages OAuth token lifecycle (refresh, expiry) for whichever
      provider is active.
 
-**OUTSTANDING VERIFICATION (added 2026-08-28, Phase 3):** the offline
-queue (`chrome.alarms`-based retry) and the 401-detect-and-refresh
-logic inside `GoogleSheetsProvider`'s `withAuth` are both implemented
-but have never actually been exercised — the verified end-to-end run
-had a freshly-granted token throughout, so neither path fired. Do not
-consider Phase 3 fully verified until: (1) a revoked/expired-token
-`appendRow` call is confirmed to queue the row rather than drop it,
-and (2) the queue is confirmed to actually drain once access is
-restored.
+**Verified 2026-09-01 (Phase 3):** offline queue + 401-retry path
+confirmed against a real revoked-access failure — `appendRow` failed
+with a real "OAuth2 not granted or revoked" error, the row was queued
+rather than dropped (`offlineQueue: Array(1)`, not silently lost),
+and after reconnecting via the options page's Reconnect button (which
+forces a genuinely fresh interactive token rather than potentially
+reusing a stale cached one — see Security notes), a
+`chrome.alarms`-triggered drain wrote the queued row to the real
+sheet and emptied the queue (`offlineQueue: Array(0)`).
 
 3. **Popup + options page**
    - Popup: shows a toast-style confirmation for ~5 seconds after an

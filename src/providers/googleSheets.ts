@@ -67,6 +67,20 @@ function normalizeHeader(value: string): string {
 
 export const googleSheetsProvider: SpreadsheetProvider = {
   async authenticate() {
+    // Best-effort: clear whatever's cached first (even a stale/revoked
+    // token) so this always forces a genuinely fresh interactive prompt,
+    // rather than potentially handing back what's already cached — Chrome
+    // doesn't proactively check with Google whether a cached token is
+    // still valid. Errors here just mean nothing was cached; fine to
+    // ignore and proceed to the interactive request either way.
+    try {
+      const existing = await chrome.identity.getAuthToken({ interactive: false })
+      if (existing.token) {
+        await chrome.identity.removeCachedAuthToken({ token: existing.token })
+      }
+    } catch {
+      // Nothing cached, or the non-interactive fetch itself failed.
+    }
     await getToken(true)
   },
 

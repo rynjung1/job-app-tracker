@@ -36,6 +36,20 @@ function App() {
     }
   }
 
+  async function handleReconnect() {
+    setState({ status: 'connecting' })
+    try {
+      await googleSheetsProvider.authenticate()
+      // Keep the existing sheetRef — only the OAuth grant needed
+      // refreshing, not the sheet itself. Calling createSheet() here
+      // would orphan the current sheet and silently swap in a new one.
+      const stored = await chrome.storage.local.get(SHEET_REF_KEY)
+      setState({ status: 'connected', sheetRef: stored[SHEET_REF_KEY] as SheetRef })
+    } catch (err) {
+      setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   return (
     <div style={{ padding: 24, maxWidth: 480, fontFamily: 'sans-serif' }}>
       <h1 style={{ fontSize: 20 }}>Job Application Tracker — Settings</h1>
@@ -64,6 +78,9 @@ function App() {
           >
             Open your Job Applications sheet
           </a>
+          <div style={{ marginTop: 12 }}>
+            <button onClick={handleReconnect}>Reconnect</button>
+          </div>
         </>
       )}
 
