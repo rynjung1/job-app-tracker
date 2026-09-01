@@ -254,6 +254,22 @@ English aria-label text ("LinkedIn Apply..."); a non-English LinkedIn
 UI language will silently fail to detect it. Acceptable for the
 single-user personal-use target — revisit before any Web Store push.
 
+**Locked scoping decision (confirmed 2026-09-01):** the Greenhouse
+parser only catches postings that stay on Greenhouse's own hosted
+domains (`job-boards.greenhouse.io`, `boards.greenhouse.io`).
+Greenhouse also supports "embedded" boards where a company hosts the
+same job listing on its own domain (e.g. a raw `boards.greenhouse.io`
+link redirecting to `careers.company.com/...?gh_jid=...`) — confirmed
+via real testing that this is common, not an edge case (3 of 3
+initial test postings redirected this way). There is no Chrome
+manifest syntax to scope `host_permissions`/`content_scripts` to "any
+domain, if the URL happens to contain `gh_jid=`," and broadening to
+`<all_urls>` or a wildcard is explicitly forbidden by the Permissions
+section below. Applications on a custom-domain-embedded Greenhouse
+board stay manual, same as LinkedIn's off-site-redirect boundary —
+this is a real, likely significant coverage gap for this parser, not
+a hidden one, and not something to fix by widening permissions.
+
 ---
 
 ## Security (required, not optional — this is going on the Web
