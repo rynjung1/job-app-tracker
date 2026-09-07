@@ -270,6 +270,27 @@ board stay manual, same as LinkedIn's off-site-redirect boundary —
 this is a real, likely significant coverage gap for this parser, not
 a hidden one, and not something to fix by widening permissions.
 
+**Verified 2026-09-07 (Phase 5):** `document.title` parsing,
+`og:description`-as-location, and the `button[type="submit"]`
+selector were all confirmed against real, live, independently
+rendered postings (Figma, PlanetScale) before implementation, per the
+working agreement. Post-implementation, two things were verified with
+real evidence without ever touching a real company's application
+form: (1) `getEventListeners()` in DevTools confirmed exactly one
+`click` listener bound to the real submit button; (2) a synthetic
+`JOB_APPLICATION_LOGGED` message sent from the real Greenhouse
+content-script context (so `sender.origin` was genuinely
+`https://job-boards.greenhouse.io`, exercising the real
+trust-boundary check) produced a correct real row in the sheet.
+**Deliberately not tested: an actual click on the real submit
+button** — done by choice, to avoid the risk of accidentally
+submitting a real application to Figma. The binding and the full
+message pipeline are verified independently instead; the remaining
+gap is purely "does a real user click dispatch the same way a
+DevTools-confirmed listener does," which is the same native
+`addEventListener` mechanism already proven working on LinkedIn and
+not expected to behave differently here.
+
 ---
 
 ## Security (required, not optional — this is going on the Web

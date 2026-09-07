@@ -43,7 +43,17 @@ export default defineManifest({
   // forever: if a later phase needs chrome.scripting or tab-info APIs against
   // linkedin.com, this will need to be added back for real, not just left as
   // documentation.
-  host_permissions: ['*://www.linkedin.com/*', 'https://sheets.googleapis.com/*'],
+  // job-boards.greenhouse.io added (Phase 5) — NOT boards.greenhouse.io
+  // (the old domain), which unconditionally 301-redirects there before
+  // any page ever renders (confirmed via curl -v), so a content script
+  // matched against it would never get a chance to run. See CLAUDE.md
+  // Site parsers, Greenhouse scoping decision, for the real coverage gap
+  // this leaves (custom-domain-embedded boards aren't reachable at all).
+  host_permissions: [
+    '*://www.linkedin.com/*',
+    '*://job-boards.greenhouse.io/*',
+    'https://sheets.googleapis.com/*',
+  ],
   // Client ID is a public identifier for this client type — Google doesn't
   // issue a secret for "Chrome Extension" OAuth clients, so this is fine to
   // commit (see CLAUDE.md Security > Secrets & credentials, Phase 3 note).
@@ -59,6 +69,13 @@ export default defineManifest({
       // oversight — don't "fix" it into a wildcard without re-checking that.
       matches: ['*://www.linkedin.com/jobs/*'],
       js: ['src/content/linkedin.ts'],
+      run_at: 'document_idle',
+    },
+    {
+      // job-boards.greenhouse.io only, not boards.greenhouse.io — see the
+      // host_permissions comment above for why.
+      matches: ['*://job-boards.greenhouse.io/*/jobs/*'],
+      js: ['src/content/greenhouse.ts'],
       run_at: 'document_idle',
     },
   ],

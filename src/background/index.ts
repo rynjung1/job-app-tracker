@@ -12,7 +12,7 @@ import { getDefaultResumeVersion } from '../lib/resumeVersion'
 import { addRecentApplication, getRecentApplications, updateRecentApplication } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 
-const TRUSTED_ORIGINS = ['https://www.linkedin.com']
+const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 const RETRY_ALARM_NAME = 'retryOfflineQueue'
 const NOTIFICATION_CLEAR_ALARM_PREFIX = 'clearNotification:'
 // Chrome's own alarms API has a practical minimum around a few seconds in
