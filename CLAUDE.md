@@ -417,12 +417,30 @@ delegated entirely to Google/Microsoft OAuth by design.
    flow, auto-create sheet, append row. End-to-end: LinkedIn apply
    click → real row in a real Google Sheet.
 4. **Popup toast + Undo/Edit** — the 5-second correction window.
-5. **Indeed parser**, then **Greenhouse parser** — prove the
+5. ~~**Indeed parser**~~, then **Greenhouse parser** — prove the
    abstraction generalizes.
-6. **ExcelProvider** — second backend implementation against the
+6. ~~**ExcelProvider**~~ — second backend implementation against the
    same interface.
 7. **Existing-sheet linking + column auto-mapping.**
 8. **Security pass** — formula-injection sanitization, permission
    audit, `npm audit`, manifest CSP check — before any Web Store
    submission.
 9. **Web Store prep** — privacy policy, listing assets, submission.
+
+**Deferred, not abandoned:**
+- **Indeed parser (2026-09-01):** every fetch attempt (curl and
+  WebFetch) was blocked outright by Cloudflare bot-detection, unlike
+  LinkedIn and Greenhouse — meaning literally zero pre-implementation
+  selector verification was possible, only live DevTools work from
+  scratch. Deprioritized in favor of Greenhouse, which had real,
+  fetchable, multi-company evidence available immediately. Revisit
+  when there's appetite for a parser built entirely from live
+  browser inspection with no pre-verification step at all.
+- **ExcelProvider (2026-09-08):** blocked on Azure account
+  eligibility — the personal Microsoft account
+  (`ryanjung2007@outlook.com`) created for this was flagged
+  ineligible for the free tier needed to register an app in
+  Microsoft Entra ID. Not a code or architecture problem; the
+  `SpreadsheetProvider` interface and the account-type/scope research
+  (`Files.ReadWrite.AppFolder`, personal-accounts-only) already done
+  for this phase remain valid whenever it's picked back up.
