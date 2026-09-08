@@ -95,9 +95,9 @@ sheet and emptied the queue (`offlineQueue: Array(0)`).
    - Popup: shows a toast-style confirmation for ~5 seconds after an
      auto-log ("Logged: Shopify — Data Engineer Co-op — [Undo]
      [Edit]"), plus a scrollable list of recent applications.
-   - Options page: choose spreadsheet backend, authenticate, link or
-     auto-create a sheet, manage column mapping, enable/disable
-     individual site parsers.
+   - Options page: choose spreadsheet backend, authenticate,
+     auto-create a sheet (the only supported setup path — see "Sheet
+     setup" below), enable/disable individual site parsers.
 
 ### Logging behavior (locked decision)
 
@@ -199,14 +199,35 @@ above had no column for it, so it was being silently discarded at
 write time. Column order: Date, Company, Title, Location, URL, Resume
 Version, Status, Notes.
 
-Alternative: **link an existing sheet.** The extension reads the
+~~Alternative: **link an existing sheet.** The extension reads the
 existing header row and auto-maps it to the known fields above using
 fuzzy matching (case-insensitive, ignores punctuation/whitespace
 differences). Any known field with no confident match is shown to
 the user once, in a simple mapping UI, to confirm or manually assign.
 Any known field missing entirely from the existing sheet is appended
 as a new column — the user never needs to have pre-formatted
-anything correctly.
+anything correctly.~~
+
+**Descoped, not deferred (confirmed 2026-09-08):** existing-sheet
+linking is off the table permanently, not paused. Root cause, found
+during Phase 7 implementation and confirmed with real evidence
+before this call was made: `drive.file` (the locked OAuth scope —
+see Security) has exactly one path to accessing a file the extension
+didn't create — a real, user-driven Google Picker selection; a
+pasted URL/ID never goes through that grant flow and 404s
+(`GET .../spreadsheets/{id}` against a real second sheet, confirmed
+via added request/response logging). Picker integration was then
+independently confirmed non-viable inside this extension's own
+bundle: it requires `allow-same-origin`, which Chrome's MV3 sandboxed
+extension pages are hard-forbidden from granting (real error
+reproduced against
+[a chromium-extensions thread](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/dLPOAHwigB8)
+hitting the identical failure). The only working pattern is running
+Picker on a page hosted on a real external domain, not bundled
+extension code at all — genuine new hosting infrastructure to
+build and maintain, for what is currently a personal-use convenience
+feature layered on top of a tracker that already works end-to-end
+via auto-create. Auto-create is the sheet-setup path, full stop.
 
 ### Status field
 
@@ -421,7 +442,9 @@ delegated entirely to Google/Microsoft OAuth by design.
    abstraction generalizes.
 6. ~~**ExcelProvider**~~ — second backend implementation against the
    same interface.
-7. **Existing-sheet linking + column auto-mapping.**
+7. ~~**Existing-sheet linking + column auto-mapping.**~~ Descoped
+   2026-09-08 — see "Sheet setup" above. Auto-create-only confirmed
+   working end-to-end since Phase 3; nothing shipped from this phase.
 8. **Security pass** — formula-injection sanitization, permission
    audit, `npm audit`, manifest CSP check — before any Web Store
    submission.

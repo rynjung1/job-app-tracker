@@ -38,12 +38,7 @@ function App() {
     if (!editingEntry || !sheetRef) return
     setSaving(true)
     try {
-      await googleSheetsProvider.updateCell(
-        sheetRef,
-        editingEntry.rowNumber,
-        'Resume Version',
-        resumeInput,
-      )
+      await googleSheetsProvider.updateCell(sheetRef, editingEntry.rowNumber, 'Resume Version', resumeInput)
       await setLastResumeVersion(editingEntry.title, resumeInput)
       await updateRecentApplication(editingEntry.id, { resumeVersion: resumeInput })
       window.close()

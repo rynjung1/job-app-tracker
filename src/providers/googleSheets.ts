@@ -1,4 +1,4 @@
-import type { AppendedRow, ColumnMapping, SheetRef, SpreadsheetProvider } from './types'
+import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -59,10 +59,6 @@ async function withAuth<T>(fn: (token: string) => Promise<T>): Promise<T> {
     }
     throw err
   }
-}
-
-function normalizeHeader(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
 // Sheets API range format is "SheetName!A5:H5" (or "'Sheet Name'!A5:H5" if
@@ -139,18 +135,6 @@ export const googleSheetsProvider: SpreadsheetProvider = {
       apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}`, token),
     )) as { values?: string[][] }
     return data.values?.[0] ?? []
-  },
-
-  // "Fuzzy matching" per CLAUDE.md is defined narrowly here: case-insensitive,
-  // ignoring punctuation/whitespace differences — not typo-tolerant matching.
-  mapColumns(existingHeaders: string[], knownFields: string[]): ColumnMapping {
-    const mapping: ColumnMapping = {}
-    for (const field of knownFields) {
-      const target = normalizeHeader(field)
-      const match = existingHeaders.find((header) => normalizeHeader(header) === target)
-      if (match) mapping[field] = match
-    }
-    return mapping
   },
 
   async appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow> {
