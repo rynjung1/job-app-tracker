@@ -9,7 +9,7 @@ import { buildRow } from '../lib/buildRow'
 import { sanitizeRow } from '../lib/sanitize'
 import { SHEET_REF_KEY, OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
 import { getDefaultResumeVersion } from '../lib/resumeVersion'
-import { addRecentApplication, getRecentApplications, updateRecentApplication } from '../lib/recentApplications'
+import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
@@ -154,8 +154,7 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
     if (!entry) return
     try {
       const provider = await getActiveProvider()
-      await provider.updateCell(sheetRef, entry.rowNumber, 'Status', 'Cancelled')
-      await updateRecentApplication(notificationId, { status: 'Cancelled' })
+      await cancelApplication(provider, sheetRef, entry)
       console.log('[job-app-tracker] undo: marked row', entry.rowNumber, 'Cancelled')
     } catch (err) {
       console.warn('[job-app-tracker] undo failed:', err)

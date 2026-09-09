@@ -1,4 +1,5 @@
 import { RECENT_APPLICATIONS_KEY } from './storageKeys'
+import type { SheetRef, SpreadsheetProvider } from '../providers/types'
 
 // Named in CLAUDE.md's Tech Stack section ("chrome.storage.local for ...
 // the cached recent-applications list") but not built until Phase 4, when
@@ -39,4 +40,19 @@ export async function updateRecentApplication(
   list[index] = { ...list[index], ...patch }
   await chrome.storage.local.set({ [RECENT_APPLICATIONS_KEY]: list })
   return list[index]
+}
+
+// Shared by background/index.ts's notification Undo handler and the
+// popup's own Undo (recent-applications-list feature) — no identity check
+// here by design. The notification path's short window is trusted as-is;
+// the popup path (reachable indefinitely) does its own readRow-based
+// identity check before ever calling this, since a stale rowNumber is a
+// real risk there in a way it isn't in the ~5-second notification case.
+export async function cancelApplication(
+  provider: SpreadsheetProvider,
+  sheetRef: SheetRef,
+  entry: RecentApplication,
+): Promise<void> {
+  await provider.updateCell(sheetRef, entry.rowNumber, 'Status', 'Cancelled')
+  await updateRecentApplication(entry.id, { status: 'Cancelled' })
 }

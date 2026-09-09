@@ -148,4 +148,21 @@ export const excelProvider: SpreadsheetProvider = {
       body: JSON.stringify({ values: [[neutralizeFormulaPrefix(value)]] }),
     })
   },
+
+  async readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>> {
+    const token = await getValidExcelToken()
+    const headers = await this.readHeaders(sheetRef)
+    const lastColumn = columnIndexToLetter(headers.length - 1)
+    const address = `A${rowNumber}:${lastColumn}${rowNumber}`
+    const data = (await graphFetch(
+      `/me/drive/items/${sheetRef.spreadsheetId}/workbook/worksheets/${sheetRef.sheetName}/range(address='${address}')?$select=values`,
+      token,
+    )) as { values?: string[][] }
+    const rowValues = data.values?.[0] ?? []
+    const row: Record<string, string> = {}
+    headers.forEach((header, i) => {
+      row[header] = String(rowValues[i] ?? '')
+    })
+    return row
+  },
 }

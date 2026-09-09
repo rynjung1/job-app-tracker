@@ -144,6 +144,52 @@ confirmed by a subsequent same-role-type application prefilling with
 the version just saved via Edit, not just accepting the write in
 isolation.
 
+**Updated 2026-09-09:** Edit and Undo are no longer only reachable
+from the notification's ~5-second window — both are now available
+on every entry in the popup's own recent-applications list
+(up to the stored 20), at any time the popup is opened. No time or
+state limit beyond that 20-entry cap: neither action is destructive
+(Undo is a status change, Edit overwrites one cell), and Status is
+already documented above as something the user can set "directly in
+the spreadsheet or via the extension UI" — this is that same
+capability from a second entry point, not a new one. Undo hides
+itself once an entry's cached status is already `Cancelled`, since
+there's nothing left to undo.
+
+Because this makes the underlying blind-positional-write real risk
+(a stale `rowNumber` pointing at a row the user has since
+reordered/renamed by hand) reachable far later than the original
+short window ever allowed, both popup actions now verify the target
+row's `Company`/`Title` still match the cached entry (via the new
+`readRow`, above) before writing — on mismatch, the write is
+refused and an inline error tells the user they can still make the
+same change directly in their spreadsheet, rather than leaving them
+at a dead end. The notification's own Undo (background worker,
+short window) deliberately keeps its original no-check behavior
+unchanged — the risk this addresses is specific to the "reachable
+indefinitely" popup path, not the immediate one.
+
+Editing a different row than the one a standalone Edit window
+opened for (the window still renders the full list underneath the
+edit box) also gets the real check and does not auto-close the
+window on save — only saving the exact entry the window was opened
+for skips the check and closes, preserving the original notification
+-Edit behavior exactly for that one case.
+
+`cancelApplication()` (`lib/recentApplications.ts`) is shared between
+the notification's background-worker handler and the popup's new
+Undo button — one implementation of "mark Cancelled," not two
+copies that could drift.
+
+**Verified 2026-09-09:** both the legitimate and the deliberate-
+mismatch case confirmed with real evidence, not just a working
+build. Legitimate case: Undo and Edit from the popup list both
+correctly updated the real spreadsheet cell. Mismatch case: a real
+row's `Company` cell was hand-edited directly in the spreadsheet,
+then Undo/Edit was retried on the now-stale cached entry — the
+inline error appeared, and a real re-read of that cell afterward (not
+just trusting the UI) confirmed zero write occurred.
+
 ### Spreadsheet backend (locked decision: support both)
 
 A `SpreadsheetProvider` interface decouples the rest of the extension
@@ -156,8 +202,28 @@ interface SpreadsheetProvider {
   readHeaders(sheetRef: SheetRef): Promise<string[]>
   appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow>
   updateCell(sheetRef: SheetRef, rowNumber: number, columnName: string, value: string): Promise<void>
+  readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>>
 }
 ```
+
+**Updated 2026-09-09:** `readRow` added — reads an entire row back as
+a header-keyed record, same shape as `appendRow`'s `row` parameter.
+Not part of the original interface; added specifically so the
+popup's Edit/Undo-from-the-recent-list feature (see Logging
+behavior, below) could verify a row still matches its cached
+identity before overwriting it — `updateCell`/`cancelApplication`
+are blind positional writes by `rowNumber` with no built-in
+verification, which was an acceptable, explicitly-accepted risk for
+the notification's ~5-second window but not for a popup action
+reachable indefinitely. Implemented in both providers by reading the
+row's current headers first (for column order/width), then a single
+range read across that row — `googleSheets.ts` mirrors `readHeaders`'
+own `1:1`-style range exactly, just targeting `rowNumber:rowNumber`;
+`excel.ts` computes the row's full column span from `readHeaders`'
+length and reads `A{rowNumber}:{lastCol}{rowNumber}`. A row number
+past the sheet's actual filled extent doesn't error on either API —
+both just return empty values, which naturally fails the identity
+check downstream rather than needing separate not-found handling.
 
 **Updated 2026-09-08:** `mapColumns` removed — it existed only for
 existing-sheet linking (Phase 7), which was permanently descoped

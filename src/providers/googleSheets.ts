@@ -171,4 +171,18 @@ export const googleSheetsProvider: SpreadsheetProvider = {
       }),
     )
   },
+
+  async readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>> {
+    const headers = await this.readHeaders(sheetRef)
+    const range = `${sheetRef.sheetName}!${rowNumber}:${rowNumber}`
+    const data = (await withAuth((token) =>
+      apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}`, token),
+    )) as { values?: string[][] }
+    const rowValues = data.values?.[0] ?? []
+    const row: Record<string, string> = {}
+    headers.forEach((header, i) => {
+      row[header] = rowValues[i] ?? ''
+    })
+    return row
+  },
 }

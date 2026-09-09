@@ -42,4 +42,12 @@ export interface SpreadsheetProvider {
     columnName: string,
     value: string,
   ): Promise<void>
+  // NOT in CLAUDE.md's original locked interface — added for the popup's
+  // Edit/Undo-from-the-recent-list feature. updateCell/Undo are blind
+  // positional writes by rowNumber with no identity check; making them
+  // reachable indefinitely (not just the notification's short window)
+  // meant the risk of a stale rowNumber pointing at a row the user has
+  // since reordered/edited by hand needed an actual mitigation, not just
+  // acceptance — this is what that mitigation reads before writing.
+  readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>>
 }
