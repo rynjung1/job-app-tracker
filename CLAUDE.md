@@ -266,6 +266,22 @@ installs that predate this existing) resolves to the active
 it at connect time; the background worker and popup resolve it
 per-call rather than importing either provider directly.
 
+**Verified 2026-09-08 (Phase 6, end-to-end):** the findings above
+came from direct diagnostic calls into `excelProvider`'s own
+methods — real, but not proof the UI wiring or the message pipeline
+actually route to it. Separately confirmed all four real paths with
+Excel selected as the active provider, through the actual UI and
+message pipeline, not diagnostics: clicking "Connect Excel /
+OneDrive" on the options page correctly set `activeProvider` to
+`"excel"` and persisted a real `sheetRef` (real `spreadsheetId` and
+`tableId`); a real `JOB_APPLICATION_LOGGED` message through the
+actual content-script → background → `getActiveProvider()` →
+`appendRow` path landed a real row with correct values in the real
+Excel file; clicking Undo on the resulting real notification set
+that row's `Status` cell to `Cancelled` in the real file; clicking
+Edit and saving a new Resume Version updated that row's real cell
+too. No known gaps in this phase.
+
 Detection/parsing logic must never branch on which provider is
 active — only the provider implementation differs. This is the main
 thing that avoids having to redo the architecture later if a third
