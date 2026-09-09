@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Job Application Tracker</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+    line-height: 1.6;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .updated { color: #666; font-size: 14px; margin-bottom: 32px; }
+  h2 { font-size: 17px; margin-top: 32px; }
+  code { background: #f2f2f2; padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+  ul { padding-left: 22px; }
+  a { color: #1a5fb4; }
+</style>
+</head>
+<body>
+
+<h1>Privacy Policy — Job Application Tracker</h1>
+<p class="updated">Last updated: PLACEHOLDER_LAST_UPDATED</p>
+
+<p>Job Application Tracker is a browser extension that automatically logs job applications you submit on supported job sites (currently LinkedIn and Greenhouse) to a spreadsheet you own — either a Google Sheet or a Microsoft Excel file on OneDrive. This page explains what data the extension accesses, stores, and sends, in plain terms.</p>
+
+<h2>What the extension reads from job pages</h2>
+<p>When you're on a supported job posting page, the extension reads the job title, company name, location, and page URL directly from that page. It does not read your LinkedIn or Greenhouse profile, account information, messages, or any other page content.</p>
+
+<h2>Where your data goes</h2>
+<p>When you click Apply, those four fields — plus the date, your resume version, and blank Status/Notes fields for you to fill in — are written as a new row to a spreadsheet you control:</p>
+<ul>
+  <li>If you connect Google Sheets, the extension can only access files it creates itself (Google's <code>drive.file</code> permission) — it cannot see or modify any other file in your Google Drive.</li>
+  <li>If you connect Excel/OneDrive, the extension can only access its own dedicated folder in your OneDrive (Microsoft's <code>Files.ReadWrite.AppFolder</code> permission) — it cannot see or modify anything else in your OneDrive.</li>
+</ul>
+<p>The extension has no server of its own. Data goes directly from your browser to Google's or Microsoft's servers, using their official APIs, over HTTPS. Nothing passes through, or is stored on, any server operated by this extension's developer.</p>
+
+<h2>What's stored on your device</h2>
+<p>The extension stores the following locally, in your browser's extension storage (not synced to any account or accessible to other extensions or websites):</p>
+<ul>
+  <li>A short-term queue of job applications waiting to be written, in case of a network or authentication issue.</li>
+  <li>Your 20 most recent logged applications, so the extension can show you a list and let you correct a resume version shortly after applying.</li>
+  <li>Which spreadsheet/workbook you've connected, and which service (Google or Microsoft) you've chosen.</li>
+  <li>The last resume version you used for each type of role, so future applications can suggest it automatically.</li>
+  <li>If you use the Excel/OneDrive option, your Microsoft sign-in tokens (used to keep you signed in without asking you to log in again every time).</li>
+</ul>
+<p>None of this is ever transmitted anywhere except as described above.</p>
+
+<h2>What this extension does not do</h2>
+<p>It does not use analytics or tracking of any kind. It does not share, sell, or transmit your data to any third party. It does not display ads. It does not access any website other than the specific job sites and the Google/Microsoft APIs described here.</p>
+
+<h2>Your control over your data</h2>
+<p>You can disconnect the extension's access to your Google or Microsoft account at any time from your Google Account or Microsoft Account security settings. Uninstalling the extension removes all data stored locally by it. The spreadsheet or workbook it created remains yours — deleting it is entirely up to you, the same as any other file in your account.</p>
+
+<h2>Changes to this policy</h2>
+<p>If this policy changes, the "Last updated" date above will change accordingly.</p>
+
+<h2>Contact</h2>
+<p><a href="https://github.com/rynjung1/job-app-tracker/issues">https://github.com/rynjung1/job-app-tracker/issues</a></p>
+
+</body>
+</html>
