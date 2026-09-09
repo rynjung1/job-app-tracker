@@ -32,6 +32,22 @@ function neutralizeFormulaPrefix(value: string): string {
   return /^[=+\-@]/.test(value) ? `'${value}` : value
 }
 
+// New-workbook visual formatting (createSheet only — never applied to an
+// already-existing workbook). Same header color as GoogleSheetsProvider
+// for visual consistency across providers. No Status conditional-format
+// equivalent here — confirmed via Microsoft's own Excel-in-Graph
+// reference that the REST API has no conditional-formatting endpoint at
+// all (Excel JS API / Office Scripts only), and a write-time-painted
+// approximation would be stale the moment a user edits Status by hand,
+// so it's deliberately not attempted; header + column width only.
+const HEADER_FILL_COLOR = '#3366CC'
+const HEADER_FONT_COLOR = '#FFFFFF'
+const WIDE_COLUMNS = ['URL', 'Notes']
+// Graph's columnWidth is in Excel's own width units, not pixels like
+// Sheets' pixelSize — not a pixel-matched value, just "wide enough,"
+// confirmed visually rather than assumed equivalent to the Sheets side.
+const WIDE_COLUMN_WIDTH = 200
+
 async function graphFetch(path: string, token: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(`${GRAPH_BASE}${path}`, {
     ...init,
@@ -100,6 +116,27 @@ export const excelProvider: SpreadsheetProvider = {
         body: JSON.stringify({ address: headerRange, hasHeaders: true }),
       },
     )) as { id: string }
+
+    await graphFetch(
+      `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${headerRange}')/format/font`,
+      token,
+      { method: 'PATCH', body: JSON.stringify({ bold: true, color: HEADER_FONT_COLOR }) },
+    )
+    await graphFetch(
+      `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${headerRange}')/format/fill`,
+      token,
+      { method: 'PATCH', body: JSON.stringify({ color: HEADER_FILL_COLOR }) },
+    )
+    for (const columnName of WIDE_COLUMNS) {
+      const columnIndex = templateColumns.indexOf(columnName)
+      if (columnIndex === -1) continue
+      const colLetter = columnIndexToLetter(columnIndex)
+      await graphFetch(
+        `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${colLetter}1')/format`,
+        token,
+        { method: 'PATCH', body: JSON.stringify({ columnWidth: WIDE_COLUMN_WIDTH }) },
+      )
+    }
 
     return { spreadsheetId: itemId, sheetName: WORKSHEET_NAME, tableId: table.id, webUrl: created.webUrl }
   },

@@ -14,6 +14,13 @@ export interface SheetRef {
   // alone. Options page falls back to the Google URL construction when
   // this is absent.
   webUrl?: string
+  // Google only — the numeric grid sheetId (not the string sheetName),
+  // captured at createSheet time. batchUpdate's formatting requests
+  // (repeatCell, addConditionalFormatRule, updateDimensionProperties) all
+  // address ranges via this numeric id, not the sheet name, and it was
+  // never previously captured since nothing needed it before createSheet
+  // formatting (Phase: new-sheet formatting).
+  sheetId?: number
 }
 
 // Identifies exactly which row appendRow just wrote — CLAUDE.md's original

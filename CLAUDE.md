@@ -225,6 +225,15 @@ past the sheet's actual filled extent doesn't error on either API —
 both just return empty values, which naturally fails the identity
 check downstream rather than needing separate not-found handling.
 
+**Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`,
+Google-only — the numeric grid id (not the string `sheetName`),
+captured at `createSheet` time. Needed because `batchUpdate`'s
+formatting requests (`repeatCell`, `addConditionalFormatRule`,
+`setDataValidation`, `updateDimensionProperties` — see "Sheet
+setup" below) all address ranges by this numeric id, which nothing
+had needed to capture before new-sheet formatting existed. Same
+additive, optional pattern as the Excel-only fields below.
+
 **Updated 2026-09-08:** `mapColumns` removed — it existed only for
 existing-sheet linking (Phase 7), which was permanently descoped
 (see "Sheet setup" below); it had no remaining caller. `SheetRef`
@@ -364,6 +373,68 @@ parser built in Phase 2 extracts it, and the original 7-column list
 above had no column for it, so it was being silently discarded at
 write time. Column order: Date, Company, Title, Location, URL, Resume
 Version, Status, Notes.
+
+**Updated 2026-09-09:** `createSheet` applies visual formatting to
+the new sheet/workbook — `createSheet`-only, never touches an
+already-existing one. Column indices for all of the below are
+computed from the actual `templateColumns` array passed in
+(`indexOf('Status')`, etc.), never hardcoded, so this doesn't
+silently break if the template's shape ever changes.
+
+Both providers get the same real, documented treatment for:
+- **Header row**: bold, white text on a `#3366CC` background —
+  Sheets via one `repeatCell` request; Excel via `PATCH
+  .../range/format/font` (`bold`, `color`) and `.../format/fill`
+  (`color`), both confirmed exact shapes from Microsoft's own docs.
+- **Column widths**: `URL`/`Notes` widened so they aren't crushed —
+  Sheets via `updateDimensionProperties` (`pixelSize: 250`); Excel
+  via `PATCH .../range/format` (`columnWidth: 200`). Not a
+  pixel-matched value between the two — Sheets' unit is real pixels,
+  Excel's `columnWidth` is its own internal width unit — confirmed
+  "wide enough" by real visual inspection on both, not assumed
+  equivalent from the numbers alone.
+
+**Google-only, confirmed real capability gaps mean these do not
+exist on the Excel side at all — not a corner cut, a checked fact:**
+- **Status conditional formatting** — Sheets gets real, persistent
+  `addConditionalFormatRule` rules (`TEXT_EQ` per value: `Offer` →
+  green, `Interview` → blue, `Applied` → yellow, `Rejected`/
+  `Cancelled` → red), so the color keeps re-evaluating live even if
+  a value is changed by hand later, with no code involved at all.
+  Checked Microsoft's own "Working with Excel in Microsoft Graph"
+  reference — it exhaustively covers worksheets, tables (including
+  sort/filter), charts, ranges, named items, and functions, and
+  never mentions conditional formatting once. It's a real
+  Excel-JS-API/Office-Scripts-only capability
+  (`Excel.ConditionalFormat`) with no Graph REST endpoint. The only
+  approximation would be painting a cell's fill color procedurally
+  at write time inside `appendRow`/`updateCell` — rejected, since
+  it'd go stale the moment a user edits Status by hand (no live
+  rule watching it) and would turn this from a `createSheet`-only
+  change into an ongoing write-path one. Skipped for Excel
+  entirely, deliberately, not deferred.
+- **Status dropdown (data validation)** — Sheets restricts the
+  `Status` column to exactly the five values above via
+  `setDataValidation` (`ONE_OF_LIST`, `strict: true`,
+  `showCustomUi: true` for the actual dropdown chevron). `strict`
+  was chosen over warn-only specifically because the conditional-
+  format rules above do an exact `TEXT_EQ` match — a typo or wrong
+  case would silently get no color at all, so rejecting invalid
+  input outright protects that feature too, not just this one.
+  Confirmed via a real Microsoft Q&A thread asking this exact
+  question: *"the dataValidation endpoint is not yet implemented in
+  the Graph API"* — Office.js is the only way to touch it, not
+  reachable from Graph REST. Skipped for Excel entirely.
+
+**Verified 2026-09-09:** both features confirmed with real evidence
+against real newly-created sheets, not just successful API
+responses. Header formatting and column widths visually confirmed
+rendered correctly on both a real Google Sheet and a real Excel
+workbook. On the Google side specifically: the dropdown chevron
+actually renders on Status cells; selecting a value from it works;
+typing a non-matching value is actually rejected (not just shown a
+warning); and the conditional-formatting colors correctly fire off
+dropdown-driven selections, not just typed text.
 
 ~~Alternative: **link an existing sheet.** The extension reads the
 existing header row and auto-maps it to the known fields above using
