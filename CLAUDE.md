@@ -552,9 +552,18 @@ delegated entirely to Google/Microsoft OAuth by design.
   extension touches page content and a connected account — should
   state plainly what data is read, what's sent where, and that no
   data is sent to any server other than Google's/Microsoft's own
-  APIs. **Status (2026-09-09): still outstanding, not drafted** —
-  flagged during Phase 8 as a real prerequisite for this section's
-  own goal, but drafting it is separate, not-yet-started work.
+  APIs. **Status (2026-09-09): done.** Published at
+  https://rynjung1.github.io/job-app-tracker/privacy.html —
+  confirmed live with a real fetch (HTTP 200, real content, not
+  just a successful GitHub Pages API response) before being marked
+  done here. Static HTML under `docs/`, served via GitHub Pages
+  (`main` branch, `/docs` folder) — no new hosting infrastructure,
+  consistent with this project's no-custom-backend approach.
+  Content grounded in the real architecture (`drive.file` /
+  `Files.ReadWrite.AppFolder` scoping, the exact `chrome.storage.local`
+  data inventory, no backend/analytics/third-party sharing), approved
+  before publishing. Contact is the repo's GitHub Issues page — no
+  separate support email was set up for this project.
 - Store listing screenshots/description come after the extension is
   functionally complete and tested across all three v1 site parsers.
 
@@ -587,9 +596,10 @@ delegated entirely to Google/Microsoft OAuth by design.
    (2 findings, both `vite`/`esbuild`, dev-only, don't ship) and
    manifest CSP (no override at all — Chrome's own MV3 minimum
    applies, already the strictest possible outcome) reviewed with no
-   action needed. Privacy policy page (Phase 9 prerequisite) noted
-   as still outstanding — see Deployment path above.
-9. **Web Store prep** — privacy policy, listing assets, submission.
+   action needed. Privacy policy page (Phase 9 prerequisite) done
+   2026-09-09 — see Deployment path above for the live URL.
+9. **Web Store prep** — listing assets, submission. Privacy policy
+   already done (see Phase 8/Deployment path above).
 
 **Deferred, not abandoned:**
 - **Indeed parser (2026-09-01):** every fetch attempt (curl and
