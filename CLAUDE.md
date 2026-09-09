@@ -154,11 +154,22 @@ interface SpreadsheetProvider {
   authenticate(): Promise<void>
   createSheet(templateColumns: string[]): Promise<SheetRef>
   readHeaders(sheetRef: SheetRef): Promise<string[]>
-  mapColumns(existingHeaders: string[], knownFields: string[]): ColumnMapping
   appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow>
   updateCell(sheetRef: SheetRef, rowNumber: number, columnName: string, value: string): Promise<void>
 }
 ```
+
+**Updated 2026-09-08:** `mapColumns` removed — it existed only for
+existing-sheet linking (Phase 7), which was permanently descoped
+(see "Sheet setup" below); it had no remaining caller. `SheetRef`
+also gained two optional, Excel-only fields not shown above:
+`tableId` (the Excel Table's id, captured at `createSheet` time)
+and `webUrl` (the driveItem's real web URL — unlike Sheets'
+predictable `docs.google.com/spreadsheets/d/{id}/edit`, OneDrive/
+SharePoint URLs are account-specific and can't be constructed from
+the item id alone). Both are additive and optional;
+`GoogleSheetsProvider` never sets them, and every provider-agnostic
+caller treats `SheetRef` as an opaque token.
 
 **Updated 2026-09-01 (Phase 4):** two changes from the original
 locked shape above, both flagged and confirmed before implementing:
@@ -178,9 +189,82 @@ Two implementations:
 - `GoogleSheetsProvider` — Sheets API v4, OAuth via `chrome.identity`,
   scope limited to `drive.file` (extension can only touch files it
   created — required for a clean Web Store review).
-- `ExcelProvider` — Microsoft Graph API, OAuth via MSAL, scope
-  limited to the specific workbook/file the extension creates or is
-  granted access to.
+- `ExcelProvider` — Microsoft Graph API, scope limited to
+  `Files.ReadWrite.AppFolder` (folder-scoped, not per-file like
+  Google's `drive.file` — the app can only see its own
+  `Apps/Job Application Tracker` OneDrive folder).
+
+**Verified 2026-09-08 (Phase 6):** `ExcelProvider` implemented and
+tested end-to-end against a real personal Microsoft account. Real
+findings, not assumptions:
+- **Not literally MSAL.** "OAuth via MSAL" in earlier notes meant
+  the MSAL *protocol pattern*, not the `@azure/msal-browser` SDK —
+  that library's browser-feature-detection assumes a `window`
+  global and does not run inside an MV3 service worker (confirmed
+  against a real open issue on the library). Implemented instead as
+  a hand-rolled PKCE authorization-code flow
+  (`providers/msAuth.ts`) driven by `chrome.identity.launchWebAuthFlow`
+  — same small, auditable, fetch-based shape as `googleSheets.ts`,
+  no new SDK dependency.
+- **Authority is `consumers`, not the tenant ID.** The app is
+  registered "Personal Microsoft accounts only"; the Directory
+  (tenant) ID shown in the Azure portal's Overview blade is never
+  used at runtime — a tenant-ID authority explicitly does not
+  support personal accounts. `/authorize` and `/token` both use
+  `https://login.microsoftonline.com/consumers/...`.
+- **Platform type is "Mobile and desktop applications," not "SPA."**
+  A redirect URI registered under SPA gets a hard 24-hour
+  refresh-token expiry requiring genuine daily interactive re-auth —
+  incompatible with the silent-background-refresh architecture this
+  extension already relies on. "Mobile and desktop applications"
+  (public client, "Allow public client flows" = Yes) gets a 90-day
+  rolling refresh token as long as it's used at least once every 24
+  hours, which the existing 5-minute `chrome.alarms` retry loop
+  satisfies for free. `offline_access` must be in the requested
+  scope string for a refresh token to be issued at all — it's a
+  standard OIDC scope, not a Graph permission, so it does not appear
+  under API permissions in the portal.
+- **`Files.ReadWrite.AppFolder` does cover `tables/rows` writes on
+  a personal account**, despite Microsoft's own permissions
+  reference table listing that specific endpoint as "Not supported"
+  for delegated personal accounts. Confirmed empirically with a real
+  201 and a real appended row before trusting the docs either way —
+  the docs may be stale or incomplete here.
+- **The AppFolder must be lazily initialized before path-addressed
+  file operations work.** A `GET /me/drive/special/approot` call is
+  what creates `Apps/<app name>` on a OneDrive that's never used
+  this app before (confirmed both via Microsoft's own docs and a
+  real 404 without it); `createSheet` always makes this call first.
+- **`createSheet` uses a timestamped filename**
+  (`Job Applications ${Date.now()}.xlsx`), not a fixed one — Graph's
+  conflict-behavior handling for the content-upload-by-path PUT
+  endpoint specifically was unclear/contradictory in what was found
+  researching it, so this sidesteps the question by guaranteeing the
+  path never collides, matching `GoogleSheetsProvider.createSheet`'s
+  own guarantee of never silently overwriting an existing file.
+- **`appendRow`'s `rowNumber = index + 2` conversion is empirically
+  verified, not just derived.** Graph's `rows/add` response returns
+  an `index` 0-based within the table's data rows, not an absolute
+  worksheet row; since `createSheet` always anchors the table's
+  header at row 1, data row 0 sits at worksheet row 2. Tested against
+  3 real sequential appends (indexes 0, 1, 2 → rows 2, 3, 4, all
+  correct), then `updateCell` was tested against one of those real
+  rows with a separate, independent range read afterward (not
+  reusing `readHeaders`/`appendRow`/`updateCell` internals) — the
+  correct row's correct cell changed, adjacent rows untouched.
+- **Fresh personal OneDrive accounts can need provisioning first.**
+  A never-used personal Microsoft account's OneDrive can return a
+  503 `itemDisabledDueToPendingProvisioning` error until the drive
+  has been opened at least once via onedrive.com — noted here as a
+  known setup step, not independently re-verified against Microsoft
+  docs (found via direct testing, not a documentation citation).
+
+Backend selection lives in `providers/activeProvider.ts` — a stored
+preference (`ACTIVE_PROVIDER_KEY`, defaulting to `'google'` for
+installs that predate this existing) resolves to the active
+`SpreadsheetProvider`. The options page's two "Connect" buttons set
+it at connect time; the background worker and popup resolve it
+per-call rather than importing either provider directly.
 
 Detection/parsing logic must never branch on which provider is
 active — only the provider implementation differs. This is the main
@@ -371,8 +455,11 @@ evaluated. No character-prefixing needed on top of `RAW` mode.
   supported — never `<all_urls>` or broad wildcard grants. This is
   the most common reason extensions get flagged or rejected in Web
   Store review.
-- OAuth scopes minimal per provider (`drive.file` for Google; the
-  narrowest workbook-level scope available for Microsoft Graph).
+- OAuth scopes minimal per provider (`drive.file` for Google;
+  `offline_access Files.ReadWrite.AppFolder` for Microsoft Graph —
+  see Spreadsheet backend, Phase 6 note, for why `offline_access` is
+  required and why it doesn't appear under the portal's API
+  permissions).
 
 **Manifest / build**
 - Manifest V3 from day one.
@@ -440,8 +527,9 @@ delegated entirely to Google/Microsoft OAuth by design.
 4. **Popup toast + Undo/Edit** — the 5-second correction window.
 5. ~~**Indeed parser**~~, then **Greenhouse parser** — prove the
    abstraction generalizes.
-6. ~~**ExcelProvider**~~ — second backend implementation against the
-   same interface.
+6. **ExcelProvider** — second backend implementation against the
+   same interface. Done 2026-09-08; see Spreadsheet backend, Phase 6
+   note, for the real auth/scope/provisioning findings.
 7. ~~**Existing-sheet linking + column auto-mapping.**~~ Descoped
    2026-09-08 — see "Sheet setup" above. Auto-create-only confirmed
    working end-to-end since Phase 3; nothing shipped from this phase.
@@ -459,11 +547,3 @@ delegated entirely to Google/Microsoft OAuth by design.
   fetchable, multi-company evidence available immediately. Revisit
   when there's appetite for a parser built entirely from live
   browser inspection with no pre-verification step at all.
-- **ExcelProvider (2026-09-08):** blocked on Azure account
-  eligibility — the personal Microsoft account
-  (`ryanjung2007@outlook.com`) created for this was flagged
-  ineligible for the free tier needed to register an app in
-  Microsoft Entra ID. Not a code or architecture problem; the
-  `SpreadsheetProvider` interface and the account-type/scope research
-  (`Files.ReadWrite.AppFolder`, personal-accounts-only) already done
-  for this phase remain valid whenever it's picked back up.

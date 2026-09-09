@@ -49,10 +49,20 @@ export default defineManifest({
   // matched against it would never get a chance to run. See CLAUDE.md
   // Site parsers, Greenhouse scoping decision, for the real coverage gap
   // this leaves (custom-domain-embedded boards aren't reachable at all).
+  // login.microsoftonline.com + graph.microsoft.com added for the
+  // ExcelProvider auth spike — the hand-rolled PKCE flow's token-endpoint
+  // fetch() and the Graph API calls both need this to avoid a CORS
+  // failure, same reasoning as sheets.googleapis.com below. This also
+  // means these background-worker fetch() calls are NOT subject to CORS
+  // at all (a privileged-context exemption once host_permissions is
+  // declared) — irrelevant to whether Microsoft's SPA-vs-native platform
+  // distinction matters for us; see CLAUDE.md ExcelProvider notes.
   host_permissions: [
     '*://www.linkedin.com/*',
     '*://job-boards.greenhouse.io/*',
     'https://sheets.googleapis.com/*',
+    'https://login.microsoftonline.com/*',
+    'https://graph.microsoft.com/*',
   ],
   // Client ID is a public identifier for this client type — Google doesn't
   // issue a secret for "Chrome Extension" OAuth clients, so this is fine to

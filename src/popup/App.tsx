@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { googleSheetsProvider } from '../providers/googleSheets'
+import { getActiveProvider } from '../providers/activeProvider'
 import type { SheetRef } from '../providers/types'
 import { getRecentApplications, updateRecentApplication } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
@@ -38,7 +38,8 @@ function App() {
     if (!editingEntry || !sheetRef) return
     setSaving(true)
     try {
-      await googleSheetsProvider.updateCell(sheetRef, editingEntry.rowNumber, 'Resume Version', resumeInput)
+      const provider = await getActiveProvider()
+      await provider.updateCell(sheetRef, editingEntry.rowNumber, 'Resume Version', resumeInput)
       await setLastResumeVersion(editingEntry.title, resumeInput)
       await updateRecentApplication(editingEntry.id, { resumeVersion: resumeInput })
       window.close()

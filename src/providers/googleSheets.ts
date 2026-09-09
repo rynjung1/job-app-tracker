@@ -1,4 +1,5 @@
 import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
+import { columnIndexToLetter } from '../lib/columnLetter'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -71,19 +72,6 @@ function parseAppendedRange(updatedRange: string): AppendedRow {
   }
   const sheetName = match[1] ?? match[2]
   return { sheetName, rowNumber: Number(match[4]) }
-}
-
-// Sheets API addresses columns by letter, not index — A, B, ... Z, AA, AB,
-// ... This is the standard base-26 (no zero digit) conversion, correct
-// past 26 columns even though this project only has 8 right now.
-function columnIndexToLetter(index: number): string {
-  let letter = ''
-  let n = index
-  while (n >= 0) {
-    letter = String.fromCharCode((n % 26) + 65) + letter
-    n = Math.floor(n / 26) - 1
-  }
-  return letter
 }
 
 export const googleSheetsProvider: SpreadsheetProvider = {

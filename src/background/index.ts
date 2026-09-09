@@ -2,7 +2,7 @@
 // Owns OAuth tokens and spreadsheet API calls (see CLAUDE.md — Trust boundary).
 // Content scripts and other components must never write to a spreadsheet directly.
 
-import { googleSheetsProvider } from '../providers/googleSheets'
+import { getActiveProvider } from '../providers/activeProvider'
 import type { AppendedRow, SheetRef } from '../providers/types'
 import type { JobPostingData } from '../parsers/types'
 import { buildRow } from '../lib/buildRow'
@@ -93,7 +93,8 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
   }
 
   try {
-    const appended = await googleSheetsProvider.appendRow(sheetRef, row)
+    const provider = await getActiveProvider()
+    const appended = await provider.appendRow(sheetRef, row)
     console.log('[job-app-tracker] row written to sheet:', row)
     await notifyApplicationLogged(payload, row, appended)
   } catch (err) {
@@ -113,10 +114,11 @@ async function drainOfflineQueue() {
   const queue = await getOfflineQueue()
   if (queue.length === 0) return
 
+  const provider = await getActiveProvider()
   let i = 0
   for (; i < queue.length; i++) {
     try {
-      await googleSheetsProvider.appendRow(sheetRef, queue[i])
+      await provider.appendRow(sheetRef, queue[i])
       console.log('[job-app-tracker] queued row written to sheet:', queue[i])
     } catch (err) {
       console.warn('[job-app-tracker] retry failed, stopping this pass:', err)
@@ -151,7 +153,8 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
     const entry = entries.find((e) => e.id === notificationId)
     if (!entry) return
     try {
-      await googleSheetsProvider.updateCell(sheetRef, entry.rowNumber, 'Status', 'Cancelled')
+      const provider = await getActiveProvider()
+      await provider.updateCell(sheetRef, entry.rowNumber, 'Status', 'Cancelled')
       await updateRecentApplication(notificationId, { status: 'Cancelled' })
       console.log('[job-app-tracker] undo: marked row', entry.rowNumber, 'Cancelled')
     } catch (err) {

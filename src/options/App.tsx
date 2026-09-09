@@ -1,52 +1,58 @@
 import { useEffect, useState } from 'react'
-import { googleSheetsProvider } from '../providers/googleSheets'
 import type { SheetRef } from '../providers/types'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
 import { SHEET_TEMPLATE_COLUMNS } from '../lib/sheetTemplate'
+import { getProvider, getActiveProviderId, setActiveProviderId } from '../providers/activeProvider'
+import type { ProviderId } from '../providers/activeProvider'
 
 type ConnectionState =
   | { status: 'loading' }
   | { status: 'disconnected' }
   | { status: 'connecting' }
-  | { status: 'connected'; sheetRef: SheetRef }
-  | { status: 'error'; message: string }
+  | { status: 'connected'; sheetRef: SheetRef; providerId: ProviderId }
+  | { status: 'error'; message: string; providerId: ProviderId }
 
 function App() {
   const [state, setState] = useState<ConnectionState>({ status: 'loading' })
 
   useEffect(() => {
-    chrome.storage.local.get(SHEET_REF_KEY).then((stored) => {
+    Promise.all([chrome.storage.local.get(SHEET_REF_KEY), getActiveProviderId()]).then(([stored, providerId]) => {
       const sheetRef = stored[SHEET_REF_KEY] as SheetRef | undefined
-      setState(sheetRef ? { status: 'connected', sheetRef } : { status: 'disconnected' })
+      setState(sheetRef ? { status: 'connected', sheetRef, providerId } : { status: 'disconnected' })
     })
   }, [])
 
-  async function handleConnect() {
+  async function handleConnect(providerId: ProviderId) {
     setState({ status: 'connecting' })
     try {
+      const provider = getProvider(providerId)
       // Interactive — this is the one place in the whole extension allowed
-      // to trigger Google's OAuth consent popup, since it's a direct result
-      // of the user clicking a button here, not something firing mid-apply.
-      await googleSheetsProvider.authenticate()
-      const sheetRef = await googleSheetsProvider.createSheet([...SHEET_TEMPLATE_COLUMNS])
+      // to trigger a provider's OAuth consent popup, since it's a direct
+      // result of the user clicking a button here, not something firing
+      // mid-apply.
+      await provider.authenticate()
+      const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS])
       await chrome.storage.local.set({ [SHEET_REF_KEY]: sheetRef })
-      setState({ status: 'connected', sheetRef })
+      await setActiveProviderId(providerId)
+      setState({ status: 'connected', sheetRef, providerId })
     } catch (err) {
-      setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+      setState({ status: 'error', message: err instanceof Error ? err.message : String(err), providerId })
     }
   }
 
   async function handleReconnect() {
+    if (state.status !== 'connected') return
+    const { providerId, sheetRef } = state
     setState({ status: 'connecting' })
     try {
-      await googleSheetsProvider.authenticate()
+      const provider = getProvider(providerId)
+      await provider.authenticate()
       // Keep the existing sheetRef — only the OAuth grant needed
       // refreshing, not the sheet itself. Calling createSheet() here
       // would orphan the current sheet and silently swap in a new one.
-      const stored = await chrome.storage.local.get(SHEET_REF_KEY)
-      setState({ status: 'connected', sheetRef: stored[SHEET_REF_KEY] as SheetRef })
+      setState({ status: 'connected', sheetRef, providerId })
     } catch (err) {
-      setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+      setState({ status: 'error', message: err instanceof Error ? err.message : String(err), providerId })
     }
   }
 
@@ -59,10 +65,13 @@ function App() {
       {state.status === 'disconnected' && (
         <>
           <p style={{ color: '#666' }}>
-            No spreadsheet connected yet. Connecting creates a new Google Sheet automatically —
-            no setup required.
+            No spreadsheet connected yet. Connecting creates a new file automatically — no setup
+            required.
           </p>
-          <button onClick={handleConnect}>Connect Google Sheets</button>
+          <button onClick={() => handleConnect('google')}>Connect Google Sheets</button>
+          <button onClick={() => handleConnect('excel')} style={{ marginLeft: 8 }}>
+            Connect Excel / OneDrive
+          </button>
         </>
       )}
 
@@ -70,9 +79,14 @@ function App() {
 
       {state.status === 'connected' && (
         <>
-          <p style={{ color: '#2a7' }}>Connected.</p>
+          <p style={{ color: '#2a7' }}>
+            Connected ({state.providerId === 'excel' ? 'Excel / OneDrive' : 'Google Sheets'}).
+          </p>
           <a
-            href={`https://docs.google.com/spreadsheets/d/${state.sheetRef.spreadsheetId}/edit`}
+            href={
+              state.sheetRef.webUrl ??
+              `https://docs.google.com/spreadsheets/d/${state.sheetRef.spreadsheetId}/edit`
+            }
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -87,7 +101,7 @@ function App() {
       {state.status === 'error' && (
         <>
           <p style={{ color: '#c33' }}>Connection failed: {state.message}</p>
-          <button onClick={handleConnect}>Try again</button>
+          <button onClick={() => handleConnect(state.providerId)}>Try again</button>
         </>
       )}
     </div>

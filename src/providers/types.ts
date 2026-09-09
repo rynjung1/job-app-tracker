@@ -1,6 +1,19 @@
 export interface SheetRef {
   spreadsheetId: string
   sheetName: string
+  // Excel only — the Table's id, captured from tables/add's response at
+  // createSheet time rather than assumed as a fixed name like "Table1".
+  // Optional and additive: GoogleSheetsProvider never sets it, and every
+  // provider-agnostic caller (background worker, popup, options page)
+  // treats SheetRef as an opaque token, so nothing else needs to change.
+  tableId?: string
+  // Excel only — the driveItem's real webUrl, captured at createSheet
+  // time. Needed because (unlike Sheets' predictable
+  // docs.google.com/spreadsheets/d/{id}/edit) OneDrive/SharePoint web URLs
+  // are account/tenant-specific and can't be constructed from the item id
+  // alone. Options page falls back to the Google URL construction when
+  // this is absent.
+  webUrl?: string
 }
 
 // Identifies exactly which row appendRow just wrote — CLAUDE.md's original
