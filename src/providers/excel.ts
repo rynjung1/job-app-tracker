@@ -18,6 +18,20 @@ class GraphApiError extends Error {
   }
 }
 
+// Formula-injection defense, scoped to this file only — GoogleSheetsProvider
+// already gets this for free from Sheets' valueInputOption=RAW (see
+// lib/sanitize.ts's comment), but real-tested confirmed Graph's plain
+// `values` write has no equivalent: writing "=1+1" through appendRow was
+// evaluated as a live formula (values came back as the computed result 2,
+// valueTypes came back Double, not String). A leading apostrophe is
+// Excel's own "force literal text" convention, unlike Sheets which needed
+// no character-prefixing at all — the two providers need different
+// defenses because they have different underlying safety guarantees, not
+// because one was implemented more carefully than the other.
+function neutralizeFormulaPrefix(value: string): string {
+  return /^[=+\-@]/.test(value) ? `'${value}` : value
+}
+
 async function graphFetch(path: string, token: string, init?: RequestInit): Promise<unknown> {
   const res = await fetch(`${GRAPH_BASE}${path}`, {
     ...init,
@@ -105,7 +119,7 @@ export const excelProvider: SpreadsheetProvider = {
     // read the table's actual current headers to determine column order
     // rather than trusting Object.values(row) insertion order.
     const headers = await this.readHeaders(sheetRef)
-    const values = headers.map((header) => row[header] ?? '')
+    const values = headers.map((header) => neutralizeFormulaPrefix(row[header] ?? ''))
 
     const result = (await graphFetch(`/me/drive/items/${sheetRef.spreadsheetId}/workbook/tables/${sheetRef.tableId}/rows`, token, {
       method: 'POST',
@@ -131,7 +145,7 @@ export const excelProvider: SpreadsheetProvider = {
     const address = `${columnIndexToLetter(columnIndex)}${rowNumber}`
     await graphFetch(`/me/drive/items/${sheetRef.spreadsheetId}/workbook/worksheets/${sheetRef.sheetName}/range(address='${address}')`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ values: [[value]] }),
+      body: JSON.stringify({ values: [[neutralizeFormulaPrefix(value)]] }),
     })
   },
 }

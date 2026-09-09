@@ -466,6 +466,25 @@ formula bar (not just cell display) for all four dangerous prefixes
 (`=`, `+`, `-`, `@`) — every cell held the literal text, none
 evaluated. No character-prefixing needed on top of `RAW` mode.
 
+**Fixed 2026-09-09 (Phase 8):** `ExcelProvider` had no equivalent
+protection, and this was a real found-and-fixed vulnerability, not
+a check that confirmed it was already safe. Graph's plain `values`
+write path has no `RAW`-mode equivalent — a live test writing
+`=1+1`, `+2+3`, `-4-5`, and `@SUM(1,1)` through the real `appendRow`
+pipeline into a real connected file confirmed all four were
+evaluated as live formulas (`values` returned the computed results
+`2`, `5`, `-9`, `2`; `valueTypes` returned `Double`, not `String`).
+Fixed with `neutralizeFormulaPrefix()` in `excel.ts`, scoped to that
+file only (not `lib/sanitize.ts`, not `googleSheets.ts`) — it
+prepends a leading apostrophe, Excel's own "force literal text"
+convention, to any value starting with `=`, `+`, `-`, or `@` before
+`appendRow`/`updateCell` send it. Re-verified with the same four
+values afterward: `values` now matches `formulas` as the literal
+input text and `valueTypes` reads `String` for all four. The two
+providers need different defenses here because they have different
+underlying safety guarantees, not because one was built more
+carefully than the other.
+
 **Permissions**
 - `host_permissions` scoped only to the specific job-site domains
   supported — never `<all_urls>` or broad wildcard grants. This is
@@ -476,6 +495,15 @@ evaluated. No character-prefixing needed on top of `RAW` mode.
   see Spreadsheet backend, Phase 6 note, for why `offline_access` is
   required and why it doesn't appear under the portal's API
   permissions).
+
+**Updated 2026-09-09 (Phase 8):** removed `*://www.linkedin.com/*`
+and `*://job-boards.greenhouse.io/*` from `host_permissions` —
+confirmed via grep that neither content script makes any `fetch()`,
+`chrome.scripting`, or `chrome.tabs` call needing host-level access;
+`content_scripts.matches` alone is sufficient for injection. The
+narrowest-scope principle already applied to OAuth scopes now
+applies to the manifest itself — re-add only when a real feature
+actually needs it, not speculatively ahead of time.
 
 **Manifest / build**
 - Manifest V3 from day one.
@@ -524,7 +552,9 @@ delegated entirely to Google/Microsoft OAuth by design.
   extension touches page content and a connected account — should
   state plainly what data is read, what's sent where, and that no
   data is sent to any server other than Google's/Microsoft's own
-  APIs.
+  APIs. **Status (2026-09-09): still outstanding, not drafted** —
+  flagged during Phase 8 as a real prerequisite for this section's
+  own goal, but drafting it is separate, not-yet-started work.
 - Store listing screenshots/description come after the extension is
   functionally complete and tested across all three v1 site parsers.
 
@@ -551,7 +581,14 @@ delegated entirely to Google/Microsoft OAuth by design.
    working end-to-end since Phase 3; nothing shipped from this phase.
 8. **Security pass** — formula-injection sanitization, permission
    audit, `npm audit`, manifest CSP check — before any Web Store
-   submission.
+   submission. Started 2026-09-09; see Security section's Phase 8
+   notes above for the real found-and-fixed Excel formula-injection
+   vulnerability and the `host_permissions` cleanup. `npm audit`
+   (2 findings, both `vite`/`esbuild`, dev-only, don't ship) and
+   manifest CSP (no override at all — Chrome's own MV3 minimum
+   applies, already the strictest possible outcome) reviewed with no
+   action needed. Privacy policy page (Phase 9 prerequisite) noted
+   as still outstanding — see Deployment path above.
 9. **Web Store prep** — privacy policy, listing assets, submission.
 
 **Deferred, not abandoned:**

@@ -32,34 +32,27 @@ export default defineManifest({
   // user gesture) — see CLAUDE.md Logging behavior, Phase 4 note.
   permissions: ['storage', 'identity', 'alarms', 'notifications'],
   // sheets.googleapis.com added (Phase 3) — the background worker calls the
-  // Sheets API directly via fetch(); unlike the LinkedIn entry below (DOM-only,
-  // no network call), this one genuinely needs host_permissions to avoid a
-  // CORS/permission failure on that fetch.
+  // Sheets API directly via fetch(); this genuinely needs host_permissions
+  // to avoid a CORS/permission failure on that fetch.
   //
-  // www.linkedin.com entry: redundant with content_scripts.matches below for
-  // now — a statically declared content script's match pattern is enough for
-  // injection, this isn't needed for the extension to also call a host's API
-  // (chrome.scripting, fetch, etc). Do NOT assume this stays unnecessary
-  // forever: if a later phase needs chrome.scripting or tab-info APIs against
-  // linkedin.com, this will need to be added back for real, not just left as
-  // documentation.
-  // job-boards.greenhouse.io added (Phase 5) — NOT boards.greenhouse.io
-  // (the old domain), which unconditionally 301-redirects there before
-  // any page ever renders (confirmed via curl -v), so a content script
-  // matched against it would never get a chance to run. See CLAUDE.md
-  // Site parsers, Greenhouse scoping decision, for the real coverage gap
-  // this leaves (custom-domain-embedded boards aren't reachable at all).
-  // login.microsoftonline.com + graph.microsoft.com added for the
-  // ExcelProvider auth spike — the hand-rolled PKCE flow's token-endpoint
-  // fetch() and the Graph API calls both need this to avoid a CORS
-  // failure, same reasoning as sheets.googleapis.com below. This also
-  // means these background-worker fetch() calls are NOT subject to CORS
-  // at all (a privileged-context exemption once host_permissions is
-  // declared) — irrelevant to whether Microsoft's SPA-vs-native platform
-  // distinction matters for us; see CLAUDE.md ExcelProvider notes.
+  // www.linkedin.com / job-boards.greenhouse.io removed (Phase 8 security
+  // pass, 2026-09-09) — confirmed via grep that neither content script
+  // (content/linkedin.ts, content/greenhouse.ts) makes any fetch(),
+  // chrome.scripting, or chrome.tabs call that would need host-level
+  // access; a statically declared content_scripts.matches pattern is
+  // sufficient for injection alone. Narrowest-scope principle applied to
+  // the manifest itself, not just OAuth scopes — re-add only when a real
+  // feature actually needs it, not speculatively ahead of time.
+  //
+  // login.microsoftonline.com + graph.microsoft.com added for
+  // ExcelProvider — the hand-rolled PKCE flow's token-endpoint fetch()
+  // and the Graph API calls both need this to avoid a CORS failure, same
+  // reasoning as sheets.googleapis.com above. This also means these
+  // background-worker fetch() calls are NOT subject to CORS at all (a
+  // privileged-context exemption once host_permissions is declared) —
+  // irrelevant to whether Microsoft's SPA-vs-native platform distinction
+  // matters for us; see CLAUDE.md ExcelProvider notes.
   host_permissions: [
-    '*://www.linkedin.com/*',
-    '*://job-boards.greenhouse.io/*',
     'https://sheets.googleapis.com/*',
     'https://login.microsoftonline.com/*',
     'https://graph.microsoft.com/*',
@@ -82,8 +75,12 @@ export default defineManifest({
       run_at: 'document_idle',
     },
     {
-      // job-boards.greenhouse.io only, not boards.greenhouse.io — see the
-      // host_permissions comment above for why.
+      // job-boards.greenhouse.io only, not boards.greenhouse.io — the
+      // latter unconditionally 301-redirects there before any page ever
+      // renders (confirmed via curl -v), so a content script matched
+      // against it would never get a chance to run. See CLAUDE.md Site
+      // parsers, Greenhouse scoping decision, for the coverage gap this
+      // leaves (custom-domain-embedded boards aren't reachable at all).
       matches: ['*://job-boards.greenhouse.io/*/jobs/*'],
       js: ['src/content/greenhouse.ts'],
       run_at: 'document_idle',
