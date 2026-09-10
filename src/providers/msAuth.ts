@@ -54,6 +54,20 @@ async function storeToken(response: TokenResponse, previousRefreshToken?: string
   return stored.accessToken
 }
 
+// The actual refresh_token exchange, extracted so it can be invoked either
+// proactively (getValidExcelToken, on a timer) or reactively (excel.ts's
+// withAuth, on a real 401 Graph returns before the local clock expected
+// one) — same HTTP call either way, just a different trigger for it.
+async function refreshExcelToken(refreshToken: string): Promise<string> {
+  const response = await requestToken({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    refresh_token: refreshToken,
+    grant_type: 'refresh_token',
+  })
+  return storeToken(response, refreshToken)
+}
+
 // Interactive — drives a real Microsoft sign-in/consent screen via
 // chrome.identity.launchWebAuthFlow. There is no Microsoft equivalent of
 // chrome.identity.getAuthToken()'s built-in Google support, so this has to
@@ -108,8 +122,9 @@ export async function authenticateExcel(): Promise<string> {
   return storeToken(tokenResponse)
 }
 
-// Non-interactive — used once a refresh_token exists. Mirrors
-// googleSheets.ts's non-interactive getToken() path.
+// Non-interactive, proactive — used once a refresh_token exists. Mirrors
+// googleSheets.ts's non-interactive getToken() path. Refreshes ahead of
+// the local clock's expiresAt so the common case never even risks a 401.
 export async function getValidExcelToken(): Promise<string> {
   const stored = await chrome.storage.local.get(MS_TOKEN_KEY)
   const token = stored[MS_TOKEN_KEY] as StoredMsToken | undefined
@@ -122,11 +137,23 @@ export async function getValidExcelToken(): Promise<string> {
   if (!token.refreshToken) {
     throw new Error('Access token expired and no refresh token was ever stored')
   }
-  const response = await requestToken({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
-    refresh_token: token.refreshToken,
-    grant_type: 'refresh_token',
-  })
-  return storeToken(response, token.refreshToken)
+  return refreshExcelToken(token.refreshToken)
+}
+
+// Non-interactive, reactive — used by excel.ts's withAuth when a Graph
+// call itself returns a real 401, e.g. the user revoked this app's access
+// server-side before the local expiresAt clock had any way to know. Skips
+// the expiry check entirely and forces the exchange regardless, since a
+// 401 means the access token is already known-bad right now. If the
+// refresh token itself has been revoked too, this throws the real
+// invalid_grant error from Microsoft's token endpoint — deliberately not
+// caught here, so it propagates out of withAuth's retry and the row fails
+// into the offline queue with a real, visible error rather than looping.
+export async function forceRefreshExcelToken(): Promise<string> {
+  const stored = await chrome.storage.local.get(MS_TOKEN_KEY)
+  const token = stored[MS_TOKEN_KEY] as StoredMsToken | undefined
+  if (!token?.refreshToken) {
+    throw new Error('No refresh token stored — call authenticateExcel() first')
+  }
+  return refreshExcelToken(token.refreshToken)
 }

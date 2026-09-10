@@ -394,6 +394,49 @@ findings, not assumptions:
   known setup step, not independently re-verified against Microsoft
   docs (found via direct testing, not a documentation citation).
 
+**Fixed 2026-09-09 (auth parity, found during a test pass):**
+`ExcelProvider` previously had only proactive, clock-based token
+refresh (`getValidExcelToken`, refreshing ahead of its local
+`expiresAt`) — no reaction to an actual 401 from Graph, unlike
+`GoogleSheetsProvider`'s `withAuth`. A server-side revocation the
+local clock couldn't predict (the user revokes access in their
+Microsoft account) failed identically and permanently on every
+subsequent call until the user happened to hit Reconnect for an
+unrelated reason. Fixed by adding a `withAuth` to `excel.ts`
+mirroring Google's exactly: one retry on a literal 401, forcing a
+token refresh via a new `forceRefreshExcelToken()` in `msAuth.ts`
+(the refresh-token exchange itself was already fully built for the
+proactive path — extracted into a shared `refreshExcelToken()` both
+call, nothing new needed for the actual HTTP call). Not caught if
+the refresh token itself is also revoked — that throw (a real
+`invalid_grant` from Microsoft) propagates straight out, same as
+any other unrecoverable failure, rather than looping.
+
+**Design choice**: every individual `graphFetch` call site gets its
+own `withAuth` wrapper — not one token threaded through a whole
+multi-step method like `createSheet`'s 7 calls. Matches the
+granularity `googleSheets.ts` already uses, and is cheap to repeat
+per call since `getValidExcelToken`'s common case is just a local
+`chrome.storage.local` read, no network round trip.
+
+**Verified 2026-09-09** against a real revoked grant, not a mocked
+one — the extension's access was actually revoked from the
+Microsoft account's own security settings, then a real `appendRow`
+was triggered through the normal pipeline. Full real evidence
+chain: the revoked token produced a real 401, `withAuth`'s retry
+called `forceRefreshExcelToken`, which itself failed with a real
+`invalid_grant` from Microsoft's token endpoint (revoking access
+invalidates the refresh token too, not just the access token) —
+that propagated cleanly into `appendRow`'s catch and the row queued
+(`offlineQueue: Array(1)`), confirmed via a real
+`chrome.storage.local` read, not assumed. A subsequent periodic
+drain retry hit the same real error and failed clean again — no
+loop, no silent hang. After reconnecting for real (a fresh
+interactive `authenticateExcel()`), a real application succeeded
+normally, and the previously-queued row was separately confirmed to
+have drained on its own — `offlineQueue: Array(0)` — not left
+stuck.
+
 Backend selection lives in `providers/activeProvider.ts` — a stored
 preference (`ACTIVE_PROVIDER_KEY`, defaulting to `'google'` for
 installs that predate this existing) resolves to the active

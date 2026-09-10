@@ -1,6 +1,6 @@
 import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
 import { columnIndexToLetter } from '../lib/columnLetter'
-import { authenticateExcel, getValidExcelToken } from './msAuth'
+import { authenticateExcel, forceRefreshExcelToken, getValidExcelToken } from './msAuth'
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
 // Every workbook this provider creates uses this fixed worksheet name —
@@ -64,18 +64,44 @@ async function graphFetch(path: string, token: string, init?: RequestInit): Prom
   return bodyText ? JSON.parse(bodyText) : undefined
 }
 
+// Reactive 401-retry, mirroring googleSheets.ts's withAuth exactly — one
+// retry with a forced token refresh, not infinite. Test-pass finding: this
+// provider previously had only proactive, clock-based refresh
+// (getValidExcelToken), so a server-side revocation the local clock
+// couldn't predict (e.g. the user revokes access in their Microsoft
+// account) failed identically and permanently on every subsequent call
+// until the user happened to hit Reconnect for an unrelated reason. Each
+// individual graphFetch call site gets its own withAuth wrapper below,
+// same granularity googleSheets.ts already uses (not one token threaded
+// through a whole multi-step method) — cheap to call repeatedly, since
+// getValidExcelToken's common case is just a local storage read, no
+// network round trip. If the refresh token itself has been revoked too,
+// forceRefreshExcelToken's own throw (a real invalid_grant from
+// Microsoft) is deliberately not caught here — it propagates straight out,
+// same as any other unrecoverable failure, rather than looping.
+async function withAuth<T>(fn: (token: string) => Promise<T>): Promise<T> {
+  const token = await getValidExcelToken()
+  try {
+    return await fn(token)
+  } catch (err) {
+    if (err instanceof GraphApiError && err.status === 401) {
+      const freshToken = await forceRefreshExcelToken()
+      return fn(freshToken)
+    }
+    throw err
+  }
+}
+
 export const excelProvider: SpreadsheetProvider = {
   async authenticate() {
     await authenticateExcel()
   },
 
   async createSheet(templateColumns: string[]): Promise<SheetRef> {
-    const token = await getValidExcelToken()
-
     // Lazily initializes "Apps/<app name>" on a OneDrive that's never used
     // this app before — real-confirmed required (a 404 without this call,
     // fixed once this GET was added). See CLAUDE.md ExcelProvider notes.
-    await graphFetch('/me/drive/special/approot', token)
+    await withAuth((token) => graphFetch('/me/drive/special/approot', token))
 
     // Timestamped, not fixed — Graph's conflict-behavior story for this
     // specific content-upload-by-path PUT is genuinely unverified (mixed,
@@ -87,14 +113,12 @@ export const excelProvider: SpreadsheetProvider = {
     const templateBytes = await fetch(chrome.runtime.getURL('templates/blank-workbook.xlsx')).then((r) =>
       r.arrayBuffer(),
     )
-    const created = (await graphFetch(
-      `/me/drive/special/approot:/${encodeURIComponent(fileName)}:/content`,
-      token,
-      {
+    const created = (await withAuth((token) =>
+      graphFetch(`/me/drive/special/approot:/${encodeURIComponent(fileName)}:/content`, token, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
         body: templateBytes,
-      },
+      }),
     )) as { id: string; webUrl?: string }
     const itemId = created.id
 
@@ -103,38 +127,44 @@ export const excelProvider: SpreadsheetProvider = {
     // as real header labels, not just structural row 1 of an empty table.
     const lastColumn = columnIndexToLetter(templateColumns.length - 1)
     const headerRange = `A1:${lastColumn}1`
-    await graphFetch(`/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${headerRange}')`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ values: [templateColumns] }),
-    })
+    await withAuth((token) =>
+      graphFetch(`/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${headerRange}')`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ values: [templateColumns] }),
+      }),
+    )
 
-    const table = (await graphFetch(
-      `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/tables/add`,
-      token,
-      {
+    const table = (await withAuth((token) =>
+      graphFetch(`/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/tables/add`, token, {
         method: 'POST',
         body: JSON.stringify({ address: headerRange, hasHeaders: true }),
-      },
+      }),
     )) as { id: string }
 
-    await graphFetch(
-      `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${headerRange}')/format/font`,
-      token,
-      { method: 'PATCH', body: JSON.stringify({ bold: true, color: HEADER_FONT_COLOR }) },
+    await withAuth((token) =>
+      graphFetch(
+        `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${headerRange}')/format/font`,
+        token,
+        { method: 'PATCH', body: JSON.stringify({ bold: true, color: HEADER_FONT_COLOR }) },
+      ),
     )
-    await graphFetch(
-      `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${headerRange}')/format/fill`,
-      token,
-      { method: 'PATCH', body: JSON.stringify({ color: HEADER_FILL_COLOR }) },
+    await withAuth((token) =>
+      graphFetch(
+        `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${headerRange}')/format/fill`,
+        token,
+        { method: 'PATCH', body: JSON.stringify({ color: HEADER_FILL_COLOR }) },
+      ),
     )
     for (const columnName of WIDE_COLUMNS) {
       const columnIndex = templateColumns.indexOf(columnName)
       if (columnIndex === -1) continue
       const colLetter = columnIndexToLetter(columnIndex)
-      await graphFetch(
-        `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${colLetter}1')/format`,
-        token,
-        { method: 'PATCH', body: JSON.stringify({ columnWidth: WIDE_COLUMN_WIDTH }) },
+      await withAuth((token) =>
+        graphFetch(
+          `/me/drive/items/${itemId}/workbook/worksheets/${WORKSHEET_NAME}/range(address='${colLetter}1')/format`,
+          token,
+          { method: 'PATCH', body: JSON.stringify({ columnWidth: WIDE_COLUMN_WIDTH }) },
+        ),
       )
     }
 
@@ -142,26 +172,25 @@ export const excelProvider: SpreadsheetProvider = {
   },
 
   async readHeaders(sheetRef: SheetRef): Promise<string[]> {
-    const token = await getValidExcelToken()
-    const data = (await graphFetch(
-      `/me/drive/items/${sheetRef.spreadsheetId}/workbook/tables/${sheetRef.tableId}/headerRowRange`,
-      token,
+    const data = (await withAuth((token) =>
+      graphFetch(`/me/drive/items/${sheetRef.spreadsheetId}/workbook/tables/${sheetRef.tableId}/headerRowRange`, token),
     )) as { values?: string[][] }
     return data.values?.[0] ?? []
   },
 
   async appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow> {
-    const token = await getValidExcelToken()
     // Same self-correcting reasoning as GoogleSheetsProvider.appendRow —
     // read the table's actual current headers to determine column order
     // rather than trusting Object.values(row) insertion order.
     const headers = await this.readHeaders(sheetRef)
     const values = headers.map((header) => neutralizeFormulaPrefix(row[header] ?? ''))
 
-    const result = (await graphFetch(`/me/drive/items/${sheetRef.spreadsheetId}/workbook/tables/${sheetRef.tableId}/rows`, token, {
-      method: 'POST',
-      body: JSON.stringify({ index: null, values: [values] }),
-    })) as { index: number }
+    const result = (await withAuth((token) =>
+      graphFetch(`/me/drive/items/${sheetRef.spreadsheetId}/workbook/tables/${sheetRef.tableId}/rows`, token, {
+        method: 'POST',
+        body: JSON.stringify({ index: null, values: [values] }),
+      }),
+    )) as { index: number }
 
     // Graph's row `index` is 0-based *within the table's data rows*, not
     // an absolute worksheet row. createSheet always anchors the table's
@@ -173,27 +202,29 @@ export const excelProvider: SpreadsheetProvider = {
   },
 
   async updateCell(sheetRef: SheetRef, rowNumber: number, columnName: string, value: string): Promise<void> {
-    const token = await getValidExcelToken()
     const headers = await this.readHeaders(sheetRef)
     const columnIndex = headers.indexOf(columnName)
     if (columnIndex === -1) {
       throw new Error(`Column "${columnName}" not found in table headers: ${headers.join(', ')}`)
     }
     const address = `${columnIndexToLetter(columnIndex)}${rowNumber}`
-    await graphFetch(`/me/drive/items/${sheetRef.spreadsheetId}/workbook/worksheets/${sheetRef.sheetName}/range(address='${address}')`, token, {
-      method: 'PATCH',
-      body: JSON.stringify({ values: [[neutralizeFormulaPrefix(value)]] }),
-    })
+    await withAuth((token) =>
+      graphFetch(`/me/drive/items/${sheetRef.spreadsheetId}/workbook/worksheets/${sheetRef.sheetName}/range(address='${address}')`, token, {
+        method: 'PATCH',
+        body: JSON.stringify({ values: [[neutralizeFormulaPrefix(value)]] }),
+      }),
+    )
   },
 
   async readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>> {
-    const token = await getValidExcelToken()
     const headers = await this.readHeaders(sheetRef)
     const lastColumn = columnIndexToLetter(headers.length - 1)
     const address = `A${rowNumber}:${lastColumn}${rowNumber}`
-    const data = (await graphFetch(
-      `/me/drive/items/${sheetRef.spreadsheetId}/workbook/worksheets/${sheetRef.sheetName}/range(address='${address}')?$select=values`,
-      token,
+    const data = (await withAuth((token) =>
+      graphFetch(
+        `/me/drive/items/${sheetRef.spreadsheetId}/workbook/worksheets/${sheetRef.sheetName}/range(address='${address}')?$select=values`,
+        token,
+      ),
     )) as { values?: string[][] }
     const rowValues = data.values?.[0] ?? []
     const row: Record<string, string> = {}
