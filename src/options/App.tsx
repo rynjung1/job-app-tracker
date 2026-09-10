@@ -59,6 +59,9 @@ function App() {
   return (
     <div style={{ padding: 24, maxWidth: 480, fontFamily: 'sans-serif' }}>
       <h1 style={{ fontSize: 20 }}>Job Application Tracker — Settings</h1>
+      <p style={{ color: '#666', fontSize: 13 }}>
+        Currently supports: LinkedIn (Easy Apply) and Greenhouse-hosted job postings.
+      </p>
 
       {state.status === 'loading' && <p style={{ color: '#666' }}>Loading…</p>}
 

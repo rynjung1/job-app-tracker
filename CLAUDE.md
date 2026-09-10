@@ -159,6 +159,63 @@ trusting the result.
      auto-create a sheet (the only supported setup path — see "Sheet
      setup" below), enable/disable individual site parsers.
 
+**Fixed 2026-09-10 (fresh-install UX, found during a test pass):**
+a genuinely fresh install had several real, silent gaps — no
+onboarding, a popup that just said "No recent applications yet"
+with no indication a sheet needed connecting, no statement anywhere
+in the product of which sites/flows are supported, and the
+"connect a sheet first" guidance reaching only `console.warn` in
+the background worker, where no real user would ever see it. Four
+narrowly-scoped fixes, not an onboarding redesign:
+- **Auto-open the options page on a genuine first install.**
+  `chrome.runtime.onInstalled` also fires on `'update'` and
+  `'chrome_update'`, not just a real install — checked Chrome's own
+  documented behavior before gating on it, not assumed. Gated
+  strictly on `details.reason === 'install'` so this never re-opens
+  after a routine extension auto-update, a real, known pitfall of
+  this API otherwise.
+- **Popup's empty state** now distinguishes "still loading" from
+  "confirmed not connected" (a new `sheetRefChecked` flag, since
+  `sheetRef` itself is `undefined` in both cases) and shows *"Connect
+  a spreadsheet to start tracking applications automatically"* with
+  a real "Open Settings" button (`chrome.runtime.openOptionsPage()`)
+  instead of the plain empty-list message, whenever nothing is
+  connected yet.
+- **Supported-sites disclosure** — one static line on the options
+  page, shown regardless of connection state: *"Currently supports:
+  LinkedIn (Easy Apply) and Greenhouse-hosted job postings."*
+  Deliberately not itemizing every documented scope boundary
+  (off-site LinkedIn redirects, custom-domain Greenhouse boards) —
+  that level of detail stays in this file for developers; the
+  product's own UI only needs enough to stop a user wondering why
+  nothing happened on an unsupported site.
+- **A real notification for "applied while disconnected,"** not
+  just the pre-existing `console.warn` (kept alongside it, still
+  useful for debugging) — reuses the exact `chrome.notifications`
+  pattern already built for the "Logged" toast, with one "Open
+  Settings" button. Two deliberate differences from that toast: no
+  auto-clear alarm (this is a heads-up the user still needs to act
+  on, not a self-expiring correction window), and a **fixed**
+  notification id (`'not-connected'`), not a fresh id per call.
+  Checked Chrome's own documented `notifications.create` behavior
+  before deciding this, not assumed: reusing an existing id "first
+  clears that notification before proceeding with the create
+  operation" — a fixed id means a second disconnected application in
+  quick succession replaces this notification in place rather than
+  stacking a duplicate, confirmed real evidence of a real risk
+  (rapid-fire applications were already the exact scenario the
+  offline-queue concurrency bugs came from), not a hypothetical.
+
+**Verified 2026-09-10** by actually removing and reinstalling the
+unpacked extension (a plain reload doesn't reliably fire
+`reason: 'install'` or reset storage the way a real reinstall
+does): the options page auto-opened on its own, the supported-sites
+line rendered, the popup's disconnected empty state showed the
+connect prompt with a working "Open Settings" button, and a real
+queued-while-disconnected application produced the real notification
+with the correct title, message, and a working "Open Settings"
+button.
+
 ### Logging behavior (locked decision)
 
 Fully automatic. The moment the site's Apply button is clicked, the

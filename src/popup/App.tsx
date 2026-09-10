@@ -27,6 +27,11 @@ const GENERIC_ERROR_MESSAGE = 'Something went wrong — please try again.'
 function App() {
   const [applications, setApplications] = useState<RecentApplication[] | null>(null)
   const [sheetRef, setSheetRef] = useState<SheetRef | undefined>()
+  // sheetRef itself starts undefined both before the storage read resolves
+  // AND when genuinely not connected — this distinguishes "still loading"
+  // from "confirmed not connected," so the connect-prompt below only
+  // renders once we actually know there's nothing connected.
+  const [sheetRefChecked, setSheetRefChecked] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(editId)
   const [resumeInput, setResumeInput] = useState('')
   const [savingEditId, setSavingEditId] = useState<string | null>(null)
@@ -43,6 +48,7 @@ function App() {
     })
     chrome.storage.local.get(SHEET_REF_KEY).then((stored) => {
       setSheetRef(stored[SHEET_REF_KEY] as SheetRef | undefined)
+      setSheetRefChecked(true)
     })
   }, [])
 
@@ -122,11 +128,21 @@ function App() {
       <h1 style={{ fontSize: 16, margin: 0 }}>Job Application Tracker</h1>
 
       <div style={{ marginTop: 12, maxHeight: 320, overflowY: 'auto' }}>
-        {applications === null && <p style={{ fontSize: 13, color: '#666' }}>Loading…</p>}
-        {applications?.length === 0 && (
+        {(!sheetRefChecked || applications === null) && (
+          <p style={{ fontSize: 13, color: '#666' }}>Loading…</p>
+        )}
+
+        {sheetRefChecked && sheetRef === undefined && (
+          <div>
+            <p style={{ fontSize: 13 }}>Connect a spreadsheet to start tracking applications automatically.</p>
+            <button onClick={() => chrome.runtime.openOptionsPage()}>Open Settings</button>
+          </div>
+        )}
+
+        {sheetRefChecked && sheetRef !== undefined && applications?.length === 0 && (
           <p style={{ fontSize: 13, color: '#666' }}>No recent applications yet.</p>
         )}
-        {applications?.map((app) => (
+        {sheetRefChecked && sheetRef !== undefined && applications?.map((app) => (
           <div key={app.id} style={{ padding: '6px 0', borderBottom: '1px solid #eee', fontSize: 13 }}>
             <div>
               {app.company} — {app.title}

@@ -21,10 +21,22 @@ const NOTIFICATION_CLEAR_ALARM_PREFIX = 'clearNotification:'
 // the native OS notification banner's own on-screen duration is partly
 // outside the extension's control (see CLAUDE.md Logging behavior note).
 const NOTIFICATION_CLEAR_DELAY_MINUTES = 5 / 60
+// Fixed, not per-call random — a second queued-while-disconnected
+// application replaces this notification in place (Chrome's own
+// documented create() behavior: reusing an id clears the existing one
+// first) rather than stacking up identical repeats on rapid-fire.
+const NOT_CONNECTED_NOTIFICATION_ID = 'not-connected'
 
-chrome.runtime.onInstalled.addListener(() => {
+// reason check matters here — onInstalled also fires on 'update' and
+// 'chrome_update', not just a genuine first install. Gating strictly on
+// 'install' avoids re-opening the options page after every routine
+// extension auto-update, a real, documented pitfall of this API.
+chrome.runtime.onInstalled.addListener((details) => {
   console.log('[job-app-tracker] background service worker installed')
   chrome.alarms.create(RETRY_ALARM_NAME, { periodInMinutes: 5 })
+  if (details.reason === 'install') {
+    chrome.runtime.openOptionsPage()
+  }
 })
 
 async function getSheetRef(): Promise<SheetRef | undefined> {
@@ -96,6 +108,18 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
       '[job-app-tracker] no sheet connected — open the extension options page and click "Connect Google Sheets". Queuing this row for once it is.',
     )
     await queueRow(row)
+    // Real user-visible guidance, not just a console line no real user
+    // will ever open (test-pass finding — fresh-install gap). Fixed id,
+    // no auto-clear (an alarm-based ~5s clear fits a self-expiring
+    // correction window, not a heads-up the user still needs to act on),
+    // fires every time, same as the "Logged" toast.
+    chrome.notifications.create(NOT_CONNECTED_NOTIFICATION_ID, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+      title: 'Not connected',
+      message: 'Application queued — connect a spreadsheet in Settings to save it.',
+      buttons: [{ title: 'Open Settings' }],
+    })
     return
   }
 
@@ -170,6 +194,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // HTML as a standalone window rather than a new UI surface, since the
 // popup already needs to render the recent-applications list.
 chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
+  // Checked before the sheetRef guard below — sheetRef is genuinely
+  // undefined in exactly this notification's own scenario, so the guard
+  // would otherwise silently swallow this button click entirely.
+  if (notificationId === NOT_CONNECTED_NOTIFICATION_ID) {
+    chrome.runtime.openOptionsPage()
+    chrome.notifications.clear(notificationId)
+    return
+  }
+
   const sheetRef = await getSheetRef()
   if (!sheetRef) return
 
