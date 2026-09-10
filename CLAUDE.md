@@ -672,6 +672,27 @@ English aria-label text ("LinkedIn Apply..."); a non-English LinkedIn
 UI language will silently fail to detect it. Acceptable for the
 single-user personal-use target — revisit before any Web Store push.
 
+**Spot-checked 2026-09-10 (test-pass follow-up):** a real risk was
+flagged during a broader test pass but never actually verified live
+at the time — `findLocationSiblingSpans` (`parsers/linkedin.ts`)
+picks "the first sibling span whose text isn't 'ago' and doesn't
+contain 'applicant'" as the location, with no defense against a
+third kind of decorative content (a salary range, an "Actively
+recruiting" badge) occupying that same position ahead of the real
+location. Couldn't test this myself at the time — the parser
+targets the authenticated SPA's client-rendered DOM, which no
+fetch-based tool can reproduce without a real logged-in session.
+Spot-checked directly now via a temporary, read-only debug export
+(`content/linkedin.ts`, since removed) against several real, live
+postings, including at least one with other visible metadata near
+the location — the real field extracted correctly every time, no
+salary/badge contamination observed in practice. Leaving this noted
+as a known theoretical edge case, not resolved and closed — a clean
+sample now isn't a permanent guarantee against LinkedIn changing
+its DOM structure later, and there's no live regression test
+watching for it. Worth revisiting only if it's ever actually seen
+to happen, not before.
+
 **Locked scoping decision (confirmed 2026-09-01):** the Greenhouse
 parser only catches postings that stay on Greenhouse's own hosted
 domains (`job-boards.greenhouse.io`, `boards.greenhouse.io`).
