@@ -91,6 +91,66 @@ reusing a stale cached one — see Security notes), a
 `chrome.alarms`-triggered drain wrote the queued row to the real
 sheet and emptied the queue (`offlineQueue: Array(0)`).
 
+**Fixed 2026-09-09 (concurrency):** a real, reproduced bug, not a
+theoretical one — `queueRow`, `addRecentApplication`, and
+`updateRecentApplication` are each a `chrome.storage.local`
+read-modify-write with no locking, and two concurrent calls (e.g.
+two applications logged in quick succession) silently lost one
+entirely: a real repro script simulating two concurrent `queueRow`
+calls against a realistically-timed async mock produced
+`offlineQueue: [{"Company":"Company B"}]` where 2 entries were
+expected. Confirmed first that `chrome.storage` has no compare-and-
+swap or transaction primitive at all (checked the real API
+reference — `get`/`set`/`remove`/`clear`/`getBytesInUse`/`getKeys`/
+`setAccessLevel`, nothing conditional) before reaching for an
+in-memory fix. Fixed with a minimal promise-chaining mutex
+(`lib/storageLock.ts`, `withStorageLock`), safe across service
+worker suspension — a killed worker's in-memory chain dies with any
+operation that was genuinely in flight anyway, and a fresh worker
+starts with a clean, already-resolved chain, so there's nothing
+left to conflict with.
+
+**Design choice, not a default:** one shared lock across both
+`OFFLINE_QUEUE_KEY` and `RECENT_APPLICATIONS_KEY`, not a lock per
+key. These operations are rare (a user applying to jobs, not a
+high-throughput system) and fast (a few ms of storage I/O), so the
+contention cost of serializing two unrelated keys together is
+negligible against the simplicity of one lock instead of two.
+
+A second, distinct real bug found in the same pass:
+`drainOfflineQueue` read the queue once, spent real time on network
+round-trips per row, then overwrote storage with a slice of that
+*stale* snapshot — silently discarding any row a real concurrent
+`queueRow` call added while the drain was mid-flight (drains run
+every 5 minutes and can take real time; a normal apply landing
+during that window is an everyday occurrence, not an edge case).
+Fixed by moving the lock to *only* the closing step — re-reading
+the current queue and writing `current.slice(drainedCount)` inside
+`withStorageLock`, after all the network calls have already
+happened, so an ordinary apply never has to wait behind a slow
+drain. This is correct by construction, not a heuristic:
+`queueRow` only ever appends to the end and `drainOfflineQueue`
+only ever processes from the start in original order, so nothing
+queued mid-drain can land anywhere but after the entries already
+being drained — dropping exactly the first `drainedCount` items
+from whatever the queue looks like *right now* is always correct.
+
+**Verified 2026-09-09:** both fixes confirmed with real before/after
+output from faithful copies of the actual shipped logic (not
+re-derivations) — the original two-concurrent-`queueRow` repro now
+preserves both entries, and a second repro (a slow mock `appendRow`
+standing in for a real network round-trip, with a real `queueRow`
+call landing mid-drain) confirms the newly-queued row survives the
+drain's final write. One real mock-fidelity bug was caught and
+fixed during this verification, not silently papered over: the
+first attempt at the second repro produced a false failure because
+the mock's `get()` returned a live reference to the stored array
+rather than a copy, letting `queueRow`'s `push()` mutate the same
+array `drainOfflineQueue`'s loop was still iterating — not how real
+`chrome.storage.local` behaves (it always round-trips through real
+serialization). Fixed the mock to deep-clone on `get`/`set` before
+trusting the result.
+
 3. **Popup + options page**
    - Popup: shows a toast-style confirmation for ~5 seconds after an
      auto-log ("Logged: Shopify — Data Engineer Co-op — [Undo]

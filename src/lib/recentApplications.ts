@@ -1,5 +1,6 @@
 import { RECENT_APPLICATIONS_KEY } from './storageKeys'
 import type { SheetRef, SpreadsheetProvider } from '../providers/types'
+import { withStorageLock } from './storageLock'
 
 // Named in CLAUDE.md's Tech Stack section ("chrome.storage.local for ...
 // the cached recent-applications list") but not built until Phase 4, when
@@ -24,22 +25,29 @@ export async function getRecentApplications(): Promise<RecentApplication[]> {
   return (stored[RECENT_APPLICATIONS_KEY] as RecentApplication[] | undefined) ?? []
 }
 
+// Locked — a read-modify-write against shared storage, real-demonstrated
+// to silently lose data under two concurrent calls without this (see
+// CLAUDE.md's concurrency-fix note for the reproduction).
 export async function addRecentApplication(entry: RecentApplication): Promise<void> {
-  const list = await getRecentApplications()
-  list.unshift(entry)
-  await chrome.storage.local.set({ [RECENT_APPLICATIONS_KEY]: list.slice(0, MAX_RECENT) })
+  await withStorageLock(async () => {
+    const list = await getRecentApplications()
+    list.unshift(entry)
+    await chrome.storage.local.set({ [RECENT_APPLICATIONS_KEY]: list.slice(0, MAX_RECENT) })
+  })
 }
 
 export async function updateRecentApplication(
   id: string,
   patch: Partial<RecentApplication>,
 ): Promise<RecentApplication | undefined> {
-  const list = await getRecentApplications()
-  const index = list.findIndex((entry) => entry.id === id)
-  if (index === -1) return undefined
-  list[index] = { ...list[index], ...patch }
-  await chrome.storage.local.set({ [RECENT_APPLICATIONS_KEY]: list })
-  return list[index]
+  return withStorageLock(async () => {
+    const list = await getRecentApplications()
+    const index = list.findIndex((entry) => entry.id === id)
+    if (index === -1) return undefined
+    list[index] = { ...list[index], ...patch }
+    await chrome.storage.local.set({ [RECENT_APPLICATIONS_KEY]: list })
+    return list[index]
+  })
 }
 
 // Shared by background/index.ts's notification Undo handler and the

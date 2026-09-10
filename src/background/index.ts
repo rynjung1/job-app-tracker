@@ -11,6 +11,7 @@ import { SHEET_REF_KEY, OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
 import { getDefaultResumeVersion } from '../lib/resumeVersion'
 import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
+import { withStorageLock } from '../lib/storageLock'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 const RETRY_ALARM_NAME = 'retryOfflineQueue'
@@ -36,10 +37,16 @@ async function getOfflineQueue(): Promise<Record<string, string>[]> {
   return (stored[OFFLINE_QUEUE_KEY] as Record<string, string>[] | undefined) ?? []
 }
 
+// Locked — a read-modify-write against shared storage, real-demonstrated
+// to silently lose data under two concurrent calls without this (e.g. two
+// applications logged in quick succession). See CLAUDE.md's concurrency-
+// fix note for the reproduction.
 async function queueRow(row: Record<string, string>): Promise<void> {
-  const queue = await getOfflineQueue()
-  queue.push(row)
-  await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: queue })
+  await withStorageLock(async () => {
+    const queue = await getOfflineQueue()
+    queue.push(row)
+    await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: queue })
+  })
 }
 
 // Fires the proactive "Logged: Company — Title" toast (a real
@@ -107,6 +114,18 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
 // pass (a systemic issue — expired auth, network down — shouldn't hammer
 // the API once per queued row) and leaving the failed row plus everything
 // after it queued for the next alarm.
+//
+// The closing write does NOT hold the lock for the whole function — only
+// for the final read+write, after every appendRow (real network round
+// trips) has already happened. Real-demonstrated bug this fixes: a row
+// queued by a concurrent apply while a drain is mid-flight used to be
+// silently discarded by an overwrite based on a stale snapshot taken
+// before the drain started (see CLAUDE.md's concurrency-fix note). Fixed
+// by re-reading the current queue inside the lock and dropping only the
+// first `drainedCount` entries — correct by construction, not a
+// heuristic: queueRow only ever appends to the end and this function only
+// ever processes from the start in order, so nothing queued mid-drain can
+// land anywhere but after the entries already being drained.
 async function drainOfflineQueue() {
   const sheetRef = await getSheetRef()
   if (!sheetRef) return
@@ -115,17 +134,23 @@ async function drainOfflineQueue() {
   if (queue.length === 0) return
 
   const provider = await getActiveProvider()
-  let i = 0
-  for (; i < queue.length; i++) {
+  let drainedCount = 0
+  for (const row of queue) {
     try {
-      await provider.appendRow(sheetRef, queue[i])
-      console.log('[job-app-tracker] queued row written to sheet:', queue[i])
+      await provider.appendRow(sheetRef, row)
+      console.log('[job-app-tracker] queued row written to sheet:', row)
+      drainedCount++
     } catch (err) {
       console.warn('[job-app-tracker] retry failed, stopping this pass:', err)
       break
     }
   }
-  await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: queue.slice(i) })
+  if (drainedCount === 0) return
+
+  await withStorageLock(async () => {
+    const current = await getOfflineQueue()
+    await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: current.slice(drainedCount) })
+  })
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
