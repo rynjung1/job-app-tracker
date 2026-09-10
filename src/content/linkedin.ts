@@ -38,13 +38,6 @@ function bindApplyButton() {
   const button = document.querySelector(linkedinParser.getApplyButtonSelector())
   if (!button || button === boundButton) return
 
-  // Diagnostic for verifying the (currently unverified) Apply button selector.
-  // Open a real LinkedIn job posting with this extension loaded, open the
-  // DevTools console, and check this line: does the logged element look like
-  // the actual "Apply"/"Easy Apply" button? If not, paste the real element's
-  // outerHTML back so the selector in parsers/linkedin.ts can be corrected.
-  console.log('[job-app-tracker] bound apply button:', button.outerHTML.slice(0, 500))
-
   button.addEventListener('click', () => {
     const data = linkedinParser.extract()
     if (!data) {

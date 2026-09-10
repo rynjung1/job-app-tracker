@@ -32,8 +32,6 @@ function bindApplyButton() {
   const button = document.querySelector(greenhouseParser.getApplyButtonSelector())
   if (!button || button === boundButton) return
 
-  console.log('[job-app-tracker] bound apply button:', button.outerHTML.slice(0, 500))
-
   button.addEventListener('click', () => {
     const data = greenhouseParser.extract()
     if (!data) {
