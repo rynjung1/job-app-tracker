@@ -407,18 +407,8 @@ just trusting the UI) confirmed zero write occurred.
 ### Spreadsheet backend (locked decision: support both)
 
 A `SpreadsheetProvider` interface decouples the rest of the extension
-from which backend is active:
-
-```
-interface SpreadsheetProvider {
-  authenticate(): Promise<void>
-  createSheet(templateColumns: string[]): Promise<SheetRef>
-  readHeaders(sheetRef: SheetRef): Promise<string[]>
-  appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow>
-  updateCell(sheetRef: SheetRef, rowNumber: number, columnName: string, value: string): Promise<void>
-  readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>>
-}
-```
+from which backend is active. See `src/providers/types.ts` for the
+current interface.
 
 **Updated 2026-09-09:** `readRow` added — reads an entire row back as
 a header-keyed record, same shape as `appendRow`'s `row` parameter.
@@ -942,12 +932,9 @@ delegated entirely to Google/Microsoft OAuth by design.
 
 ## Tech stack
 
-- TypeScript throughout.
-- Vite + `crxjs` Vite plugin for Manifest V3 bundling and dev
-  hot-reload (same Vite-based toolchain as the existing stat-tracker
-  frontend, for consistency).
-- React for the popup and options page UI (small surface area, but
-  keeps a consistent pattern with existing projects).
+- TypeScript, Vite + `crxjs`, React (see `package.json`) — same
+  Vite-based toolchain as the existing stat-tracker frontend, for
+  consistency with other projects.
 - `chrome.storage.local` for the offline write queue and cached
   recent-applications list.
 - No custom backend server — Google/Microsoft APIs are the only
@@ -959,28 +946,9 @@ delegated entirely to Google/Microsoft OAuth by design.
 
 ## Deployment path (Chrome Web Store)
 
-- Manifest V3 required for any new listing.
-- Register an OAuth client in Google Cloud Console (and an app
-  registration in Azure AD for the Microsoft side) scoped as
-  described above.
-- Short privacy policy page required before submission, since the
-  extension touches page content and a connected account — should
-  state plainly what data is read, what's sent where, and that no
-  data is sent to any server other than Google's/Microsoft's own
-  APIs. **Status (2026-09-09): done.** Published at
-  https://rynjung1.github.io/job-app-tracker/privacy.html —
-  confirmed live with a real fetch (HTTP 200, real content, not
-  just a successful GitHub Pages API response) before being marked
-  done here. Static HTML under `docs/`, served via GitHub Pages
-  (`main` branch, `/docs` folder) — no new hosting infrastructure,
-  consistent with this project's no-custom-backend approach.
-  Content grounded in the real architecture (`drive.file` /
-  `Files.ReadWrite.AppFolder` scoping, the exact `chrome.storage.local`
-  data inventory, no backend/analytics/third-party sharing), approved
-  before publishing. Contact is the repo's GitHub Issues page — no
-  separate support email was set up for this project.
-- Store listing screenshots/description come after the extension is
-  functionally complete and tested across all three v1 site parsers.
+See the `web-store-deploy` skill (`.claude/skills/web-store-deploy/SKILL.md`)
+for the submission steps and current status (privacy policy: done,
+published 2026-09-09).
 
 ---
 
