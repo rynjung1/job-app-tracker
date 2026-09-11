@@ -1,6 +1,7 @@
 import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
 import { columnIndexToLetter } from '../lib/columnLetter'
 import { fetchWithTimeout } from '../lib/fetchWithTimeout'
+import { withSheetAppendLock } from '../lib/sheetAppendLock'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -233,30 +234,48 @@ export const googleSheetsProvider: SpreadsheetProvider = {
   },
 
   async appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow> {
-    // Reads the sheet's actual current headers to determine column order,
-    // rather than trusting Object.values(row) insertion order — self-
-    // correcting if the user ever reorders columns by hand, and the only
-    // correct behavior once existing-sheet linking (Phase 7) is in play.
-    const headers = await this.readHeaders(sheetRef)
-    const values = headers.map((header) => row[header] ?? '')
+    // OVERWRITE, not INSERT_ROWS: INSERT_ROWS inserts each new row directly
+    // under the header, so (a) it inherits the header's formatting (blue
+    // fill, bold white text) and (b) every insert pushes createSheet's
+    // Status dropdown + colour rules (anchored at row 2) down one row —
+    // after N appends they start at row N+2, below every logged row.
+    // Reproduced for real on a throwaway sheet built by the same
+    // createSheet calls (rules at row 5, A2 header-styled, no G2 dropdown
+    // after 3 appends). OVERWRITE writes into the existing empty rows
+    // instead, so neither happens.
+    //
+    // The lock is required, not optional: OVERWRITE on its own lost 7 of
+    // 20 rows in a real concurrency test (concurrent requests handed the
+    // same target row, silently overwriting each other). readHeaders and
+    // the append run inside the same lock so each append sees the previous
+    // one's committed row. See lib/sheetAppendLock.ts for why an in-memory
+    // lock is sufficient here.
+    return withSheetAppendLock(async () => {
+      // Reads the sheet's actual current headers to determine column order,
+      // rather than trusting Object.values(row) insertion order — self-
+      // correcting if the user ever reorders columns by hand, and the only
+      // correct behavior once existing-sheet linking (Phase 7) is in play.
+      const headers = await this.readHeaders(sheetRef)
+      const values = headers.map((header) => row[header] ?? '')
 
-    const range = `${sheetRef.sheetName}!A1`
-    const result = (await withAuth((token) =>
-      apiFetch(
-        `/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-        token,
-        {
-          method: 'POST',
-          body: JSON.stringify({ values: [values] }),
-        },
-      ),
-    )) as { updates?: { updatedRange?: string } }
+      const range = `${sheetRef.sheetName}!A1`
+      const result = (await withAuth((token) =>
+        apiFetch(
+          `/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=OVERWRITE`,
+          token,
+          {
+            method: 'POST',
+            body: JSON.stringify({ values: [values] }),
+          },
+        ),
+      )) as { updates?: { updatedRange?: string } }
 
-    const updatedRange = result.updates?.updatedRange
-    if (!updatedRange) {
-      throw new Error('Sheets API append response missing updates.updatedRange')
-    }
-    return parseAppendedRange(updatedRange)
+      const updatedRange = result.updates?.updatedRange
+      if (!updatedRange) {
+        throw new Error('Sheets API append response missing updates.updatedRange')
+      }
+      return parseAppendedRange(updatedRange)
+    })
   },
 
   async updateCell(

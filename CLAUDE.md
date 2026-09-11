@@ -47,6 +47,22 @@ release).
   end of a session. Push after each commit so the remote stays
   current.
 
+**Known risk (incident 2026-09-10): multiple Claude Code sessions
+share this working directory** (an implementer session and a
+separate reviewer session, possibly others), and this file in
+particular gets edited by more than one of them in the same sitting.
+A real lost-update collision happened on this exact file: a session
+wrote back a stale in-memory copy of `CLAUDE.md`, silently reverting
+another session's already-committed trims *and* its own just-added
+`MS_TOKEN_KEY`/`lib/msTokenLock.ts` paragraph. It was caught (not
+prevented) because the git history was checked before trusting the
+working tree, and resolved by re-reading fresh from disk/git and
+redoing the edit from that copy — nothing was permanently lost only
+because it had already been committed once. Before writing this file,
+re-read it fresh (don't trust an in-memory copy from earlier in a long
+session); after writing it, diff or re-read to confirm the write
+landed as expected and nothing concurrent got clobbered.
+
 ---
 
 ## Architecture
@@ -718,6 +734,59 @@ actually renders on Status cells; selecting a value from it works;
 typing a non-matching value is actually rejected (not just shown a
 warning); and the conditional-formatting colors correctly fire off
 dropdown-driven selections, not just typed text.
+
+**Corrected 2026-09-11:** the verification above was real but too
+narrow. It tested Status cells on a freshly created sheet by typing
+into, and picking from the dropdown in, empty cells. It never tested
+rows the extension actually logs, and on those neither feature
+worked. `appendRow` used `insertDataOption=INSERT_ROWS`, which
+inserts each new row directly under the header. So every logged row
+(a) inherited the header's formatting (blue fill, bold white text),
+and (b) pushed the Status dropdown and all five colour rules, which
+`createSheet` anchors at row 2, down one row. After N appends the
+rules started at row N+2, below every logged application: no dropdown
+and no colour on any real entry. Found during Phase 9 screenshot prep
+on the real sheet (rules at `G5:G1003` after 3 logged rows, data cells
+bold). Reproduced on a throwaway sheet built by the same
+`createSheet` calls: rules at row 5, A2 header-styled, no G2 dropdown.
+
+`OVERWRITE` alone was tested and rejected. It fixed the formatting
+(rules stayed at row 2, A2 clean, dropdown present), but it lost data
+under concurrency: only 13 of 20 rows landed when appends were fired
+3–5 at a time, because concurrent requests were handed the same
+target row and silently overwrote each other. Silent row loss is
+worse than the formatting bug.
+
+Fix (approved 2026-09-11): `OVERWRITE` plus a dedicated in-memory
+lock, `lib/sheetAppendLock.ts`, wrapping `readHeaders` + the append
+inside `GoogleSheetsProvider.appendRow`. That's enough because the
+background worker is the only caller of `appendRow`
+(`handleJobApplicationLogged`, `drainOfflineQueue`), and each install
+only ever writes to the sheet its own Connect created. Known remaining
+limitation: if the user is mid-edit (cell editor still open) in the
+first empty row, that edit can land after an append and overwrite that
+one cell of the logged row. It's the user's own client, so no lock can
+prevent it.
+
+**Verified 2026-09-11**, both on throwaway sheets:
+- **Shipped code**, checked via the script's JSON output: an esbuild
+  bundle of the real `googleSheets.ts`, run in the extension's service
+  worker. The real `createSheet` built the sheet, and two real
+  `appendRow` calls fired together with `Promise.all` landed in
+  separate rows (2 and 3). The real `readRow` returned both (A and B).
+  The rules started at row 2, A2 wasn't bold, and G2 had the dropdown
+  (`VERDICT_separateRows_bothLanded: true`).
+- **Concurrency under the lock**, checked visually in the sheet itself,
+  not from the script's JSON. The JSON didn't print before the console
+  was copied. This used a copy of the lock textually identical to
+  `sheetAppendLock.ts`, with the same 20-row plan that lost 7 rows
+  without it: five rounds of 3 simultaneous appends, then one round of
+  5. All 20 rows landed, T1R1 through T6R5 in order, with no gaps,
+  blanks or duplicates. The data rows were unstyled, and every Status
+  cell had its dropdown.
+
+Excel (`tables/rows`) was not tested (skipped for lack of a Microsoft
+token), so that question is still open.
 
 ~~Alternative: **link an existing sheet.** The extension reads the
 existing header row and auto-maps it to the known fields above using
