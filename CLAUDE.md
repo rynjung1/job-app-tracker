@@ -151,6 +151,103 @@ array `drainOfflineQueue`'s loop was still iterating — not how real
 serialization). Fixed the mock to deep-clone on `get`/`set` before
 trusting the result.
 
+**Fixed 2026-09-10 (re-entrancy + fetch timeout):** a third, distinct
+real bug in the same area, found by a separate reviewer pass, not
+self-discovered — `drainOfflineQueue` had no guard against a second
+invocation starting while a first was still mid-flight.
+`RETRY_ALARM_NAME` fires every 5 minutes with nothing serializing
+`chrome.alarms.onAlarm` invocations, and (before this fix) no
+`fetch()` call in any provider had a timeout, so one genuinely
+stalled request (dead proxy, hung connection accepted but never
+answered) could keep a drain mid-loop past the next alarm. A second
+invocation starting then reads the *same* un-drained queue — per-row
+success is never flushed to storage incrementally, only the whole
+loop's closing write is — and re-appends whatever the first
+invocation already wrote. Reproduced for real, not asserted: a mock
+`appendRow` that succeeds on row 1 then hangs forever on row 2,
+overlapped with a second drain starting mid-hang, produced row 1
+appended twice before the fix and exactly once after. Fixed with a
+module-scope `isDraining` boolean (checked and set at the top of
+`drainOfflineQueue`, reset in a `finally`) — safe as a plain in-memory
+flag specifically because this function only ever runs inside the
+background worker's own realm; no popup/options caller exists for it
+(contrast the still-cross-realm `MS_TOKEN_KEY` question below, where
+the same kind of flag would not be sufficient).
+
+Paired with a real fetch timeout, added because it didn't exist at
+all — confirmed via grep of `googleSheets.ts`/`excel.ts`/`msAuth.ts`
+before writing `lib/fetchWithTimeout.ts`. 30 seconds: comfortably
+above any real Sheets/Graph/token-endpoint call this project has
+actually observed, and comfortably below both `RETRY_ALARM_NAME`'s
+5-minute period and Chrome's own documented 5-minute single-request
+service-worker kill threshold — a deliberate margin under both
+ceilings, not a number picked to match either one. This shrinks the
+window the `isDraining` guard needs to cover, it doesn't replace it —
+a stalled request now fails within 30s instead of indefinitely, but
+the guard is still what actually prevents the double-append during
+that window.
+
+Two more real, reviewer-caught bugs surfaced building
+`fetchWithTimeout.ts` itself, both instructive enough to record here
+rather than fold silently into the fix above:
+- **Timer cleared before the body, not after.** The first version
+  cleared the timeout in a `finally` immediately after `await
+  fetch(...)` — which resolves once response *headers* arrive, before
+  any caller's separate `await res.text()`/`res.json()` call ever
+  runs. A server sending headers immediately and then stalling the
+  body cleared the timer before the stall even started, leaving it
+  exactly as unbounded as no timeout at all. Confirmed for real
+  against Node's actual fetch/undici and a real local HTTP server
+  that sends headers then never calls `res.end()`: the naive
+  version's `res.text()` was still unresolved 6x past its timeout.
+  Fixed by wrapping the returned `Response` in a `Proxy` that
+  intercepts exactly `text()`/`json()` (the only two body-reading
+  methods any caller here uses) and only clears the timer once one of
+  those settles, so the same single deadline covers the full request
+  lifecycle, connection through body.
+- **The Proxy passthrough branch broke every non-body property in
+  real Chrome.** `Reflect.get(target, prop, receiver)` runs a
+  property's getter with `this = receiver` — the Proxy itself.
+  `Response.ok`/`.status`/`.headers` are WebIDL-branded accessors
+  that check `this` is a genuine `Response` with real internal slots
+  and throw `Illegal invocation` otherwise. Since every provider's
+  `apiFetch`/`graphFetch` checks `res.ok` on the very first line
+  after every call, this would have broken every Google Sheets and
+  Excel write in production — worse than the bug the fix existed to
+  close. Missed by three initial verification passes because all
+  three ran under Node (a local Node HTTP server, Node's own fetch,
+  this file bundled and run under Node) — Node's fetch (undici) is
+  receiver-agnostic and never enforces the brand check that real
+  Chrome does, so nothing Node-based could have caught it. Caught by
+  a reviewer testing the exact shipped code in a real Chrome tab.
+  Fixed by reading off `target` instead of `receiver`
+  (`Reflect.get(target, prop, target)`); re-verified in a real Chrome
+  tab afterward, reproducing both the original failure (`Illegal
+  invocation` on `ok`/`status`/`headers`) and the fix (all four of
+  `ok`/`status`/`headers`/`json()` clean) against the same real
+  `fetch()` response. **Lesson applied going forward: anything
+  touching `Response`/`Headers`/`Proxy` or other WebIDL-branded
+  platform objects gets verified in a real Chrome tab, not just
+  Node** — Node's fetch implementation is close enough to pass
+  Node-only tests while still shipping a real production break.
+
+A separate, still-open finding from the same investigation:
+`msAuth.ts`'s `MS_TOKEN_KEY` read-modify-write has no locking either,
+and — unlike `drainOfflineQueue` — it's called from multiple JS
+realms (background *and* any extension page), so an in-memory flag
+like `isDraining` would not fix it; `withStorageLock` wouldn't either,
+since its `tail` promise chain is module-scope and each realm gets
+its own independent instance. Reproduced concurrently: two realms
+racing to refresh the same Excel refresh token both succeed today
+(Microsoft's own docs: refresh tokens aren't revoked on reuse) but
+silently orphan one of the two newly-issued refresh tokens — not a
+hard failure currently, but correctness resting on an external,
+changeable API behavior rather than anything this codebase controls.
+Not fixed here — the real fix is collapsing every provider call
+(popup, options, background) into the one realm that already holds
+the lock pattern, tracked as separate follow-up work, not something
+this commit's guard extends to.
+
 3. **Popup + options page**
    - Popup: shows a toast-style confirmation for ~5 seconds after an
      auto-log ("Logged: Shopify — Data Engineer Co-op — [Undo]

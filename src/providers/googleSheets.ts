@@ -1,5 +1,6 @@
 import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
 import { columnIndexToLetter } from '../lib/columnLetter'
+import { fetchWithTimeout } from '../lib/fetchWithTimeout'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -27,7 +28,7 @@ async function getToken(interactive: boolean): Promise<string> {
 }
 
 async function apiFetch(path: string, token: string, init?: RequestInit): Promise<unknown> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchWithTimeout(`${API_BASE}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,

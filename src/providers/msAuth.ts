@@ -1,5 +1,6 @@
 import { generateCodeChallenge, generateCodeVerifier } from '../lib/pkce'
 import { MS_TOKEN_KEY } from '../lib/storageKeys'
+import { fetchWithTimeout } from '../lib/fetchWithTimeout'
 
 // Hand-rolled PKCE authorization-code flow — not @azure/msal-browser. That
 // SDK's browser-feature-detection assumes a `window` global and does not
@@ -32,7 +33,7 @@ interface TokenResponse {
 }
 
 async function requestToken(params: Record<string, string>): Promise<TokenResponse> {
-  const res = await fetch(`${AUTHORITY}/oauth2/v2.0/token`, {
+  const res = await fetchWithTimeout(`${AUTHORITY}/oauth2/v2.0/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params).toString(),

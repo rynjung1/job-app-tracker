@@ -150,31 +150,59 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
 // heuristic: queueRow only ever appends to the end and this function only
 // ever processes from the start in order, so nothing queued mid-drain can
 // land anywhere but after the entries already being drained.
+//
+// Fixed 2026-09-10 (re-entrancy): a second, distinct real bug, not covered
+// by the fix above — RETRY_ALARM_NAME fires every 5 minutes with no
+// guarantee the previous invocation has finished, and (before this fix)
+// no fetch() call in any provider had a timeout, so one genuinely stalled
+// request could keep this function mid-loop past the next alarm. A second
+// invocation starting then reads the *same* un-drained queue (per-row
+// success was never flushed to storage incrementally, only the whole
+// loop's closing write is), and re-appends whatever the first invocation
+// already wrote — a real, reproduced double-append, not theoretical (see
+// CLAUDE.md's offline-queue notes for the repro). isDraining is safe as a
+// plain module-scope flag here specifically because this function only
+// ever runs inside the background worker's own realm — no popup/options
+// caller exists for it, unlike the still-open MS_TOKEN_KEY cross-realm
+// question. Paired with FETCH_TIMEOUT_MS (lib/fetchWithTimeout.ts) so a
+// stuck request now fails within 30s instead of indefinitely, shrinking
+// the window this guard needs to cover in the first place.
+let isDraining = false
+
 async function drainOfflineQueue() {
-  const sheetRef = await getSheetRef()
-  if (!sheetRef) return
-
-  const queue = await getOfflineQueue()
-  if (queue.length === 0) return
-
-  const provider = await getActiveProvider()
-  let drainedCount = 0
-  for (const row of queue) {
-    try {
-      await provider.appendRow(sheetRef, row)
-      console.log('[job-app-tracker] queued row written to sheet:', row)
-      drainedCount++
-    } catch (err) {
-      console.warn('[job-app-tracker] retry failed, stopping this pass:', err)
-      break
-    }
+  if (isDraining) {
+    console.log('[job-app-tracker] drain already in progress, skipping this alarm fire')
+    return
   }
-  if (drainedCount === 0) return
+  isDraining = true
+  try {
+    const sheetRef = await getSheetRef()
+    if (!sheetRef) return
 
-  await withStorageLock(async () => {
-    const current = await getOfflineQueue()
-    await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: current.slice(drainedCount) })
-  })
+    const queue = await getOfflineQueue()
+    if (queue.length === 0) return
+
+    const provider = await getActiveProvider()
+    let drainedCount = 0
+    for (const row of queue) {
+      try {
+        await provider.appendRow(sheetRef, row)
+        console.log('[job-app-tracker] queued row written to sheet:', row)
+        drainedCount++
+      } catch (err) {
+        console.warn('[job-app-tracker] retry failed, stopping this pass:', err)
+        break
+      }
+    }
+    if (drainedCount === 0) return
+
+    await withStorageLock(async () => {
+      const current = await getOfflineQueue()
+      await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: current.slice(drainedCount) })
+    })
+  } finally {
+    isDraining = false
+  }
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {

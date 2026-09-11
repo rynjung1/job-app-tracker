@@ -1,5 +1,6 @@
 import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
 import { columnIndexToLetter } from '../lib/columnLetter'
+import { fetchWithTimeout } from '../lib/fetchWithTimeout'
 import { authenticateExcel, forceRefreshExcelToken, getValidExcelToken } from './msAuth'
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
@@ -49,7 +50,7 @@ const WIDE_COLUMNS = ['URL', 'Notes']
 const WIDE_COLUMN_WIDTH = 200
 
 async function graphFetch(path: string, token: string, init?: RequestInit): Promise<unknown> {
-  const res = await fetch(`${GRAPH_BASE}${path}`, {
+  const res = await fetchWithTimeout(`${GRAPH_BASE}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
