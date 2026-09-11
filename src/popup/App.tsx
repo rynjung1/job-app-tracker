@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { getActiveProvider } from '../providers/activeProvider'
 import type { SheetRef } from '../providers/types'
-import { cancelApplication, getRecentApplications, updateRecentApplication } from '../lib/recentApplications'
+import { getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
-import { setLastResumeVersion } from '../lib/resumeVersion'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
+import type { BackgroundResponse } from '../background/messageRouter'
 
 // If opened via the notification's Edit button (background/index.ts), this
 // is set to that entry's id and this window was created just for editing
@@ -70,26 +69,27 @@ function App() {
     setSavingEditId(entry.id)
     setActionError(null)
     try {
-      const provider = await getActiveProvider()
       // The one case that skips the identity check and closes the window
       // on save: this window was opened specifically to edit this exact
       // entry via the notification's Edit button, and the user hasn't
       // since switched to editing a different row. Every other save —
       // including a different row edited from inside this same standalone
       // window — gets the real check, since a stale rowNumber is exactly
-      // as possible there as from the normal popup.
+      // as possible there as from the normal popup. Sent as an explicit
+      // payload field rather than something background has to infer.
       const isOriginalNotificationEdit = editId !== null && editingId === editId && entry.id === editId
-      if (!isOriginalNotificationEdit) {
-        const row = await provider.readRow(sheetRef, entry.rowNumber)
-        if (row.Company !== entry.company || row.Title !== entry.title) {
-          setActionError({ id: entry.id, message: STALE_ROW_MESSAGE_EDIT })
-          return
-        }
+      const response = (await chrome.runtime.sendMessage({
+        type: 'SAVE_RESUME_VERSION',
+        payload: { entryId: entry.id, resumeVersion: resumeInput, skipIdentityCheck: isOriginalNotificationEdit },
+      })) as BackgroundResponse<RecentApplication>
+      if (!response.ok) {
+        setActionError({
+          id: entry.id,
+          message: response.code === 'STALE_ROW' ? STALE_ROW_MESSAGE_EDIT : GENERIC_ERROR_MESSAGE,
+        })
+        return
       }
-      await provider.updateCell(sheetRef, entry.rowNumber, 'Resume Version', resumeInput)
-      await setLastResumeVersion(entry.title, resumeInput)
-      const updated = await updateRecentApplication(entry.id, { resumeVersion: resumeInput })
-      if (updated) patchApplication(entry.id, updated)
+      patchApplication(entry.id, response.data)
       setEditingId(null)
       if (isOriginalNotificationEdit) {
         window.close()
@@ -107,14 +107,18 @@ function App() {
     setUndoingId(entry.id)
     setActionError(null)
     try {
-      const provider = await getActiveProvider()
-      const row = await provider.readRow(sheetRef, entry.rowNumber)
-      if (row.Company !== entry.company || row.Title !== entry.title) {
-        setActionError({ id: entry.id, message: STALE_ROW_MESSAGE_UNDO })
+      const response = (await chrome.runtime.sendMessage({
+        type: 'CANCEL_APPLICATION',
+        payload: { entryId: entry.id },
+      })) as BackgroundResponse<RecentApplication>
+      if (!response.ok) {
+        setActionError({
+          id: entry.id,
+          message: response.code === 'STALE_ROW' ? STALE_ROW_MESSAGE_UNDO : GENERIC_ERROR_MESSAGE,
+        })
         return
       }
-      await cancelApplication(provider, sheetRef, entry)
-      patchApplication(entry.id, { status: 'Cancelled' })
+      patchApplication(entry.id, response.data)
     } catch (err) {
       console.error('[job-app-tracker] undo failed:', err)
       setActionError({ id: entry.id, message: GENERIC_ERROR_MESSAGE })

@@ -853,6 +853,57 @@ commit.
 - Every message from a content script to the background worker must
   have its sender/origin verified before being acted on.
 
+**Updated 2026-09-10 (centralization):** the rule above now applies
+literally, not just to content scripts — `popup/App.tsx` and
+`options/App.tsx` never import `providers/googleSheets.ts`/
+`providers/excel.ts`/`providers/msAuth.ts` directly; every provider
+call (`authenticate`, `createSheet`, `readRow`, `updateCell`,
+`cancelApplication`) is a message to the background worker, which is
+the sole caller of both `SpreadsheetProvider` implementations. This
+closes two separate, real findings, not one: `options/App.tsx`
+previously called `authenticate()`/`createSheet()` directly from the
+options page's own realm, and `msAuth.ts`'s `MS_TOKEN_KEY`
+read-modify-write had no cross-realm locking — two independent JS
+realms (background and any extension page) could both refresh the
+same Excel refresh token concurrently (real repro confirmed this
+doesn't hard-fail today only because Microsoft doesn't invalidate a
+refresh token on reuse, per their own docs — an external behavior
+this codebase shouldn't rely on as a safety net). Centralizing
+collapses every provider call into one realm, where the existing
+`withStorageLock` pattern already works. As a side effect, Undo/Edit
+from the popup are now robust to the popup closing mid-action — the
+write is already in motion in the background worker and completes
+independent of the popup's own lifetime, where before, closing the
+popup mid-request killed the in-flight call along with it.
+- Extension pages (popup, options) reach the background worker
+  through one shared internal-RPC contract, validated by
+  `sender.origin === chrome-extension://<this extension's own id>`,
+  checked separately from the content-script `TRUSTED_ORIGINS` check
+  above — see `background/messageRouter.ts` for the message list
+  (`CONNECT_PROVIDER`, `RECONNECT_PROVIDER`, `SAVE_RESUME_VERSION`,
+  `CANCEL_APPLICATION`) and envelope shape (`{ ok: true, data } |
+  { ok: false, error, code? }`). Two other fields were tried first and
+  found not to actually test this, confirmed live against a real
+  Chrome instance with a real loaded extension rather than assumed:
+  `sender.id` identifies which *extension* sent a message, not what
+  *kind* of context sent it — this extension's own content scripts
+  share the same id. `sender.tab` is set for both a content script
+  *and* this project's own options page, since `options_page` opens
+  as a genuine browser tab rather than an embedded surface — a real
+  test confirmed the options page's `sender.tab` was populated just
+  like a content script's, which would have made a `!sender.tab`
+  check reject every real `CONNECT_PROVIDER`/`RECONNECT_PROVIDER`
+  message from it. `sender.origin` is the field that actually
+  differs: an extension's own page always reports its own
+  `chrome-extension://<id>` origin, while a content script's
+  `sender.origin` is the origin of the *web page* it's injected into
+  — not something a compromised page script can forge, same trust
+  basis the `TRUSTED_ORIGINS` check already relies on.
+- **Convention, not just architecture: popup/options never import
+  `providers/*` directly — always message background.** No lint rule
+  enforces this yet; it's a discipline convention until/unless one is
+  added.
+
 **Data going into the spreadsheet**
 - **Formula injection is the top real risk here.** Any scraped field
   (job title, company name, etc.) that starts with `=`, `+`, `-`, or

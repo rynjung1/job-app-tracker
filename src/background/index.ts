@@ -3,17 +3,24 @@
 // Content scripts and other components must never write to a spreadsheet directly.
 
 import { getActiveProvider } from '../providers/activeProvider'
-import type { AppendedRow, SheetRef } from '../providers/types'
+import type { AppendedRow } from '../providers/types'
 import type { JobPostingData } from '../parsers/types'
 import { buildRow } from '../lib/buildRow'
 import { sanitizeRow } from '../lib/sanitize'
-import { SHEET_REF_KEY, OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
+import { OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
+import { getSheetRef } from '../lib/sheetRef'
 import { getDefaultResumeVersion } from '../lib/resumeVersion'
 import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 import { withStorageLock } from '../lib/storageLock'
+import { handleInternalMessage, isInternalMessage } from './messageRouter'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
+// This extension's own pages (popup, options) — used to distinguish an
+// internal RPC message from a content-script message. See the onMessage
+// listener below for why this is sender.origin, not sender.tab or
+// sender.id.
+const OWN_ORIGIN = `chrome-extension://${chrome.runtime.id}`
 const RETRY_ALARM_NAME = 'retryOfflineQueue'
 const NOTIFICATION_CLEAR_ALARM_PREFIX = 'clearNotification:'
 // Chrome's own alarms API has a practical minimum around a few seconds in
@@ -38,11 +45,6 @@ chrome.runtime.onInstalled.addListener((details) => {
     chrome.runtime.openOptionsPage()
   }
 })
-
-async function getSheetRef(): Promise<SheetRef | undefined> {
-  const stored = await chrome.storage.local.get(SHEET_REF_KEY)
-  return stored[SHEET_REF_KEY] as SheetRef | undefined
-}
 
 async function getOfflineQueue(): Promise<Record<string, string>[]> {
   const stored = await chrome.storage.local.get(OFFLINE_QUEUE_KEY)
@@ -257,7 +259,30 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
   }
 })
 
-chrome.runtime.onMessage.addListener((message, sender) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Extension-page messages (popup, options) — checked via sender.origin,
+  // not sender.tab or sender.id. Confirmed live in a real Chrome instance
+  // with a real loaded extension, not assumed: sender.tab is set for BOTH
+  // a content script AND this project's own options page, since
+  // options_page opens as a genuine browser tab, not an embedded surface —
+  // a !sender.tab check (the first fix attempted here) would have
+  // rejected every real CONNECT_PROVIDER/RECONNECT_PROVIDER message from
+  // options.html. sender.id is equally unusable: it identifies which
+  // extension sent a message, not what kind of context sent it —
+  // content/linkedin.ts and content/greenhouse.ts share this same
+  // extension's id too. sender.origin is the field that actually differs:
+  // an extension's own page (popup or a tab-hosted options page alike)
+  // always reports its own chrome-extension://<id> origin, while a
+  // content script's sender.origin is the origin of the *web page* it's
+  // injected into (confirmed live: a real content script's sender.origin
+  // was the real page's origin, never a chrome-extension:// one) — not
+  // something a compromised page script can forge, same trust basis the
+  // TRUSTED_ORIGINS check below already relies on.
+  if (sender.origin === OWN_ORIGIN && isInternalMessage(message)) {
+    handleInternalMessage(message, sendResponse)
+    return true // keep the channel open for the async sendResponse above
+  }
+
   if (!sender.origin || !TRUSTED_ORIGINS.includes(sender.origin)) {
     console.warn('[job-app-tracker] rejected message from unverified origin', sender.origin)
     return false

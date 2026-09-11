@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { SheetRef } from '../providers/types'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
-import { SHEET_TEMPLATE_COLUMNS } from '../lib/sheetTemplate'
-import { getProvider, getActiveProviderId, setActiveProviderId } from '../providers/activeProvider'
+import { getActiveProviderId } from '../providers/activeProvider'
 import type { ProviderId } from '../providers/activeProvider'
+import type { BackgroundResponse } from '../background/messageRouter'
 
 type ConnectionState =
   | { status: 'loading' }
@@ -25,16 +25,16 @@ function App() {
   async function handleConnect(providerId: ProviderId) {
     setState({ status: 'connecting' })
     try {
-      const provider = getProvider(providerId)
-      // Interactive — this is the one place in the whole extension allowed
-      // to trigger a provider's OAuth consent popup, since it's a direct
-      // result of the user clicking a button here, not something firing
-      // mid-apply.
-      await provider.authenticate()
-      const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS])
-      await chrome.storage.local.set({ [SHEET_REF_KEY]: sheetRef })
-      await setActiveProviderId(providerId)
-      setState({ status: 'connected', sheetRef, providerId })
+      // authenticate()/createSheet() now run in the background worker —
+      // this page only asks for it and renders the result. See
+      // CLAUDE.md's Trust boundary section: options/App.tsx never calls
+      // SpreadsheetProvider methods directly.
+      const response = (await chrome.runtime.sendMessage({
+        type: 'CONNECT_PROVIDER',
+        payload: { providerId },
+      })) as BackgroundResponse<SheetRef>
+      if (!response.ok) throw new Error(response.error)
+      setState({ status: 'connected', sheetRef: response.data, providerId })
     } catch (err) {
       setState({ status: 'error', message: err instanceof Error ? err.message : String(err), providerId })
     }
@@ -45,11 +45,16 @@ function App() {
     const { providerId, sheetRef } = state
     setState({ status: 'connecting' })
     try {
-      const provider = getProvider(providerId)
-      await provider.authenticate()
+      const response = (await chrome.runtime.sendMessage({
+        type: 'RECONNECT_PROVIDER',
+        payload: { providerId },
+      })) as BackgroundResponse<undefined>
+      if (!response.ok) throw new Error(response.error)
       // Keep the existing sheetRef — only the OAuth grant needed
-      // refreshing, not the sheet itself. Calling createSheet() here
-      // would orphan the current sheet and silently swap in a new one.
+      // refreshing, not the sheet itself. background's handler
+      // deliberately never calls createSheet() for this message, for the
+      // same reason: it would orphan the current sheet and silently swap
+      // in a new one.
       setState({ status: 'connected', sheetRef, providerId })
     } catch (err) {
       setState({ status: 'error', message: err instanceof Error ? err.message : String(err), providerId })
