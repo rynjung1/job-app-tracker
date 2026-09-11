@@ -248,6 +248,42 @@ Not fixed here — the real fix is collapsing every provider call
 the lock pattern, tracked as separate follow-up work, not something
 this commit's guard extends to.
 
+**Fixed 2026-09-10 (later the same day, after centralization):** the
+`MS_TOKEN_KEY` race above is now actually closed, not just made
+closeable. Centralizing every provider call into the background
+worker's one realm (see Trust boundary, below) removed the
+*cross-realm* instantiation problem, but a single realm can still
+race — two concurrent message handlers (e.g. `CANCEL_APPLICATION`
+arriving while `drainOfflineQueue`'s alarm is mid-flight) are two
+independent async chains that can still interleave at their own
+`await` points. Fixed with a new dedicated `lib/msTokenLock.ts`
+(`withMsTokenLock`) — deliberately not a reuse of `withStorageLock`:
+that lock's own design comment justifies one shared lock specifically
+because `OFFLINE_QUEUE_KEY`/`RECENT_APPLICATIONS_KEY` operations are
+fast (a few ms of storage I/O); Excel token refresh is a real network
+round trip, up to `FETCH_TIMEOUT_MS` (30s) in a slow case, and sharing
+the existing lock would let a slow Excel refresh stall an unrelated,
+fast `queueRow`/`addRecentApplication` call for no reason. Both
+`getValidExcelToken` and `forceRefreshExcelToken` wrap their **entire**
+body in the lock, including the fast path (cached token still valid) —
+not just the refresh-and-write branch, a real distinction caught during
+review: the race is two callers each *deciding* whether to refresh
+from their own independent read, not just an unsynchronized write, so
+every caller needs to go through one serialized queue and re-read
+the token once it acquires the lock, rather than each deciding from
+whatever it happened to read first. Verified against the real,
+bundled `msAuth.ts` (not a re-derivation), mocked Microsoft token
+endpoint honoring the real documented reuse-doesn't-invalidate
+behavior: two concurrent `getValidExcelToken()` calls on an expired
+token now produce exactly one real exchange, both callers converging
+on the same resulting access token, where the pre-fix version
+produced two independent exchanges and silently orphaned one refresh
+token. A second, mixed-pair check (`getValidExcelToken` +
+`forceRefreshExcelToken` concurrently) confirmed the lock serializes
+correctly with no deadlock — two exchanges there is the *correct*
+outcome, not a bug, since `forceRefreshExcelToken`'s whole contract is
+unconditional refresh regardless of current validity.
+
 3. **Popup + options page**
    - Popup: shows a toast-style confirmation for ~5 seconds after an
      auto-log ("Logged: Shopify — Data Engineer Co-op — [Undo]
@@ -869,8 +905,10 @@ same Excel refresh token concurrently (real repro confirmed this
 doesn't hard-fail today only because Microsoft doesn't invalidate a
 refresh token on reuse, per their own docs — an external behavior
 this codebase shouldn't rely on as a safety net). Centralizing
-collapses every provider call into one realm, where the existing
-`withStorageLock` pattern already works. As a side effect, Undo/Edit
+collapses every provider call into one realm, where a lock actually
+works — see the Background service worker section's Fixed 2026-09-10
+note for `lib/msTokenLock.ts`, the dedicated (not reused) lock this
+made possible. As a side effect, Undo/Edit
 from the popup are now robust to the popup closing mid-action — the
 write is already in motion in the background worker and completes
 independent of the popup's own lifetime, where before, closing the

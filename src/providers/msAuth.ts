@@ -1,6 +1,7 @@
 import { generateCodeChallenge, generateCodeVerifier } from '../lib/pkce'
 import { MS_TOKEN_KEY } from '../lib/storageKeys'
 import { fetchWithTimeout } from '../lib/fetchWithTimeout'
+import { withMsTokenLock } from '../lib/msTokenLock'
 
 // Hand-rolled PKCE authorization-code flow — not @azure/msal-browser. That
 // SDK's browser-feature-detection assumes a `window` global and does not
@@ -123,22 +124,50 @@ export async function authenticateExcel(): Promise<string> {
   return storeToken(tokenResponse)
 }
 
+// Fixed 2026-09-10 (cross-realm race): both functions below wrap their
+// ENTIRE body in withMsTokenLock, including the fast path (cached token
+// still valid, no refresh needed) — not just the refresh-and-write
+// branch. This is a real, reviewer-caught distinction, not an arbitrary
+// choice: the race here is two concurrent callers each *deciding* whether
+// a refresh is needed from their own independent read of MS_TOKEN_KEY,
+// not just an unsynchronized write — real repro confirmed two concurrent
+// calls both reading the same soon-to-be-stale refreshToken and both
+// successfully exchanging it (Microsoft doesn't invalidate a refresh
+// token on reuse), silently orphaning one of the two newly-issued
+// refresh tokens. Locking only the refresh branch would still let a
+// second caller read a not-yet-expired token *outside* the lock while a
+// concurrent caller is mid-refresh — harmless in that specific instant,
+// but it misses the actual point: every caller needs to go through one
+// serialized queue and re-read the (possibly just-refreshed) token once
+// it acquires the lock, rather than two callers each deciding from
+// whatever they independently happened to read first. Centralizing every
+// provider call into the background worker's single realm (see
+// background/messageRouter.ts) made this lock meaningful in the first
+// place — it only actually closes the race now that every caller
+// (drainOfflineQueue, appendRow, the popup's CANCEL_APPLICATION/
+// SAVE_RESUME_VERSION messages, options's CONNECT_PROVIDER/
+// RECONNECT_PROVIDER) runs in that one realm; before centralization, a
+// same-realm-only lock like this would have done nothing for the
+// original cross-realm version of this race.
+
 // Non-interactive, proactive — used once a refresh_token exists. Mirrors
 // googleSheets.ts's non-interactive getToken() path. Refreshes ahead of
 // the local clock's expiresAt so the common case never even risks a 401.
 export async function getValidExcelToken(): Promise<string> {
-  const stored = await chrome.storage.local.get(MS_TOKEN_KEY)
-  const token = stored[MS_TOKEN_KEY] as StoredMsToken | undefined
-  if (!token) {
-    throw new Error('No Microsoft token stored — call authenticateExcel() first')
-  }
-  if (Date.now() < token.expiresAt - 60_000) {
-    return token.accessToken
-  }
-  if (!token.refreshToken) {
-    throw new Error('Access token expired and no refresh token was ever stored')
-  }
-  return refreshExcelToken(token.refreshToken)
+  return withMsTokenLock(async () => {
+    const stored = await chrome.storage.local.get(MS_TOKEN_KEY)
+    const token = stored[MS_TOKEN_KEY] as StoredMsToken | undefined
+    if (!token) {
+      throw new Error('No Microsoft token stored — call authenticateExcel() first')
+    }
+    if (Date.now() < token.expiresAt - 60_000) {
+      return token.accessToken
+    }
+    if (!token.refreshToken) {
+      throw new Error('Access token expired and no refresh token was ever stored')
+    }
+    return refreshExcelToken(token.refreshToken)
+  })
 }
 
 // Non-interactive, reactive — used by excel.ts's withAuth when a Graph
@@ -151,10 +180,12 @@ export async function getValidExcelToken(): Promise<string> {
 // caught here, so it propagates out of withAuth's retry and the row fails
 // into the offline queue with a real, visible error rather than looping.
 export async function forceRefreshExcelToken(): Promise<string> {
-  const stored = await chrome.storage.local.get(MS_TOKEN_KEY)
-  const token = stored[MS_TOKEN_KEY] as StoredMsToken | undefined
-  if (!token?.refreshToken) {
-    throw new Error('No refresh token stored — call authenticateExcel() first')
-  }
-  return refreshExcelToken(token.refreshToken)
+  return withMsTokenLock(async () => {
+    const stored = await chrome.storage.local.get(MS_TOKEN_KEY)
+    const token = stored[MS_TOKEN_KEY] as StoredMsToken | undefined
+    if (!token?.refreshToken) {
+      throw new Error('No refresh token stored — call authenticateExcel() first')
+    }
+    return refreshExcelToken(token.refreshToken)
+  })
 }
