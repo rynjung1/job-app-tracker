@@ -48,8 +48,11 @@ function formatLocation(jsonLd: JobPostingJsonLd): string | null {
   return parts.length > 0 ? parts.join(', ') : null
 }
 
-// document.title carries title/company on the authenticated SPA — confirmed
-// it DOES update on client-side job navigation (not a given for an SPA).
+// document.title carries title/company on /jobs/view/ pages. It does NOT on
+// the split-pane search view: there it stays the search page's title
+// ("(20) software engineer intern Jobs | LinkedIn") even with a job's detail
+// pane loaded (checked live 2026-09-11), so the split pane reads the pane's
+// <h1> instead (see extractSplitPane).
 // Format confirmed on one real posting: "{Title} | {Company} | LinkedIn".
 // Anchored from the END rather than a naive 3-way split, since a job title
 // can itself contain " | " (e.g. "Engineer | Backend Team"), which would
@@ -146,21 +149,106 @@ function resolveCanonicalJobUrl(): string {
   return window.location.href.split('?')[0]
 }
 
+// The split-pane search view (/jobs/search/, /jobs/collections/, ...) keeps
+// the selected job in ?currentJobId=. /jobs/view/ pages are excluded
+// explicitly so their proven extraction path is never touched. Digits only,
+// since the id goes into a CSS selector below.
+function splitPaneJobId(): string | null {
+  if (window.location.pathname.startsWith('/jobs/view/')) return null
+  const id = new URLSearchParams(window.location.search).get('currentJobId')
+  return id && /^\d+$/.test(id) ? id : null
+}
+
+const RESULTS_CARD = '[data-occludable-job-id]'
+
+function collapsedText(el: Element | null | undefined): string {
+  return el?.textContent?.trim().replace(/\s+/g, ' ') ?? ''
+}
+
+// Split-pane extraction, checked live on 3 jobs (2026-09-11). No hashed
+// classes; structure and links only, like extractFromDom:
+// - title: the detail pane's <h1>, the one linking to /jobs/view/{jobId}/.
+//   Results cards also link there, but not in an <h1>, and are excluded
+//   explicitly anyway.
+// - company: the nearest ancestor of that <h1> (3 levels up in every sample)
+//   holding a company link with text, stopping before any ancestor that
+//   contains results cards, so the company can't come from the list.
+// - location: see extractSplitPaneLocation.
+// Fails safe: if the pane isn't loaded yet, or shows a different job than
+// ?currentJobId=, the <h1> lookup finds nothing and this returns null (no
+// row) rather than logging the wrong job. Both copies of the Easy Apply
+// button sit in this one pane, so it doesn't matter which was clicked.
+function extractSplitPane(jobId: string): JobPostingData | null {
+  const heading = Array.from(document.querySelectorAll('h1')).find(
+    (h) => h.querySelector(`a[href*="/jobs/view/${jobId}"]`) && !h.closest(RESULTS_CARD),
+  )
+  if (!heading) return null
+  const title = collapsedText(heading)
+
+  let topCard: Element | null = null
+  let ancestor: Element | null = heading.parentElement
+  for (let i = 0; i < 6 && ancestor; i++, ancestor = ancestor.parentElement) {
+    if (ancestor.querySelector(RESULTS_CARD)) break
+    const hasCompany = Array.from(ancestor.querySelectorAll('a[href*="/company/"]')).some((a) =>
+      collapsedText(a),
+    )
+    if (hasCompany) {
+      topCard = ancestor
+      break
+    }
+  }
+  if (!topCard) return null
+  const company = collapsedText(
+    Array.from(topCard.querySelectorAll('a[href*="/company/"]')).find((a) => collapsedText(a)),
+  )
+  if (!title || !company) return null
+
+  return { title, company, location: extractSplitPaneLocation(topCard), url: resolveCanonicalJobUrl() }
+}
+
+// The "X ago" metadata row, read with the same content-shape filter as
+// extractLocationFromDom. Here "ago" sits in its own wrapper span, so the
+// row ("Markham, ON", "·", "1 week ago", "·", "65 applicants") is one level
+// higher than on /jobs/view/; walks up to 3 levels. Null if there's no row
+// or no location-shaped entry (e.g. a non-English UI, where "ago" differs).
+function extractSplitPaneLocation(topCard: Element): string | null {
+  const agoSpan = Array.from(topCard.querySelectorAll('span')).find(
+    (span) => span.children.length === 0 && AGO_PATTERN.test(collapsedText(span)),
+  )
+  let row: Element | null = agoSpan?.parentElement ?? null
+  for (let i = 0; i < 3 && row; i++, row = row.parentElement) {
+    const location = Array.from(row.children)
+      .filter((el) => el.tagName === 'SPAN')
+      .map((el) => collapsedText(el))
+      .find(
+        (value) =>
+          value.length > 0 &&
+          value !== '·' &&
+          !AGO_PATTERN.test(value) &&
+          !APPLICANTS_PATTERN.test(value),
+      )
+    if (location) return location
+  }
+  return null
+}
+
 export const linkedinParser: JobPageParser = {
   siteId: 'linkedin',
 
   // No container-class check — this page's classes are hashed/atomic CSS
   // with no stable or semantic names (confirmed via real DOM inspection,
-  // not assumed). The only call site (content/linkedin.ts, gating the
-  // apply-button bind attempt) already fails safe when no Apply anchor is
-  // found, so a coarser URL-only check here doesn't create a correctness
-  // risk — it just means the bind attempt is tried on more /jobs/ pages,
-  // which is cheap and self-limiting.
+  // not assumed). The only call site (content/linkedin.ts's click listener)
+  // runs this at click time, after the click has already matched the Apply
+  // selector, so a coarser URL-only check here doesn't create a correctness
+  // risk.
   detect() {
     return JOB_PAGE_PATH.test(window.location.pathname)
   },
 
   extract() {
+    const splitPaneId = splitPaneJobId()
+    if (splitPaneId) return extractSplitPane(splitPaneId)
+
     const jsonLd = readJobPostingJsonLd()
 
     let title = typeof jsonLd?.title === 'string' ? jsonLd.title.trim() : undefined

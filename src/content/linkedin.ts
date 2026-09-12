@@ -1,11 +1,6 @@
 import { linkedinParser } from '../parsers/linkedin'
 import type { JobPostingData } from '../parsers/types'
 
-const DOM_SETTLE_DEBOUNCE_MS = 250
-
-let boundButton: Element | null = null
-let debounceTimer: number | undefined
-
 function sendToBackground(data: JobPostingData) {
   // chrome.runtime becomes undefined in an orphaned content-script instance
   // — extension reloaded/updated while this tab stayed open, and the SPA
@@ -29,38 +24,37 @@ function sendToBackground(data: JobPostingData) {
   }
 }
 
-function bindApplyButton() {
-  if (!linkedinParser.detect()) {
-    boundButton = null
+// One delegated click listener on document, not a listener bound to the
+// first matching button. LinkedIn can render the Easy Apply control more
+// than once for the same job (the split pane shows two identical copies,
+// checked live 2026-09-11), and binding via querySelector only ever caught
+// the first, so a click on the other copy was silently not logged. A
+// listener on document also survives any re-render, which is all the old
+// MutationObserver + rebind existed for, so neither is needed any more.
+//
+// One click sends one message: a single listener on document runs once per
+// event however deeply the clicked element is nested, and closest() resolves
+// to one control. Capture phase, so it runs before LinkedIn's own handlers
+// and a stopPropagation in them can't hide the click. isTrusted drops
+// synthetic clicks (element.click(), dispatchEvent): if LinkedIn ever
+// forwards a click from one copy of the button to the other in code, that
+// second event must not log a second row. Real mouse clicks and Enter/Space
+// on a focused button are trusted.
+//
+// detect() and extract() both run at click time, against the page as it is
+// when the user clicks.
+function onClickCapture(event: MouseEvent) {
+  if (!event.isTrusted) return
+  if (!(event.target instanceof Element)) return
+  if (!event.target.closest(linkedinParser.getApplyButtonSelector())) return
+  if (!linkedinParser.detect()) return
+
+  const data = linkedinParser.extract()
+  if (!data) {
+    console.warn('[job-app-tracker] apply clicked but extraction failed — no row logged')
     return
   }
-
-  const button = document.querySelector(linkedinParser.getApplyButtonSelector())
-  if (!button || button === boundButton) return
-
-  button.addEventListener('click', () => {
-    const data = linkedinParser.extract()
-    if (!data) {
-      console.warn('[job-app-tracker] apply clicked but extraction failed — no row logged')
-      return
-    }
-    sendToBackground(data)
-  })
-
-  boundButton = button
+  sendToBackground(data)
 }
 
-function onDomSettled() {
-  window.clearTimeout(debounceTimer)
-  debounceTimer = window.setTimeout(bindApplyButton, DOM_SETTLE_DEBOUNCE_MS)
-}
-
-// LinkedIn is an SPA — job navigations (both full /jobs/view/{id} loads and
-// in-place clicks through the split-view search results) swap DOM nodes
-// without a page reload, so a fixed timeout can't reliably know when the
-// new job's content (and Apply button) has settled. Re-evaluate on every
-// mutation instead, debounced so a burst of renders only re-binds once.
-const observer = new MutationObserver(onDomSettled)
-observer.observe(document.body, { childList: true, subtree: true })
-
-onDomSettled()
+document.addEventListener('click', onClickCapture, { capture: true })

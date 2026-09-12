@@ -73,13 +73,20 @@ landed as expected and nothing concurrent got clobbered.
    parsers" below), injected only into matching domains via scoped
    `host_permissions` (never `<all_urls>`). Each script:
    - Detects it's on a job posting page (URL pattern + DOM check).
-   - Passively extracts title / company / location / posting URL as
-     soon as the page (or SPA route) settles — use a
-     `MutationObserver`, not a fixed timeout, since LinkedIn/Indeed
-     render content dynamically.
+   - Extracts title / company / location / posting URL at the moment
+     of the Apply click, not ahead of time, so it reads the page as
+     the user sees it then. (Updated 2026-09-11: this used to say
+     "passively, once the page settles, via a `MutationObserver`";
+     the code already extracted at click time.)
    - Listens for a click on that site's real "Apply"/"Submit
      application" button (site-specific selector, defined per
-     parser) as the logging trigger.
+     parser) as the logging trigger. LinkedIn: one delegated,
+     capture-phase click listener on `document` matched with
+     `closest(selector)`, so every copy of the button is caught and
+     SPA re-renders need no rebinding. Greenhouse: a
+     `MutationObserver` rebinds a listener to its one
+     `button[type="submit"]`; delegating that selector could catch
+     unrelated submit buttons on the page.
    - Sends extracted data to the background service worker via
      `chrome.runtime.sendMessage` — never writes to the spreadsheet
      directly.
@@ -939,10 +946,46 @@ above is his console output. That English click landed as a real row
 (deleted afterwards). With LinkedIn set to French, Ryan reported that a
 click on a link-variant posting worked, but no console output was
 captured and no row from it reached the sheet, so the non-English path
-is not verified. Still open, as a
-separate proposal: the content script binds only the first match
-(`querySelector`), and the split pane renders the Easy Apply button
-twice, so some real clicks may still be missed.
+is not verified.
+
+**Fixed 2026-09-11 (split pane):** split-pane applications were never
+logged, for two separate reasons.
+- The content script bound only the first match (`querySelector`), and
+  the split pane renders the Easy Apply button twice, so a click on the
+  second copy was ignored. Now one delegated, capture-phase listener
+  (see Three components, Content scripts) catches every copy.
+- Even the first copy logged nothing: `extract()` took the title from
+  `document.title`, which on the split pane stays the search page's
+  title ("(20) software engineer intern Jobs | LinkedIn") while a job's
+  detail pane is showing, so extraction returned null.
+
+The split pane (`?currentJobId=` on a non-`/jobs/view/` path) now reads
+the detail pane instead: the title from its `<h1>` linking to
+`/jobs/view/{id}/`, the company from the nearest ancestor with a company
+link that has text (stopping at results cards), and the location from
+the "ago" row. Checked read-only on 3 live jobs, all correct. A pane
+that hasn't loaded, or shows a different job, returns null rather than a
+wrong row. `/jobs/view/` extraction is unchanged.
+
+**Verified 2026-09-11** on the reloaded build, by the reviewer in Ryan's
+browser, with two real clicks through the browser tool. These are
+trusted events, so they pass the `isTrusted` filter. Each Easy Apply
+window was closed without applying and the draft discarded:
+- `/jobs/view/4460524353/`, one Easy Apply click: one row,
+  `2026-09-11 22:35`, Jabroni Capital / Forward Deployed Engineer /
+  Greater Toronto Area, Canada.
+- Split pane, `/jobs/search/?currentJobId=4449233015&f_AL=true`, one
+  click on the visible Easy Apply button: one row, `2026-09-11 22:40`,
+  VAZA / Mobile Application Developer / Toronto, ON.
+
+Exactly one row per click, with no duplicates; both rows were deleted
+afterwards. An earlier split-pane click on the build before the reload
+logged nothing, while the new extraction, run as a copy in the page,
+read VAZA correctly, so that miss was the old build. Ryan's own 7-step
+sitting produced no rows and isn't counted. Not separately evidenced:
+a click on the second Easy Apply copy (in this layout it sat offscreen,
+at y = -859, and a click on it did nothing), keyboard activation, the
+off-site Apply, and the Save/card negative checks.
 
 **Spot-checked 2026-09-10 (test-pass follow-up):** a real risk was
 flagged during a broader test pass but never actually verified live
