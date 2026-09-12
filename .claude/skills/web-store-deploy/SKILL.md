@@ -60,9 +60,12 @@ description: Steps and status for publishing this extension to the Chrome Web St
   7. Re-verify Google and Excel sign-in and a real logged row on the
      new-ID build, and run the open Excel tests (CLAUDE.md, Sheet
      setup) in the same sitting.
-  8. Resolve CLAUDE.md's LinkedIn "Known v1 gap" (the Apply selector
-     only matches the English aria-label): a language-independent
-     match, or keep English-only and say so in the listing.
+  8. **Done 2026-09-11** (`f4ab8c5`): CLAUDE.md's LinkedIn "Known v1
+     gap" is resolved. The selector matches LinkedIn's current markup
+     (the link variant in any UI language, the button variants in
+     English), and the listing says Easy Apply detection is fully
+     supported with LinkedIn set to English. `f3cb30a` also fixed
+     split-pane applications not being logged.
   9. Upload the final build as a new version of the same item, fill in
      the listing (`store-assets/listing.md`, `store-assets/screenshots/`)
      and the privacy-practices tab; R submits.
