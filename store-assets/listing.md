@@ -22,7 +22,7 @@ Easy Apply detection is fully supported with LinkedIn set to English.
 
 No setup beyond connecting your account: the extension creates a new, formatted spreadsheet on first use, with a Status column, dropdown, and color-coded conditional formatting (Sheets) so you can track Applied / Interview / Offer / Rejected at a glance.
 
-Every log gets a brief undo window and an editable resume-version field, so you can correct a mismatched resume choice or cancel an accidental log without ever touching the spreadsheet by hand.
+From the extension's popup you can edit the resume version of, or undo, any of your 20 most recent applications at any time, so you can correct a mismatched resume choice or cancel an accidental log without ever touching the spreadsheet by hand.
 
 Privacy: the extension only reads job-posting pages on the specific sites it supports — it never has access to other tabs or browsing activity. It only ever talks to Google's or Microsoft's own APIs to write your spreadsheet; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) or its own app folder (Microsoft Files.ReadWrite.AppFolder) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
 ```

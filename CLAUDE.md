@@ -40,12 +40,16 @@ release).
   model) were deliberately decided to avoid rework. If a phase
   reveals one of them doesn't work, stop and raise it as a decision,
   don't quietly patch around it.
-- **Commit and push regularly.** Repo:
-  https://github.com/rynjung1/job-app-tracker. Commit at meaningful
-  checkpoints as work progresses (e.g. after each build phase below,
-  or after any working, testable increment) — not just once at the
-  end of a session. Push after each commit so the remote stays
-  current.
+- **Commit and push only with Ryan's explicit approval.** Repo:
+  https://github.com/rynjung1/job-app-tracker. Propose a commit at
+  meaningful checkpoints (after each build phase below, or after any
+  working, testable increment), show the diff, and commit only once it's
+  approved; in practice the approval is relayed by the reviewer
+  session. Before committing, check `git status` and `git log -3` and
+  stage by explicit path (see the Known risk below). Push after each
+  commit so the remote stays current. (Updated 2026-09-11: this used
+  to say "commit and push regularly", which contradicted the approval
+  rule.)
 
 **Known risk (incident 2026-09-10): multiple Claude Code sessions
 share this working directory** (an implementer session and a
@@ -1056,6 +1060,8 @@ Store)
   client-side at all.
 - `.gitignore` covers any local `.env`/config from the first commit;
   add a pre-commit check so a token can never land in a commit.
+  (Added 2026-09-11: `.githooks/pre-commit`, a dependency-free shell
+  script, activated by `npm install` through the `prepare` script.)
 - OAuth tokens stored only in `chrome.storage.local`, never
   `localStorage`, never synced to `chrome.storage.sync` in plaintext.
 
@@ -1201,7 +1207,9 @@ actually needs it, not speculatively ahead of time.
 **Supply chain**
 - `npm audit` run regularly; Dependabot enabled on the repo once
   it's on GitHub. A compromised dependency in a browser extension is
-  a real, checked-for risk, not a theoretical one.
+  a real, checked-for risk, not a theoretical one. Configured
+  2026-09-11: `.github/dependabot.yml` (npm, weekly). Dependabot
+  security alerts are a separate switch in the GitHub repo's settings.
 
 **Explicitly not applicable** (would apply if this had its own
 backend/database, which it deliberately does not): login rate
@@ -1257,13 +1265,22 @@ published 2026-09-09).
    submission. Started 2026-09-09; see Security section's Phase 8
    notes above for the real found-and-fixed Excel formula-injection
    vulnerability and the `host_permissions` cleanup. `npm audit`
-   (2 findings, both `vite`/`esbuild`, dev-only, don't ship) and
+   (2 findings, both `vite`/`esbuild`, dev-only, don't ship; re-run
+   2026-09-11: `npm audit --omit=dev` finds 0, and the full audit's 1
+   high is `vite` and 1 moderate is `esbuild`, both build tooling that
+   isn't in the shipped extension) and
    manifest CSP (no override at all — Chrome's own MV3 minimum
    applies, already the strictest possible outcome) reviewed with no
    action needed. Privacy policy page (Phase 9 prerequisite) done
    2026-09-09 — see Deployment path above for the live URL.
 9. **Web Store prep** — listing assets, submission. Privacy policy
-   already done (see Phase 8/Deployment path above).
+   already done (see Phase 8/Deployment path above). Status
+   2026-09-11: listing text, screenshots and privacy-practices answers
+   are in `store-assets/`; the privacy policy was updated 2026-09-11.
+   A pre-submission audit is in progress (promo tile, store icon
+   padding, full-bleed screenshots, Dependabot, pre-commit secret
+   check, public logging, version). Submission follows the
+   extension-ID sequence in the `web-store-deploy` skill.
 
 **Deferred, not abandoned:**
 - **Indeed parser (2026-09-01):** every fetch attempt (curl and

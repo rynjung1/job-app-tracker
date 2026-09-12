@@ -36,7 +36,8 @@ description: Steps and status for publishing this extension to the Chrome Web St
   recent list. Once `key` is in the manifest, dev builds share the store
   ID, so the unpacked build and a store install can't coexist.
   (R = only Ryan can do it.)
-  1. R: register the developer account (one-time fee).
+  1. R: register the developer account (one-time fee), and declare
+     non-trader status (a free personal project, not a business).
   2. Upload a zip with no `key` as a new item; don't submit it. The
      store rejects `key` only on the first upload; later updates may
      include it ([manifest key](https://developer.chrome.com/docs/extensions/reference/manifest/key),
@@ -54,12 +55,19 @@ description: Steps and status for publishing this extension to the Chrome Web St
   5. R (Cloud console): set the OAuth client's Item ID to the new ID,
      and the consent screen to In production (Testing only lets listed
      test users sign in; `drive.file` is non-sensitive, basic
-     verification only).
+     verification only). Don't add a logo or display name to the
+     consent screen: that triggers brand verification (2-3 business
+     days).
   6. R (Azure): add `https://<new-id>.chromiumapp.org/` under the
      existing Mobile and desktop platform (not SPA).
   7. Re-verify Google and Excel sign-in and a real logged row on the
      new-ID build, and run the open Excel tests (CLAUDE.md, Sheet
-     setup) in the same sitting.
+     setup) in the same sitting. Also check live:
+     - Edit from the popup's recent list (never run since provider
+       calls moved into the background worker), and Reconnect.
+     - Undo and Edit from the "Logged" notification.
+     - Excel: a concurrent-append test (several appends at once), since
+       `lib/sheetAppendLock.ts` only wraps the Google provider.
   8. **Done 2026-09-11** (`f4ab8c5`): CLAUDE.md's LinkedIn "Known v1
      gap" is resolved. The selector matches LinkedIn's current markup
      (the link variant in any UI language, the button variants in
