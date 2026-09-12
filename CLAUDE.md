@@ -1198,3 +1198,13 @@ published 2026-09-09).
   fetchable, multi-company evidence available immediately. Revisit
   when there's appetite for a parser built entirely from live
   browser inspection with no pre-verification step at all.
+- **appendRow isn't idempotent (logged 2026-09-11):** if `appendRow`
+  succeeds on Google's/Microsoft's side but the client times out
+  (`lib/fetchWithTimeout.ts`, 30s), `handleJobApplicationLogged`'s catch
+  queues the same row and the next `drainOfflineQueue` appends it again.
+  Not observed in practice, but the path is real. A queue retry reuses
+  the row, so the duplicate has the same Date. Since 2026-09-11 Sheets
+  stores Date floored to the minute, so an identical Date no longer
+  proves a retry: two clicks in the same minute look the same. Needs a
+  design decision before any fix (e.g. a per-message id checked before
+  re-appending). Pick up after Phase 9.
