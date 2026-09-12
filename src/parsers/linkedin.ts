@@ -189,19 +189,22 @@ export const linkedinParser: JobPageParser = {
   },
 
   getApplyButtonSelector() {
-    // Confirmed via real DOM inspection across 4 live authenticated
-    // postings (3 Easy Apply, 1 off-site): it's an <a>, not a <button>,
-    // aria-label="LinkedIn Apply to this job" and href into
-    // /jobs/view/{id}/apply/ — consistent across all 3 Easy Apply cases,
-    // hence the prefix match rather than requiring an exact string.
-    //
-    // This also turned out to self-scope to Easy-Apply-only with zero
-    // extra logic: the one off-site posting checked has a completely
-    // different label ("Apply on company website") and its href routes
-    // through LinkedIn's own /safety/go/?url=... redirect wrapper rather
-    // than pointing at /jobs/view/.../apply/ directly — so no separate
-    // href check is needed to enforce the Easy-Apply-only scope boundary
-    // documented in CLAUDE.md.
-    return 'a[aria-label^="LinkedIn Apply"]'
+    // Re-checked 2026-09-11 (read-only, 5 live Easy Apply pages + 1 off-site):
+    // LinkedIn changed the label from "LinkedIn Apply to this job" to
+    // "Easy Apply to ...", so the old a[aria-label^="LinkedIn Apply"] matched
+    // nothing. Three markups seen:
+    // - /jobs/view/ (3 of 4): <a aria-label="Easy Apply to this job"> with
+    //   href /jobs/view/{id}/apply/; the href half matches it in any UI
+    //   language.
+    // - /jobs/view/ (1 of 4): <button aria-label="Easy Apply to this job">,
+    //   no href, only hashed classes; only the English label identifies it.
+    // - split-pane search: <button id="jobs-apply-button-id"
+    //   aria-label="Easy Apply to {title} at {company}">; English label only.
+    //   The id can't be used: the split pane's off-site Apply button shares
+    //   it ("Apply to {title} on company website", checked live 2026-09-11).
+    // Easy-Apply-only scope still holds: "Apply on company website" goes
+    // through /safety/go/ with a percent-encoded target, and its label
+    // doesn't start with "Easy Apply to", so it matches neither half.
+    return 'a[href*="/jobs/view/"][href*="/apply/"], [aria-label^="Easy Apply to"]'
   },
 }

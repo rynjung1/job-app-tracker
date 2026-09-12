@@ -18,6 +18,8 @@ The dashboard shows this as plain text, so it has no Markdown.
 ```text
 Job Application Tracker eliminates the copy-paste step of a job search. When you submit an application on LinkedIn (Easy Apply) or a Greenhouse-hosted job posting, it automatically logs the company, title, location, and date to a spreadsheet you control — Google Sheets or Microsoft Excel/OneDrive, your choice.
 
+Easy Apply detection is fully supported with LinkedIn set to English.
+
 No setup beyond connecting your account: the extension creates a new, formatted spreadsheet on first use, with a Status column, dropdown, and color-coded conditional formatting (Sheets) so you can track Applied / Interview / Offer / Rejected at a glance.
 
 Every log gets a brief undo window and an editable resume-version field, so you can correct a mismatched resume choice or cancel an accidental log without ever touching the spreadsheet by hand.

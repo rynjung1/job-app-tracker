@@ -906,10 +906,43 @@ by design, and this extension cannot and will not follow the user
 off-site to catch it. Those applications stay manual. This is a
 scope boundary, not a bug to eventually fix by widening permissions.
 
-**Known v1 gap:** the LinkedIn Apply-button selector matches on the
-English aria-label text ("LinkedIn Apply..."); a non-English LinkedIn
-UI language will silently fail to detect it. Acceptable for the
-single-user personal-use target — revisit before any Web Store push.
+**Known v1 gap (updated 2026-09-11):** Easy Apply detection is only
+fully supported with LinkedIn set to English, and the store listing
+says so (`store-assets/listing.md`). The original selector,
+`a[aria-label^="LinkedIn Apply"]`, had silently stopped matching
+anything, in English too, because LinkedIn renamed the label to "Easy
+Apply to …". A read-only inspection of 6 live pages (5 Easy Apply, 1
+off-site) found three Easy Apply markups:
+- `/jobs/view/` (3 of 4): `<a aria-label="Easy Apply to this job">`
+  with href `/jobs/view/{id}/apply/`. The href isn't translated, so
+  this one is matched in any UI language.
+- `/jobs/view/` (1 of 4): `<button aria-label="Easy Apply to this
+  job">`, no href, only hashed classes and a random `componentkey`.
+  Only the English label identifies it.
+- Split-pane search: `<button id="jobs-apply-button-id"
+  aria-label="Easy Apply to {title} at {company}">`. The id can't be
+  used: the split pane's off-site Apply button shares it (2 matches on
+  one off-site posting, both "Apply to {title} on company website").
+  English label only.
+
+The selector is now `a[href*="/jobs/view/"][href*="/apply/"],
+[aria-label^="Easy Apply to"]`. The Easy-Apply-only scope still holds:
+the off-site "Apply on company website" link goes through `/safety/go/`
+with a percent-encoded target, and off-site labels never start with
+"Easy Apply to".
+
+**Verified 2026-09-11** by Ryan with real Easy Apply clicks, closing
+the modal without applying. In English, on `/jobs/view/4460524353/`
+(the button variant), the content script's "apply logged" line fired
+with the correct company, title and location. The split-pane id check
+above is his console output. That English click landed as a real row
+(deleted afterwards). With LinkedIn set to French, Ryan reported that a
+click on a link-variant posting worked, but no console output was
+captured and no row from it reached the sheet, so the non-English path
+is not verified. Still open, as a
+separate proposal: the content script binds only the first match
+(`querySelector`), and the split pane renders the Easy Apply button
+twice, so some real clicks may still be missed.
 
 **Spot-checked 2026-09-10 (test-pass follow-up):** a real risk was
 flagged during a broader test pass but never actually verified live
