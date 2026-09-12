@@ -26,4 +26,6 @@ description: Steps and status for publishing this extension to the Chrome Web St
   before publishing. Contact is the repo's GitHub Issues page — no
   separate support email was set up for this project.
 - Store listing screenshots/description come after the extension is
-  functionally complete and tested across all three v1 site parsers.
+  functionally complete and tested across both shipped v1 site
+  parsers, LinkedIn and Greenhouse. Indeed is deferred, not part of
+  this gate (see CLAUDE.md "Deferred, not abandoned").
