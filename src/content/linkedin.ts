@@ -18,7 +18,8 @@ function sendToBackground(data: JobPostingData) {
   }
   try {
     chrome.runtime.sendMessage({ type: 'JOB_APPLICATION_LOGGED', payload: data })
-    console.log('[job-app-tracker] apply logged, sent to background:', data)
+    // No payload: scraped job data isn't printed to the page's console.
+    console.log('[job-app-tracker] apply logged, sent to background')
   } catch (err) {
     console.warn('[job-app-tracker] failed to send application data to background:', err)
   }

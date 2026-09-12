@@ -1,0 +1,44 @@
+#!/bin/sh
+# Pre-commit secret check (CLAUDE.md, Security > Secrets & credentials).
+# Looks only at what this commit adds. No dependencies. Activated by
+# `npm install`, whose "prepare" script sets core.hooksPath to .githooks.
+# For a known false positive: git commit --no-verify.
+#
+# Public identifiers are deliberately not matched and are fine to commit:
+# the Google OAuth client ID (*.apps.googleusercontent.com), the Azure
+# client ID (a GUID), and the manifest "key" (a public key).
+
+status=0
+
+# Files that should never be committed, even if force-added past .gitignore.
+blocked=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '(^|/)\.env(\..*)?$|\.(pem|p12|pfx)$')
+if [ -n "$blocked" ]; then
+  echo "pre-commit: refusing to commit secret-bearing files:" >&2
+  echo "$blocked" | sed 's/^/  /' >&2
+  status=1
+fi
+
+# Token and private-key shapes: PEM private keys, Google API keys, Google
+# OAuth client secrets, Google access and refresh tokens, and JWTs.
+patterns='-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{35}|GOCSPX-[0-9A-Za-z_-]{20,}|ya29\.[0-9A-Za-z_-]{20,}|1//0[0-9A-Za-z_-]{30,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+# A secret-named field assigned a quoted literal, e.g. client_secret: "...".
+# Unquoted values are code (refresh_token: stored.refreshToken in
+# msAuth.ts), so they're deliberately not matched.
+literal="(client_secret|refresh_token|access_token)[\"']?[[:space:]]*[:=][[:space:]]*[\"'][A-Za-z0-9._~+/-]{16,}"
+
+# Report file names only, so a real secret isn't echoed to the terminal.
+flagged=$(git diff --cached --name-only --diff-filter=ACMR | while IFS= read -r f; do
+  if git diff --cached -U0 --no-color -- "$f" | grep '^+' | grep -v '^+++' | grep -Eq -e "$patterns" -e "$literal"; then
+    echo "$f"
+  fi
+done)
+if [ -n "$flagged" ]; then
+  echo "pre-commit: possible secret in the staged changes to:" >&2
+  echo "$flagged" | sed 's/^/  /' >&2
+  status=1
+fi
+
+if [ $status -ne 0 ]; then
+  echo "pre-commit: commit blocked. Remove the secret, or use --no-verify for a known false positive." >&2
+fi
+exit $status

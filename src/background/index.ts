@@ -128,7 +128,7 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
   try {
     const provider = await getActiveProvider()
     const appended = await provider.appendRow(sheetRef, row)
-    console.log('[job-app-tracker] row written to sheet:', row)
+    console.log('[job-app-tracker] row written to sheet, row', appended.rowNumber)
     await notifyApplicationLogged(payload, row, appended)
   } catch (err) {
     console.warn('[job-app-tracker] appendRow failed, queuing for retry:', err)
@@ -189,7 +189,7 @@ async function drainOfflineQueue() {
     for (const row of queue) {
       try {
         await provider.appendRow(sheetRef, row)
-        console.log('[job-app-tracker] queued row written to sheet:', row)
+        console.log('[job-app-tracker] queued row written to sheet')
         drainedCount++
       } catch (err) {
         console.warn('[job-app-tracker] retry failed, stopping this pass:', err)

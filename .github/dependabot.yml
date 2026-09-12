@@ -1,0 +1,7 @@
+# Weekly npm dependency update PRs (CLAUDE.md, Security > Supply chain).
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
