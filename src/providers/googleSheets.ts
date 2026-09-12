@@ -1,5 +1,6 @@
 import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
 import { columnIndexToLetter } from '../lib/columnLetter'
+import { isoToLocalDateSerial } from '../lib/dateSerial'
 import { fetchWithTimeout } from '../lib/fetchWithTimeout'
 import { withSheetAppendLock } from '../lib/sheetAppendLock'
 
@@ -98,6 +99,23 @@ const STATUS_COLORS: Record<string, { red: number; green: number; blue: number }
 const WIDE_COLUMNS = ['URL', 'Notes']
 const WIDE_COLUMN_PIXELS = 250
 
+// appendRow writes Date as a date serial (see toDateCellValue), which
+// shows as a bare number like 46276.85 without a date format on the cell.
+const DATE_COLUMN = 'Date'
+const DATE_NUMBER_FORMAT = { type: 'DATE_TIME', pattern: 'yyyy-mm-dd hh:mm' }
+
+// Date is written as a real date value, not buildRow's ISO string, so
+// Sheets treats it as a date (sorts and filters as one) instead of text.
+// It still goes through the RAW append: RAW keeps a JSON number a number
+// and still stores every scraped string field literally, so the
+// formula-injection defense is unchanged. Only this provider converts —
+// buildRow, the offline queue and the recent list all keep the ISO
+// string. A value that doesn't parse as a date is written through as-is.
+function toDateCellValue(value: string | undefined): string | number {
+  if (!value) return ''
+  return isoToLocalDateSerial(value) ?? value
+}
+
 // Column indices computed from the actual templateColumns passed in,
 // never hardcoded — self-correcting the same way readHeaders-driven
 // column order already is elsewhere in this file, in case the template
@@ -153,6 +171,20 @@ function buildFormattingRequests(sheetId: number, templateColumns: string[]): un
           strict: true,
           showCustomUi: true,
         },
+      },
+    })
+  }
+
+  // From row 2 down, same anchoring as the Status rules. Appends land in
+  // these pre-formatted cells because appendRow uses OVERWRITE, not
+  // INSERT_ROWS.
+  const dateColumnIndex = templateColumns.indexOf(DATE_COLUMN)
+  if (dateColumnIndex !== -1) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, startColumnIndex: dateColumnIndex, endColumnIndex: dateColumnIndex + 1 },
+        cell: { userEnteredFormat: { numberFormat: DATE_NUMBER_FORMAT } },
+        fields: 'userEnteredFormat.numberFormat',
       },
     })
   }
@@ -256,7 +288,9 @@ export const googleSheetsProvider: SpreadsheetProvider = {
       // correcting if the user ever reorders columns by hand, and the only
       // correct behavior once existing-sheet linking (Phase 7) is in play.
       const headers = await this.readHeaders(sheetRef)
-      const values = headers.map((header) => row[header] ?? '')
+      const values = headers.map((header) =>
+        header === DATE_COLUMN ? toDateCellValue(row[header]) : (row[header] ?? ''),
+      )
 
       const range = `${sheetRef.sheetName}!A1`
       const result = (await withAuth((token) =>

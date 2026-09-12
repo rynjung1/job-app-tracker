@@ -785,8 +785,55 @@ prevent it.
   blanks or duplicates. The data rows were unstyled, and every Status
   cell had its dropdown.
 
-Excel (`tables/rows`) was not tested (skipped for lack of a Microsoft
-token), so that question is still open.
+**Updated 2026-09-11 (Date column, Google only):** `buildRow` writes
+Date as an ISO string, and through the RAW append Sheets stored it as
+text (`2026-09-11T20:26:32.390Z`), not a date. `GoogleSheetsProvider.
+appendRow` now converts it to a real date value, a date serial from
+`lib/dateSerial.ts`. `createSheet` formats column A from row 2 down as
+`yyyy-mm-dd hh:mm`. Only the provider converts: `buildRow`, the offline
+queue and the recent list all keep the ISO string. Still RAW: a JSON
+number stays a number, and every scraped string is still stored
+literally, so the formula-injection defense is unchanged. The serial is
+the browser's local time, using the offset of the timestamp being
+written, not the current one, so a row queued before a DST change and
+drained after it still shows the time the user applied. It's floored to
+the minute because Sheets rounds an `hh:mm` display to the nearest
+minute: 12:00:59.9 showed as 12:01, and 23:59:30 or later would show
+the next day. Sheets created before this change have no date format on
+column A, so new rows there show a bare number (e.g. `46276.68`) until
+column A is given a date format once by hand. Rows logged before the
+change stay ISO text.
+
+**Verified 2026-09-11** on a throwaway sheet, checked via the script's
+JSON output: an esbuild bundle of the real `googleSheets.ts` run in the
+extension's service worker, browser timezone America/Toronto. Real
+`createSheet`, then three real `appendRow` calls:
+- `2026-09-11T20:26:32.390Z` landed as `numberValue` 46276.685 with
+  format `DATE_TIME yyyy-mm-dd hh:mm`, displayed `2026-09-11 16:26`.
+- Same row, formula-injection regression: `=1+1`, `+SUM(1,1)`, `@A1`
+  and `-2-3` all landed as literal text with no `formulaValue`.
+- A row the append added past a grid shrunk to 3 rows (a real sheet
+  hits this after 999 applications) kept the format:
+  `2026-10-31 12:00`.
+- 12:00:59.9 displayed as `12:01`. That's how the rounding was found.
+  The floor was added after this run and not rerun live. It's covered
+  by a pure-function check of the real `dateSerial.ts` in Node
+  (`TZ=America/Toronto`): that timestamp now converts to exactly
+  46328.5 (12:00), 23:59:45 local stays on the same day, and one
+  timestamp on each side of both 2026 DST changes converts to the
+  right local noon.
+
+**Open Excel questions, to test together in one Excel session before
+submission** (no Microsoft token was available on 2026-09-11):
+- Whether `tables/rows` appends have the same formatting problem
+  (untested).
+- The Date column. `ExcelProvider` still writes the ISO string, which
+  is today's behaviour, so nothing regressed. What Excel does with that
+  string was never checked, and neither was the fix: writing the same
+  serial through Graph with a column `numberFormat`, and whether an
+  Excel table carries that format onto new rows. Not shipped untested:
+  the Phase 8 formula-injection bug showed Excel's Graph write path
+  doesn't behave the way the Sheets path does.
 
 ~~Alternative: **link an existing sheet.** The extension reads the
 existing header row and auto-maps it to the known fields above using
