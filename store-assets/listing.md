@@ -27,16 +27,23 @@ From the extension's popup you can edit the resume version of, or undo, any of y
 Privacy: the extension only reads job-posting pages on the specific sites it supports — it never has access to other tabs or browsing activity. It only ever talks to Google's or Microsoft's own APIs to write your spreadsheet; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) or its own app folder (Microsoft Files.ReadWrite.AppFolder) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
 ```
 
-## Screenshots (1280×800, 24-bit PNG, no alpha)
+## Screenshots (1280×800, 24-bit PNG, no alpha, full bleed)
 
-All data shown is placeholder: fake companies and `jobs.example.com`
-URLs.
+Chrome requires full-bleed screenshots (square corners, no padding), so
+the earlier padded options screenshot was dropped. All data shown is
+placeholder: fake companies and `jobs.example.com` URLs. Upload in this
+order:
 
 1. `screenshots/1-popup.png`: the popup's recent-applications list with
-   Edit/Undo.
-2. `screenshots/2-options.png`: the options page, connected, with the
-   supported-sites line.
-3. `screenshots/3-spreadsheet.png`: the auto-created sheet, with the
+   Edit/Undo, open over the auto-created sheet. It's a composite of two
+   unedited product captures: the popup, cropped to its card, placed
+   top-right where it opens from the toolbar, with a drop shadow and a
+   1px border, over screenshot 3. Neither capture is retouched. The
+   popup shows Arclight and Northwind as Applied while the sheet shows
+   Offer and Interview. That's real behaviour: the popup only knows
+   statuses the extension set itself, and those two were changed in the
+   sheet by hand.
+2. `screenshots/3-spreadsheet.png`: the auto-created sheet, with the
    formatted header, real dates, and the Status dropdown and colours.
 
 ## Privacy practices tab
