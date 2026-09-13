@@ -1,6 +1,6 @@
 // Converts an ISO timestamp (what buildRow writes) to a spreadsheet date
-// serial: whole days since 1899-12-30, the epoch Google Sheets and Excel
-// both use, with the time of day as the fraction. A serial carries no
+// serial: whole days since 1899-12-30, the epoch Google Sheets uses, with
+// the time of day as the fraction. A serial carries no
 // timezone of its own and is displayed as-is, so it's shifted to the
 // browser's local wall clock first.
 //

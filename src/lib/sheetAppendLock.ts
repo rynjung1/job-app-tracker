@@ -1,9 +1,8 @@
 // Dedicated mutex serializing GoogleSheetsProvider.appendRow — deliberately
-// not a reuse of lib/storageLock.ts (fast storage-only operations) or
-// lib/msTokenLock.ts (Excel token refresh). An append is a real network
-// round trip, up to FETCH_TIMEOUT_MS (30s) in a slow case, and sharing
-// either existing lock would stall an unrelated storage write or token
-// refresh behind it.
+// not a reuse of lib/storageLock.ts (fast storage-only operations). An
+// append is a real network round trip, up to FETCH_TIMEOUT_MS (30s) in a
+// slow case, and sharing that lock would stall an unrelated storage write
+// behind it.
 //
 // Why appends need serializing at all: appendRow uses
 // insertDataOption=OVERWRITE (see googleSheets.ts for why not INSERT_ROWS),
@@ -16,7 +15,7 @@
 // writer exists. If that ever stops being true (e.g. existing-sheet linking,
 // or sheetRef synced across devices), this lock stops being enough.
 //
-// Same promise-chaining shape as storageLock.ts/msTokenLock.ts, and safe
+// Same promise-chaining shape as storageLock.ts, and safe
 // across service worker suspension for the same reason: a killed worker's
 // in-flight chain dies with whatever was genuinely in flight anyway, and a
 // fresh worker starts with a clean, already-resolved tail.

@@ -80,11 +80,7 @@ function parseAppendedRange(updatedRange: string): AppendedRow {
 // New-sheet visual formatting (createSheet only — never applied to an
 // already-existing sheet). Real Sheets conditional-format rules, not
 // colors painted at write time, so they keep re-evaluating live even if
-// the user retypes a Status value by hand later, unlike the Excel side
-// (see excel.ts — Graph has no conditional-formatting endpoint at all,
-// confirmed by checking Microsoft's own Excel-in-Graph reference, which
-// covers worksheets/tables/charts/ranges/functions exhaustively but never
-// mentions it).
+// the user retypes a Status value by hand later.
 const HEADER_BACKGROUND_COLOR = { red: 0.2, green: 0.4, blue: 0.8 } // #3366CC
 const HEADER_TEXT_COLOR = { red: 1, green: 1, blue: 1 }
 

@@ -5,7 +5,7 @@
 A Chrome extension (Manifest V3) that detects when the user submits a job
 application on a supported job site, automatically extracts the relevant
 data (title, company, URL, date), and logs it to the user's spreadsheet
-(Google Sheets or Microsoft Excel/OneDrive) with no manual data entry.
+(Google Sheets) with no manual data entry.
 Goal: eliminate the manual copy-paste-into-spreadsheet step of a job
 search, while remaining safe to publish on the Chrome Web Store.
 
@@ -200,15 +200,12 @@ appended twice before the fix and exactly once after. Fixed with a
 module-scope `isDraining` boolean (checked and set at the top of
 `drainOfflineQueue`, reset in a `finally`) — safe as a plain in-memory
 flag specifically because this function only ever runs inside the
-background worker's own realm; no popup/options caller exists for it
-(contrast the still-cross-realm `MS_TOKEN_KEY` question below, where
-the same kind of flag would not be sufficient).
+background worker's own realm; no popup/options caller exists for it.
 
 Paired with a real fetch timeout, added because it didn't exist at
-all — confirmed via grep of `googleSheets.ts`/`excel.ts`/`msAuth.ts`
-before writing `lib/fetchWithTimeout.ts`. 30 seconds: comfortably
-above any real Sheets/Graph/token-endpoint call this project has
-actually observed, and comfortably below both `RETRY_ALARM_NAME`'s
+all — confirmed via grep of every provider file before writing
+`lib/fetchWithTimeout.ts`. 30 seconds: comfortably above any real
+API call this project has actually observed, and comfortably below both `RETRY_ALARM_NAME`'s
 5-minute period and Chrome's own documented 5-minute single-request
 service-worker kill threshold — a deliberate margin under both
 ceilings, not a number picked to match either one. This shrinks the
@@ -241,10 +238,9 @@ rather than fold silently into the fix above:
   `Response.ok`/`.status`/`.headers` are WebIDL-branded accessors
   that check `this` is a genuine `Response` with real internal slots
   and throw `Illegal invocation` otherwise. Since every provider's
-  `apiFetch`/`graphFetch` checks `res.ok` on the very first line
-  after every call, this would have broken every Google Sheets and
-  Excel write in production — worse than the bug the fix existed to
-  close. Missed by three initial verification passes because all
+  `apiFetch` checks `res.ok` on the very first line after every
+  call, this would have broken every spreadsheet write in production
+  — worse than the bug the fix existed to close. Missed by three initial verification passes because all
   three ran under Node (a local Node HTTP server, Node's own fetch,
   this file bundled and run under Node) — Node's fetch (undici) is
   receiver-agnostic and never enforces the brand check that real
@@ -261,58 +257,15 @@ rather than fold silently into the fix above:
   Node** — Node's fetch implementation is close enough to pass
   Node-only tests while still shipping a real production break.
 
-A separate, still-open finding from the same investigation:
-`msAuth.ts`'s `MS_TOKEN_KEY` read-modify-write has no locking either,
-and — unlike `drainOfflineQueue` — it's called from multiple JS
-realms (background *and* any extension page), so an in-memory flag
-like `isDraining` would not fix it; `withStorageLock` wouldn't either,
-since its `tail` promise chain is module-scope and each realm gets
-its own independent instance. Reproduced concurrently: two realms
-racing to refresh the same Excel refresh token both succeed today
-(Microsoft's own docs: refresh tokens aren't revoked on reuse) but
-silently orphan one of the two newly-issued refresh tokens — not a
-hard failure currently, but correctness resting on an external,
-changeable API behavior rather than anything this codebase controls.
-Not fixed here — the real fix is collapsing every provider call
-(popup, options, background) into the one realm that already holds
-the lock pattern, tracked as separate follow-up work, not something
-this commit's guard extends to.
-
-**Fixed 2026-09-10 (later the same day, after centralization):** the
-`MS_TOKEN_KEY` race above is now actually closed, not just made
-closeable. Centralizing every provider call into the background
-worker's one realm (see Trust boundary, below) removed the
-*cross-realm* instantiation problem, but a single realm can still
-race — two concurrent message handlers (e.g. `CANCEL_APPLICATION`
-arriving while `drainOfflineQueue`'s alarm is mid-flight) are two
-independent async chains that can still interleave at their own
-`await` points. Fixed with a new dedicated `lib/msTokenLock.ts`
-(`withMsTokenLock`) — deliberately not a reuse of `withStorageLock`:
-that lock's own design comment justifies one shared lock specifically
-because `OFFLINE_QUEUE_KEY`/`RECENT_APPLICATIONS_KEY` operations are
-fast (a few ms of storage I/O); Excel token refresh is a real network
-round trip, up to `FETCH_TIMEOUT_MS` (30s) in a slow case, and sharing
-the existing lock would let a slow Excel refresh stall an unrelated,
-fast `queueRow`/`addRecentApplication` call for no reason. Both
-`getValidExcelToken` and `forceRefreshExcelToken` wrap their **entire**
-body in the lock, including the fast path (cached token still valid) —
-not just the refresh-and-write branch, a real distinction caught during
-review: the race is two callers each *deciding* whether to refresh
-from their own independent read, not just an unsynchronized write, so
-every caller needs to go through one serialized queue and re-read
-the token once it acquires the lock, rather than each deciding from
-whatever it happened to read first. Verified against the real,
-bundled `msAuth.ts` (not a re-derivation), mocked Microsoft token
-endpoint honoring the real documented reuse-doesn't-invalidate
-behavior: two concurrent `getValidExcelToken()` calls on an expired
-token now produce exactly one real exchange, both callers converging
-on the same resulting access token, where the pre-fix version
-produced two independent exchanges and silently orphaned one refresh
-token. A second, mixed-pair check (`getValidExcelToken` +
-`forceRefreshExcelToken` concurrently) confirmed the lock serializes
-correctly with no deadlock — two exchanges there is the *correct*
-outcome, not a bug, since `forceRefreshExcelToken`'s whole contract is
-unconditional refresh regardless of current validity.
+**Excel-era history (removed 2026-09-13):** the same investigation
+found that the Excel provider's `MS_TOKEN_KEY` refresh could race
+across JS realms. That led to centralizing every provider call in the
+background worker (see Trust boundary) and a dedicated
+`lib/msTokenLock.ts`; both the Excel token and that lock left with
+Excel support. The lesson that still applies: one realm can still race
+between two async message handlers, so a read-decide-write on shared
+state needs a lock around the decision, not just the write (the
+pattern `lib/pendingApplications.ts` follows).
 
 3. **Popup + options page**
    - Popup: shows a toast-style confirmation for ~5 seconds after an
@@ -491,11 +444,33 @@ then Undo/Edit was retried on the now-stale cached entry — the
 inline error appeared, and a real re-read of that cell afterward (not
 just trusting the UI) confirmed zero write occurred.
 
-### Spreadsheet backend (locked decision: support both)
+### Spreadsheet backend (Google Sheets only since 2026-09-13)
 
 A `SpreadsheetProvider` interface decouples the rest of the extension
-from which backend is active. See `src/providers/types.ts` for the
-current interface.
+from the backend. See `src/providers/types.ts` for the current
+interface.
+
+**Reversed 2026-09-13 (decided by Ryan): Excel/OneDrive support
+removed.** This was the locked "support both" decision, flagged before
+changing it. Why: Ryan uses Google Sheets only; the Excel path was
+never tested for the store (two Excel questions were still open); and
+removing it drops two host permissions (`login.microsoftonline.com`,
+`graph.microsoft.com`) and the only credential the extension stored
+itself, a Microsoft refresh token.
+- Removed: `providers/excel.ts`, `providers/msAuth.ts`,
+  `lib/msTokenLock.ts`, `lib/pkce.ts`,
+  `public/templates/blank-workbook.xlsx`, the Excel-only `SheetRef`
+  fields (`tableId`, `webUrl`), the options page's Excel button, and
+  the stored provider choice.
+- An extension update deletes the leftover `msToken` and
+  `activeProvider` keys (`REMOVED_EXCEL_KEYS`, background
+  `onInstalled`).
+- Kept: the `SpreadsheetProvider` interface, with
+  `providers/activeProvider.ts`'s `getActiveProvider()` as the one
+  place callers get the provider, so another backend can still be
+  added without touching them.
+- The Excel findings (Graph auth and scopes, the AppFolder, its
+  formula-injection fix) are in git history up to `c469bbd`.
 
 **Updated 2026-09-09:** `readRow` added — reads an entire row back as
 a header-keyed record, same shape as `appendRow`'s `row` parameter.
@@ -506,36 +481,24 @@ identity before overwriting it — `updateCell`/`cancelApplication`
 are blind positional writes by `rowNumber` with no built-in
 verification, which was an acceptable, explicitly-accepted risk for
 the notification's ~5-second window but not for a popup action
-reachable indefinitely. Implemented in both providers by reading the
-row's current headers first (for column order/width), then a single
-range read across that row — `googleSheets.ts` mirrors `readHeaders`'
-own `1:1`-style range exactly, just targeting `rowNumber:rowNumber`;
-`excel.ts` computes the row's full column span from `readHeaders`'
-length and reads `A{rowNumber}:{lastCol}{rowNumber}`. A row number
-past the sheet's actual filled extent doesn't error on either API —
-both just return empty values, which naturally fails the identity
-check downstream rather than needing separate not-found handling.
+reachable indefinitely. Implemented by reading the row's current
+headers first (for column order), then a single range read across that
+row — `googleSheets.ts` mirrors `readHeaders`' own `1:1`-style range
+exactly, just targeting `rowNumber:rowNumber`. A row number past the
+sheet's actual filled extent doesn't error — the API just returns
+empty values, which naturally fails the identity check downstream rather than needing separate not-found handling.
 
-**Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`,
-Google-only — the numeric grid id (not the string `sheetName`),
+**Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`, the
+numeric grid id (not the string `sheetName`),
 captured at `createSheet` time. Needed because `batchUpdate`'s
 formatting requests (`repeatCell`, `addConditionalFormatRule`,
 `setDataValidation`, `updateDimensionProperties` — see "Sheet
 setup" below) all address ranges by this numeric id, which nothing
-had needed to capture before new-sheet formatting existed. Same
-additive, optional pattern as the Excel-only fields below.
+had needed to capture before new-sheet formatting existed.
 
 **Updated 2026-09-08:** `mapColumns` removed — it existed only for
 existing-sheet linking (Phase 7), which was permanently descoped
-(see "Sheet setup" below); it had no remaining caller. `SheetRef`
-also gained two optional, Excel-only fields not shown above:
-`tableId` (the Excel Table's id, captured at `createSheet` time)
-and `webUrl` (the driveItem's real web URL — unlike Sheets'
-predictable `docs.google.com/spreadsheets/d/{id}/edit`, OneDrive/
-SharePoint URLs are account-specific and can't be constructed from
-the item id alone). Both are additive and optional;
-`GoogleSheetsProvider` never sets them, and every provider-agnostic
-caller treats `SheetRef` as an opaque token.
+(see "Sheet setup" below); it had no remaining caller.
 
 **Updated 2026-09-01 (Phase 4):** two changes from the original
 locked shape above, both flagged and confirmed before implementing:
@@ -551,145 +514,13 @@ locked shape above, both flagged and confirmed before implementing:
   provider-agnostic code (background worker) branching on which
   backend is active.
 
-Two implementations:
-- `GoogleSheetsProvider` — Sheets API v4, OAuth via `chrome.identity`,
-  scope limited to `drive.file` (extension can only touch files it
-  created — required for a clean Web Store review).
-- `ExcelProvider` — Microsoft Graph API, scope limited to
-  `Files.ReadWrite.AppFolder` (folder-scoped, not per-file like
-  Google's `drive.file` — the app can only see its own
-  `Apps/Job Application Tracker` OneDrive folder).
+The implementation: `GoogleSheetsProvider` — Sheets API v4, OAuth via
+`chrome.identity`, scope limited to `drive.file` (extension can only
+touch files it created — required for a clean Web Store review).
 
-**Verified 2026-09-08 (Phase 6):** `ExcelProvider` implemented and
-tested end-to-end against a real personal Microsoft account. Real
-findings, not assumptions:
-- **Not literally MSAL.** "OAuth via MSAL" in earlier notes meant
-  the MSAL *protocol pattern*, not the `@azure/msal-browser` SDK —
-  that library's browser-feature-detection assumes a `window`
-  global and does not run inside an MV3 service worker (confirmed
-  against a real open issue on the library). Implemented instead as
-  a hand-rolled PKCE authorization-code flow
-  (`providers/msAuth.ts`) driven by `chrome.identity.launchWebAuthFlow`
-  — same small, auditable, fetch-based shape as `googleSheets.ts`,
-  no new SDK dependency.
-- **Authority is `consumers`, not the tenant ID.** The app is
-  registered "Personal Microsoft accounts only"; the Directory
-  (tenant) ID shown in the Azure portal's Overview blade is never
-  used at runtime — a tenant-ID authority explicitly does not
-  support personal accounts. `/authorize` and `/token` both use
-  `https://login.microsoftonline.com/consumers/...`.
-- **Platform type is "Mobile and desktop applications," not "SPA."**
-  A redirect URI registered under SPA gets a hard 24-hour
-  refresh-token expiry requiring genuine daily interactive re-auth —
-  incompatible with the silent-background-refresh architecture this
-  extension already relies on. "Mobile and desktop applications"
-  (public client, "Allow public client flows" = Yes) gets a 90-day
-  rolling refresh token as long as it's used at least once every 24
-  hours, which the existing 5-minute `chrome.alarms` retry loop
-  satisfies for free. `offline_access` must be in the requested
-  scope string for a refresh token to be issued at all — it's a
-  standard OIDC scope, not a Graph permission, so it does not appear
-  under API permissions in the portal.
-- **`Files.ReadWrite.AppFolder` does cover `tables/rows` writes on
-  a personal account**, despite Microsoft's own permissions
-  reference table listing that specific endpoint as "Not supported"
-  for delegated personal accounts. Confirmed empirically with a real
-  201 and a real appended row before trusting the docs either way —
-  the docs may be stale or incomplete here.
-- **The AppFolder must be lazily initialized before path-addressed
-  file operations work.** A `GET /me/drive/special/approot` call is
-  what creates `Apps/<app name>` on a OneDrive that's never used
-  this app before (confirmed both via Microsoft's own docs and a
-  real 404 without it); `createSheet` always makes this call first.
-- **`createSheet` uses a timestamped filename**
-  (`Job Applications ${Date.now()}.xlsx`), not a fixed one — Graph's
-  conflict-behavior handling for the content-upload-by-path PUT
-  endpoint specifically was unclear/contradictory in what was found
-  researching it, so this sidesteps the question by guaranteeing the
-  path never collides, matching `GoogleSheetsProvider.createSheet`'s
-  own guarantee of never silently overwriting an existing file.
-- **`appendRow`'s `rowNumber = index + 2` conversion is empirically
-  verified, not just derived.** Graph's `rows/add` response returns
-  an `index` 0-based within the table's data rows, not an absolute
-  worksheet row; since `createSheet` always anchors the table's
-  header at row 1, data row 0 sits at worksheet row 2. Tested against
-  3 real sequential appends (indexes 0, 1, 2 → rows 2, 3, 4, all
-  correct), then `updateCell` was tested against one of those real
-  rows with a separate, independent range read afterward (not
-  reusing `readHeaders`/`appendRow`/`updateCell` internals) — the
-  correct row's correct cell changed, adjacent rows untouched.
-- **Fresh personal OneDrive accounts can need provisioning first.**
-  A never-used personal Microsoft account's OneDrive can return a
-  503 `itemDisabledDueToPendingProvisioning` error until the drive
-  has been opened at least once via onedrive.com — noted here as a
-  known setup step, not independently re-verified against Microsoft
-  docs (found via direct testing, not a documentation citation).
-
-**Fixed 2026-09-09 (auth parity, found during a test pass):**
-`ExcelProvider` previously had only proactive, clock-based token
-refresh (`getValidExcelToken`, refreshing ahead of its local
-`expiresAt`) — no reaction to an actual 401 from Graph, unlike
-`GoogleSheetsProvider`'s `withAuth`. A server-side revocation the
-local clock couldn't predict (the user revokes access in their
-Microsoft account) failed identically and permanently on every
-subsequent call until the user happened to hit Reconnect for an
-unrelated reason. Fixed by adding a `withAuth` to `excel.ts`
-mirroring Google's exactly: one retry on a literal 401, forcing a
-token refresh via a new `forceRefreshExcelToken()` in `msAuth.ts`
-(the refresh-token exchange itself was already fully built for the
-proactive path — extracted into a shared `refreshExcelToken()` both
-call, nothing new needed for the actual HTTP call). Not caught if
-the refresh token itself is also revoked — that throw (a real
-`invalid_grant` from Microsoft) propagates straight out, same as
-any other unrecoverable failure, rather than looping.
-
-**Design choice**: every individual `graphFetch` call site gets its
-own `withAuth` wrapper — not one token threaded through a whole
-multi-step method like `createSheet`'s 7 calls. Matches the
-granularity `googleSheets.ts` already uses, and is cheap to repeat
-per call since `getValidExcelToken`'s common case is just a local
-`chrome.storage.local` read, no network round trip.
-
-**Verified 2026-09-09** against a real revoked grant, not a mocked
-one — the extension's access was actually revoked from the
-Microsoft account's own security settings, then a real `appendRow`
-was triggered through the normal pipeline. Full real evidence
-chain: the revoked token produced a real 401, `withAuth`'s retry
-called `forceRefreshExcelToken`, which itself failed with a real
-`invalid_grant` from Microsoft's token endpoint (revoking access
-invalidates the refresh token too, not just the access token) —
-that propagated cleanly into `appendRow`'s catch and the row queued
-(`offlineQueue: Array(1)`), confirmed via a real
-`chrome.storage.local` read, not assumed. A subsequent periodic
-drain retry hit the same real error and failed clean again — no
-loop, no silent hang. After reconnecting for real (a fresh
-interactive `authenticateExcel()`), a real application succeeded
-normally, and the previously-queued row was separately confirmed to
-have drained on its own — `offlineQueue: Array(0)` — not left
-stuck.
-
-Backend selection lives in `providers/activeProvider.ts` — a stored
-preference (`ACTIVE_PROVIDER_KEY`, defaulting to `'google'` for
-installs that predate this existing) resolves to the active
-`SpreadsheetProvider`. The options page's two "Connect" buttons set
-it at connect time; the background worker and popup resolve it
-per-call rather than importing either provider directly.
-
-**Verified 2026-09-08 (Phase 6, end-to-end):** the findings above
-came from direct diagnostic calls into `excelProvider`'s own
-methods — real, but not proof the UI wiring or the message pipeline
-actually route to it. Separately confirmed all four real paths with
-Excel selected as the active provider, through the actual UI and
-message pipeline, not diagnostics: clicking "Connect Excel /
-OneDrive" on the options page correctly set `activeProvider` to
-`"excel"` and persisted a real `sheetRef` (real `spreadsheetId` and
-`tableId`); a real `JOB_APPLICATION_LOGGED` message through the
-actual content-script → background → `getActiveProvider()` →
-`appendRow` path landed a real row with correct values in the real
-Excel file; clicking Undo on the resulting real notification set
-that row's `Status` cell to `Cancelled` in the real file; clicking
-Edit and saving a new Resume Version updated that row's real cell
-too. No known gaps in this phase.
+The rest of the extension gets the provider through
+`providers/activeProvider.ts`'s `getActiveProvider()`; the background
+worker is its only caller (see Trust boundary).
 
 Detection/parsing logic must never branch on which provider is
 active — only the provider implementation differs. This is the main
@@ -709,62 +540,33 @@ write time. Column order: Date, Company, Title, Location, URL, Resume
 Version, Status, Notes.
 
 **Updated 2026-09-09:** `createSheet` applies visual formatting to
-the new sheet/workbook — `createSheet`-only, never touches an
+the new sheet — `createSheet`-only, never touches an
 already-existing one. Column indices for all of the below are
 computed from the actual `templateColumns` array passed in
 (`indexOf('Status')`, etc.), never hardcoded, so this doesn't
 silently break if the template's shape ever changes.
 
-Both providers get the same real, documented treatment for:
-- **Header row**: bold, white text on a `#3366CC` background —
-  Sheets via one `repeatCell` request; Excel via `PATCH
-  .../range/format/font` (`bold`, `color`) and `.../format/fill`
-  (`color`), both confirmed exact shapes from Microsoft's own docs.
-- **Column widths**: `URL`/`Notes` widened so they aren't crushed —
-  Sheets via `updateDimensionProperties` (`pixelSize: 250`); Excel
-  via `PATCH .../range/format` (`columnWidth: 200`). Not a
-  pixel-matched value between the two — Sheets' unit is real pixels,
-  Excel's `columnWidth` is its own internal width unit — confirmed
-  "wide enough" by real visual inspection on both, not assumed
-  equivalent from the numbers alone.
-
-**Google-only, confirmed real capability gaps mean these do not
-exist on the Excel side at all — not a corner cut, a checked fact:**
-- **Status conditional formatting** — Sheets gets real, persistent
+- **Header row**: bold, white text on a `#3366CC` background, one
+  `repeatCell` request.
+- **Column widths**: `URL`/`Notes` widened so they aren't crushed
+  (`updateDimensionProperties`, `pixelSize: 250`).
+- **Status conditional formatting**: real, persistent
   `addConditionalFormatRule` rules (`TEXT_EQ` per value: `Offer` →
   green, `Interview` → blue, `Applied` → yellow, `Rejected`/
-  `Cancelled` → red), so the color keeps re-evaluating live even if
-  a value is changed by hand later, with no code involved at all.
-  Checked Microsoft's own "Working with Excel in Microsoft Graph"
-  reference — it exhaustively covers worksheets, tables (including
-  sort/filter), charts, ranges, named items, and functions, and
-  never mentions conditional formatting once. It's a real
-  Excel-JS-API/Office-Scripts-only capability
-  (`Excel.ConditionalFormat`) with no Graph REST endpoint. The only
-  approximation would be painting a cell's fill color procedurally
-  at write time inside `appendRow`/`updateCell` — rejected, since
-  it'd go stale the moment a user edits Status by hand (no live
-  rule watching it) and would turn this from a `createSheet`-only
-  change into an ongoing write-path one. Skipped for Excel
-  entirely, deliberately, not deferred.
-- **Status dropdown (data validation)** — Sheets restricts the
-  `Status` column to exactly the five values above via
-  `setDataValidation` (`ONE_OF_LIST`, `strict: true`,
-  `showCustomUi: true` for the actual dropdown chevron). `strict`
-  was chosen over warn-only specifically because the conditional-
-  format rules above do an exact `TEXT_EQ` match — a typo or wrong
-  case would silently get no color at all, so rejecting invalid
-  input outright protects that feature too, not just this one.
-  Confirmed via a real Microsoft Q&A thread asking this exact
-  question: *"the dataValidation endpoint is not yet implemented in
-  the Graph API"* — Office.js is the only way to touch it, not
-  reachable from Graph REST. Skipped for Excel entirely.
+  `Cancelled` → red), so the colour keeps re-evaluating live even if a
+  value is changed by hand later, with no code involved at all.
+- **Status dropdown (data validation)**: restricts `Status` to exactly
+  the five values above via `setDataValidation` (`ONE_OF_LIST`,
+  `strict: true`, `showCustomUi: true` for the actual dropdown
+  chevron). `strict` was chosen over warn-only because the colour
+  rules above do an exact `TEXT_EQ` match — a typo or wrong case would
+  silently get no colour at all, so rejecting invalid input protects
+  that feature too.
 
 **Verified 2026-09-09:** both features confirmed with real evidence
 against real newly-created sheets, not just successful API
 responses. Header formatting and column widths visually confirmed
-rendered correctly on both a real Google Sheet and a real Excel
-workbook. On the Google side specifically: the dropdown chevron
+rendered correctly on a real Google Sheet. The dropdown chevron
 actually renders on Status cells; selecting a value from it works;
 typing a non-matching value is actually rejected (not just shown a
 warning); and the conditional-formatting colors correctly fire off
@@ -857,18 +659,6 @@ extension's service worker, browser timezone America/Toronto. Real
   46328.5 (12:00), 23:59:45 local stays on the same day, and one
   timestamp on each side of both 2026 DST changes converts to the
   right local noon.
-
-**Open Excel questions, to test together in one Excel session before
-submission** (no Microsoft token was available on 2026-09-11):
-- Whether `tables/rows` appends have the same formatting problem
-  (untested).
-- The Date column. `ExcelProvider` still writes the ISO string, which
-  is today's behaviour, so nothing regressed. What Excel does with that
-  string was never checked, and neither was the fix: writing the same
-  serial through Graph with a column `numberFormat`, and whether an
-  Excel table carries that format onto new rows. Not shipped untested:
-  the Phase 8 formula-injection bug showed Excel's Graph write path
-  doesn't behave the way the Sheets path does.
 
 ~~Alternative: **link an existing sheet.** The extension reads the
 existing header row and auto-maps it to the known fields above using
@@ -1147,8 +937,8 @@ this extension's own code — Chrome caches it internally against the
 extension, and `chrome.identity.removeCachedAuthToken()` forces a
 refresh on failure. Strictly safer than the literal "stored in
 chrome.storage.local" text above; that instruction still applies as
-written to any future provider (e.g. Microsoft/MSAL) that doesn't
-have an equivalent built-in cache. The OAuth **client ID** (not a
+written to any future provider that doesn't have an equivalent
+built-in cache. The OAuth **client ID** (not a
 secret — public by design for this client type) is hardcoded in
 `manifest.config.ts`'s `oauth2` key; that's expected and fine to
 commit.
@@ -1162,24 +952,15 @@ commit.
 
 **Updated 2026-09-10 (centralization):** the rule above now applies
 literally, not just to content scripts — `popup/App.tsx` and
-`options/App.tsx` never import `providers/googleSheets.ts`/
-`providers/excel.ts`/`providers/msAuth.ts` directly; every provider
+`options/App.tsx` never import `providers/*` directly; every provider
 call (`authenticate`, `createSheet`, `readRow`, `updateCell`,
 `cancelApplication`) is a message to the background worker, which is
-the sole caller of both `SpreadsheetProvider` implementations. This
-closes two separate, real findings, not one: `options/App.tsx`
-previously called `authenticate()`/`createSheet()` directly from the
-options page's own realm, and `msAuth.ts`'s `MS_TOKEN_KEY`
-read-modify-write had no cross-realm locking — two independent JS
-realms (background and any extension page) could both refresh the
-same Excel refresh token concurrently (real repro confirmed this
-doesn't hard-fail today only because Microsoft doesn't invalidate a
-refresh token on reuse, per their own docs — an external behavior
-this codebase shouldn't rely on as a safety net). Centralizing
-collapses every provider call into one realm, where a lock actually
-works — see the Background service worker section's Fixed 2026-09-10
-note for `lib/msTokenLock.ts`, the dedicated (not reused) lock this
-made possible. As a side effect, Undo/Edit
+the sole caller of the `SpreadsheetProvider`. This closed a real
+finding: `options/App.tsx` previously called
+`authenticate()`/`createSheet()` directly from the options page's own
+realm, out of reach of the background worker's in-memory locks (it
+also closed a cross-realm race on the since-removed Excel token). As a
+side effect, Undo/Edit
 from the popup are now robust to the popup closing mid-action — the
 write is already in motion in the background worker and completes
 independent of the popup's own lifetime, where before, closing the
@@ -1231,35 +1012,20 @@ formula bar (not just cell display) for all four dangerous prefixes
 (`=`, `+`, `-`, `@`) — every cell held the literal text, none
 evaluated. No character-prefixing needed on top of `RAW` mode.
 
-**Fixed 2026-09-09 (Phase 8):** `ExcelProvider` had no equivalent
-protection, and this was a real found-and-fixed vulnerability, not
-a check that confirmed it was already safe. Graph's plain `values`
-write path has no `RAW`-mode equivalent — a live test writing
-`=1+1`, `+2+3`, `-4-5`, and `@SUM(1,1)` through the real `appendRow`
-pipeline into a real connected file confirmed all four were
-evaluated as live formulas (`values` returned the computed results
-`2`, `5`, `-9`, `2`; `valueTypes` returned `Double`, not `String`).
-Fixed with `neutralizeFormulaPrefix()` in `excel.ts`, scoped to that
-file only (not `lib/sanitize.ts`, not `googleSheets.ts`) — it
-prepends a leading apostrophe, Excel's own "force literal text"
-convention, to any value starting with `=`, `+`, `-`, or `@` before
-`appendRow`/`updateCell` send it. Re-verified with the same four
-values afterward: `values` now matches `formulas` as the literal
-input text and `valueTypes` reads `String` for all four. The two
-providers need different defenses here because they have different
-underlying safety guarantees, not because one was built more
-carefully than the other.
+**Excel-era history (removed 2026-09-13):** in Phase 8 the Excel
+provider turned out to have no `RAW`-mode equivalent: `=1+1`,
+`+2+3`, `-4-5` and `@SUM(1,1)` were evaluated as live formulas until a
+leading-apostrophe `neutralizeFormulaPrefix()` was added. The lesson
+that stays: each backend needs its own, verified formula-injection
+defense; one write path's guarantee doesn't carry over to another.
 
 **Permissions**
 - `host_permissions` scoped only to the specific job-site domains
   supported — never `<all_urls>` or broad wildcard grants. This is
   the most common reason extensions get flagged or rejected in Web
   Store review.
-- OAuth scopes minimal per provider (`drive.file` for Google;
-  `offline_access Files.ReadWrite.AppFolder` for Microsoft Graph —
-  see Spreadsheet backend, Phase 6 note, for why `offline_access` is
-  required and why it doesn't appear under the portal's API
-  permissions).
+- OAuth scope minimal: `drive.file` only (files the extension
+  creates).
 
 **Updated 2026-09-09 (Phase 8):** removed `*://www.linkedin.com/*`
 and `*://job-boards.greenhouse.io/*` from `host_permissions` —
@@ -1288,7 +1054,7 @@ actually needs it, not speculatively ahead of time.
 backend/database, which it deliberately does not): login rate
 limiting, bot protection, password hashing, row-level DB security,
 session cookie handling, file upload restrictions. Identity is
-delegated entirely to Google/Microsoft OAuth by design.
+delegated entirely to Google OAuth by design.
 
 ---
 
@@ -1299,8 +1065,8 @@ delegated entirely to Google/Microsoft OAuth by design.
   consistency with other projects.
 - `chrome.storage.local` for the offline write queue and cached
   recent-applications list.
-- No custom backend server — Google/Microsoft APIs are the only
-  external services this talks to. (Not a Python project — no `venv`
+- No custom backend server — Google's APIs are the only external
+  service this talks to. (Not a Python project — no `venv`
   involved; isolation is the standard Node `package.json` /
   `node_modules` boundary.)
 
@@ -1327,17 +1093,16 @@ published 2026-09-09).
 4. **Popup toast + Undo/Edit** — the 5-second correction window.
 5. ~~**Indeed parser**~~, then **Greenhouse parser** — prove the
    abstraction generalizes.
-6. **ExcelProvider** — second backend implementation against the
-   same interface. Done 2026-09-08; see Spreadsheet backend, Phase 6
-   note, for the real auth/scope/provisioning findings.
+6. ~~**ExcelProvider**~~ — built 2026-09-08, removed 2026-09-13 (see
+   Spreadsheet backend).
 7. ~~**Existing-sheet linking + column auto-mapping.**~~ Descoped
    2026-09-08 — see "Sheet setup" above. Auto-create-only confirmed
    working end-to-end since Phase 3; nothing shipped from this phase.
 8. **Security pass** — formula-injection sanitization, permission
    audit, `npm audit`, manifest CSP check — before any Web Store
    submission. Started 2026-09-09; see Security section's Phase 8
-   notes above for the real found-and-fixed Excel formula-injection
-   vulnerability and the `host_permissions` cleanup. `npm audit`
+   notes above for the `host_permissions` cleanup (the Excel
+   formula-injection fix left with Excel). `npm audit`
    (2 findings, both `vite`/`esbuild`, dev-only, don't ship; re-run
    2026-09-11: `npm audit --omit=dev` finds 0, and the full audit's 1
    high is `vite` and 1 moderate is `esbuild`, both build tooling that
@@ -1365,7 +1130,7 @@ published 2026-09-09).
   when there's appetite for a parser built entirely from live
   browser inspection with no pre-verification step at all.
 - **appendRow isn't idempotent (logged 2026-09-11):** if `appendRow`
-  succeeds on Google's/Microsoft's side but the client times out
+  succeeds on Google's side but the client times out
   (`lib/fetchWithTimeout.ts`, 30s), `handleJobApplicationLogged`'s catch
   queues the same row and the next `drainOfflineQueue` appends it again.
   Not observed in practice, but the path is real. A queue retry reuses

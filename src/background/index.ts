@@ -7,7 +7,7 @@ import type { AppendedRow } from '../providers/types'
 import type { JobPostingData } from '../parsers/types'
 import { buildRow } from '../lib/buildRow'
 import { sanitizeRow } from '../lib/sanitize'
-import { OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
+import { OFFLINE_QUEUE_KEY, REMOVED_EXCEL_KEYS } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
 import { getDefaultResumeVersion } from '../lib/resumeVersion'
 import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
@@ -44,6 +44,12 @@ chrome.runtime.onInstalled.addListener((details) => {
   chrome.alarms.create(RETRY_ALARM_NAME, { periodInMinutes: 5 })
   if (details.reason === 'install') {
     chrome.runtime.openOptionsPage()
+  }
+  // Excel/OneDrive support was removed 2026-09-13: delete the Microsoft
+  // token and provider choice an earlier version may have stored, so the
+  // extension keeps no credential of its own.
+  if (details.reason === 'update') {
+    chrome.storage.local.remove(REMOVED_EXCEL_KEYS)
   }
 })
 

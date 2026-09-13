@@ -1,15 +1,14 @@
-// Real gap this closes: no fetch() call anywhere in googleSheets.ts,
-// excel.ts, or msAuth.ts had a timeout — confirmed via grep before this
+// Real gap this closes: no fetch() call anywhere in googleSheets.ts (or the
+// since-removed Excel provider) had a timeout — confirmed via grep before this
 // file existed. A stalled request (dead proxy, hung connection accepted
 // but never answered) blocks the calling await forever, which is exactly
 // what let a second chrome.alarms-triggered drainOfflineQueue() start
 // concurrently and double-append queued rows (real repro, see CLAUDE.md's
 // offline-queue notes).
 //
-// 30s: comfortably above any real Sheets/Graph/token-endpoint call this
-// project has actually observed (Phase 3/6/8 testing — normal calls
-// complete in low single digits of seconds, including createSheet's
-// multi-step Excel formatting sequence), and comfortably below both
+// 30s: comfortably above any real API call this project has actually
+// observed (normal calls complete in low single digits of seconds,
+// including createSheet's multi-request setup), and comfortably below both
 // ceilings that matter for the drain re-entrancy bug specifically —
 // chrome.alarms' 5-minute RETRY_ALARM_NAME period (so a stuck request
 // always fails and unblocks a drain well before a second alarm could ever

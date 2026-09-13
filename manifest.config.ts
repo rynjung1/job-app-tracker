@@ -44,19 +44,9 @@ export default defineManifest({
   // the manifest itself, not just OAuth scopes — re-add only when a real
   // feature actually needs it, not speculatively ahead of time.
   //
-  // login.microsoftonline.com + graph.microsoft.com added for
-  // ExcelProvider — the hand-rolled PKCE flow's token-endpoint fetch()
-  // and the Graph API calls both need this to avoid a CORS failure, same
-  // reasoning as sheets.googleapis.com above. This also means these
-  // background-worker fetch() calls are NOT subject to CORS at all (a
-  // privileged-context exemption once host_permissions is declared) —
-  // irrelevant to whether Microsoft's SPA-vs-native platform distinction
-  // matters for us; see CLAUDE.md ExcelProvider notes.
-  host_permissions: [
-    'https://sheets.googleapis.com/*',
-    'https://login.microsoftonline.com/*',
-    'https://graph.microsoft.com/*',
-  ],
+  // login.microsoftonline.com + graph.microsoft.com removed 2026-09-13,
+  // with Excel/OneDrive support (CLAUDE.md, Spreadsheet backend).
+  host_permissions: ['https://sheets.googleapis.com/*'],
   // Client ID is a public identifier for this client type — Google doesn't
   // issue a secret for "Chrome Extension" OAuth clients, so this is fine to
   // commit (see CLAUDE.md Security > Secrets & credentials, Phase 3 note).

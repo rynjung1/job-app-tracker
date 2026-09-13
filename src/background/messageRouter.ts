@@ -1,19 +1,9 @@
 // Central RPC handler for privileged actions requested by extension pages
 // (popup, options) — see CLAUDE.md's Trust boundary section. Every
 // SpreadsheetProvider call that used to happen inside popup/App.tsx's or
-// options/App.tsx's own document now happens here instead, closing two
-// separate real findings with one change: options/App.tsx previously
-// called authenticate()/createSheet() directly from its own realm, and
-// msAuth.ts's MS_TOKEN_KEY read-modify-write had no cross-realm locking —
-// two independent JS realms (background and any extension page) could
-// both refresh the same Excel refresh token concurrently (see
-// lib/fetchWithTimeout.ts's CLAUDE.md note for the unrelated re-entrancy
-// fix, and the still-open MS_TOKEN_KEY race this change actually closes).
-// Collapsing every provider call into this one realm is what makes the
-// existing withStorageLock pattern (lib/storageLock.ts) actually
-// applicable to MS_TOKEN_KEY — a plain in-memory flag like
-// drainOfflineQueue's isDraining would not have been enough, since that
-// only works within a single realm and this problem spans two.
+// options/App.tsx's own document now happens here instead, so the
+// background worker is the only realm that ever calls a provider, and the
+// in-memory locks in lib/ (storageLock, sheetAppendLock) cover every caller.
 //
 // Dispatched from background/index.ts's onMessage listener via a second,
 // narrower branch — sender.origin === this extension's own
@@ -24,8 +14,7 @@
 // against a real Chrome instance — see background/index.ts's onMessage
 // listener for the full reasoning and evidence).
 
-import type { ProviderId } from '../providers/activeProvider'
-import { getActiveProvider, getProvider, setActiveProviderId } from '../providers/activeProvider'
+import { getActiveProvider } from '../providers/activeProvider'
 import type { SheetRef } from '../providers/types'
 import { SHEET_TEMPLATE_COLUMNS } from '../lib/sheetTemplate'
 import { getSheetRef, setSheetRef } from '../lib/sheetRef'
@@ -34,8 +23,8 @@ import type { RecentApplication } from '../lib/recentApplications'
 import { setLastResumeVersion } from '../lib/resumeVersion'
 
 export type BackgroundRequest =
-  | { type: 'CONNECT_PROVIDER'; payload: { providerId: ProviderId } }
-  | { type: 'RECONNECT_PROVIDER'; payload: { providerId: ProviderId } }
+  | { type: 'CONNECT_PROVIDER' }
+  | { type: 'RECONNECT_PROVIDER' }
   | {
       type: 'SAVE_RESUME_VERSION'
       payload: { entryId: string; resumeVersion: string; skipIdentityCheck: boolean }
@@ -81,9 +70,9 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
   try {
     switch (message.type) {
       case 'CONNECT_PROVIDER':
-        return await handleConnectProvider(message.payload)
+        return await handleConnectProvider()
       case 'RECONNECT_PROVIDER':
-        return await handleReconnectProvider(message.payload)
+        return await handleReconnectProvider()
       case 'SAVE_RESUME_VERSION':
         return await handleSaveResumeVersion(message.payload)
       case 'CANCEL_APPLICATION':
@@ -94,12 +83,8 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
   }
 }
 
-async function handleConnectProvider({
-  providerId,
-}: {
-  providerId: ProviderId
-}): Promise<BackgroundResponse<SheetRef>> {
-  const provider = getProvider(providerId)
+async function handleConnectProvider(): Promise<BackgroundResponse<SheetRef>> {
+  const provider = await getActiveProvider()
   // Interactive — this is one of the few places allowed to trigger a
   // provider's OAuth consent popup, since it's a direct result of the
   // user clicking Connect on the options page, not something firing
@@ -108,16 +93,11 @@ async function handleConnectProvider({
   await provider.authenticate()
   const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS])
   await setSheetRef(sheetRef)
-  await setActiveProviderId(providerId)
   return { ok: true, data: sheetRef }
 }
 
-async function handleReconnectProvider({
-  providerId,
-}: {
-  providerId: ProviderId
-}): Promise<BackgroundResponse<undefined>> {
-  const provider = getProvider(providerId)
+async function handleReconnectProvider(): Promise<BackgroundResponse<undefined>> {
+  const provider = await getActiveProvider()
   await provider.authenticate()
   // Keep the existing sheetRef — only the OAuth grant needed refreshing,
   // not the sheet itself. Calling createSheet() here would orphan the

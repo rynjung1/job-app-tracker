@@ -6,14 +6,13 @@ description: Steps and status for publishing this extension to the Chrome Web St
 ## Deployment path (Chrome Web Store)
 
 - Manifest V3 required for any new listing.
-- Register an OAuth client in Google Cloud Console (and an app
-  registration in Azure AD for the Microsoft side) scoped as
+- Register an OAuth client in Google Cloud Console, scoped as
   described in this project's CLAUDE.md (Security section).
 - Short privacy policy page required before submission, since the
   extension touches page content and a connected account — should
   state plainly what data is read, what's sent where, and that no
-  data is sent to any server other than Google's/Microsoft's own
-  APIs. **Status (2026-09-09): done.** Published at
+  data is sent to any server other than Google's own APIs.
+  **Status (2026-09-09): done.** Published at
   https://rynjung1.github.io/job-app-tracker/privacy.html —
   confirmed live with a real fetch (HTTP 200, real content, not
   just a successful GitHub Pages API response) before being marked
@@ -27,11 +26,9 @@ description: Steps and status for publishing this extension to the Chrome Web St
   separate support email was set up for this project.
 - **Blocker until done: the extension ID changes on first upload.**
   `manifest.config.ts` has no `key`, so the Web Store assigns a new ID,
-  not the unpacked dev ID `hopcbbifbonofhibjgdkogmbnocaghmg`. Both
-  sign-ins are bound to it: the Google OAuth client is a "Chrome
-  Extension" client whose Item ID is the extension ID, and `msAuth.ts`
-  sends `chrome.identity.getRedirectURL()` (`https://<id>.chromiumapp.org/`)
-  as the redirect URI, which Azure must have registered. Storage is
+  not the unpacked dev ID `hopcbbifbonofhibjgdkogmbnocaghmg`. Google
+  sign-in is bound to it: the OAuth client is a "Chrome Extension"
+  client whose Item ID is the extension ID. Storage is
   per-ID too: the new-ID build starts with no `sheetRef`, queue or
   recent list. Once `key` is in the manifest, dev builds share the store
   ID, so the unpacked build and a store install can't coexist.
@@ -47,7 +44,7 @@ description: Steps and status for publishing this extension to the Chrome Web St
      R copies the Item ID and Package > View public key.
   3. R: confirm the old ID's offline queue is empty before switching;
      rows still queued there would be stranded. Decided 2026-09-11: the
-     new ID starts fresh. Its Connect (step 7, once steps 5-6 are done)
+     new ID starts fresh. Its Connect (step 6, once step 5 is done)
      creates a new sheet, and the old sheet stays in Drive untouched.
   4. Add the public key as `key` in `manifest.config.ts`; R loads the
      build and checks chrome://extensions shows the Item ID, then
@@ -58,25 +55,24 @@ description: Steps and status for publishing this extension to the Chrome Web St
      verification only). Don't add a logo or display name to the
      consent screen: that triggers brand verification (2-3 business
      days).
-  6. R (Azure): add `https://<new-id>.chromiumapp.org/` under the
-     existing Mobile and desktop platform (not SPA).
-  7. Re-verify Google and Excel sign-in and a real logged row on the
-     new-ID build, and run the open Excel tests (CLAUDE.md, Sheet
-     setup) in the same sitting. Also check live:
+  6. Re-verify Google sign-in and a real logged row on the new-ID
+     build. Also check live:
      - Edit from the popup's recent list (never run since provider
        calls moved into the background worker), and Reconnect.
      - Undo and Edit from the "Logged" notification.
-     - Excel: a concurrent-append test (several appends at once), since
-       `lib/sheetAppendLock.ts` only wraps the Google provider.
-  8. **Done 2026-09-11** (`f4ab8c5`): CLAUDE.md's LinkedIn "Known v1
+  7. **Done 2026-09-11** (`f4ab8c5`): CLAUDE.md's LinkedIn "Known v1
      gap" is resolved. The selector matches LinkedIn's current markup
      (the link variant in any UI language, the button variants in
      English), and the listing says Easy Apply detection is fully
      supported with LinkedIn set to English. `f3cb30a` also fixed
      split-pane applications not being logged.
-  9. Upload the final build as a new version of the same item, fill in
+  8. Upload the final build as a new version of the same item, fill in
      the listing (`store-assets/listing.md`, `store-assets/screenshots/`)
      and the privacy-practices tab; R submits.
+- Optional housekeeping (R): Excel/OneDrive support was removed
+  2026-09-13, so the Azure app registration from that era is unused.
+  Delete it in the Azure portal and revoke the extension's access in the
+  Microsoft account's security settings.
 - Store listing screenshots/description come after the extension is
   functionally complete and tested across both shipped v1 site
   parsers, LinkedIn and Greenhouse. Indeed is deferred, not part of

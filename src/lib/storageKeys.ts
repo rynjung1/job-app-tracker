@@ -4,7 +4,7 @@ export const RECENT_APPLICATIONS_KEY = 'recentApplications'
 // chrome.storage.session, not local — see lib/pendingApplications.ts.
 export const PENDING_APPLICATIONS_KEY = 'pendingApplications'
 export const LAST_RESUME_VERSION_KEY = 'lastResumeVersionByRoleType'
-export const MS_TOKEN_KEY = 'msToken'
-// Defaults to 'google' when absent — every sheetRef stored before this
-// preference existed was written by GoogleSheetsProvider.
-export const ACTIVE_PROVIDER_KEY = 'activeProvider'
+// Left behind by the Excel/OneDrive support removed 2026-09-13 (a Microsoft
+// token and the provider choice). Deleted on extension update — see
+// background/index.ts's onInstalled.
+export const REMOVED_EXCEL_KEYS = ['msToken', 'activeProvider']
