@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SheetRef } from '../providers/types'
 import { getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
 import type { BackgroundResponse } from '../background/messageRouter'
+import { CheckIcon, GearIcon, SheetIcon, WarnIcon } from '../ui/icons'
 
 // If opened via the notification's Edit button (background/index.ts), this
 // is set to that entry's id and this window was created just for editing
@@ -11,6 +12,7 @@ import type { BackgroundResponse } from '../background/messageRouter'
 // normally, there's no edit param — editingId starts null and the list is
 // just the list, same as before this feature existed.
 const editId = new URLSearchParams(window.location.search).get('edit')
+if (editId) document.body.classList.add('in-window')
 
 interface ActionError {
   id: string
@@ -18,10 +20,43 @@ interface ActionError {
 }
 
 const STALE_ROW_MESSAGE_EDIT =
-  "This row may have changed since it was logged — refusing to update it automatically. You can still edit it directly in your spreadsheet."
+  "This row may have changed since it was logged, so it wasn't updated. You can still edit it in your spreadsheet."
 const STALE_ROW_MESSAGE_UNDO =
-  "This row may have changed since it was logged — refusing to update it automatically. You can still mark it Cancelled directly in your spreadsheet."
-const GENERIC_ERROR_MESSAGE = 'Something went wrong — please try again.'
+  "This row may have changed since it was logged, so it wasn't updated. You can still mark it Cancelled in your spreadsheet."
+const GENERIC_ERROR_MESSAGE = 'Something went wrong. Please try again.'
+
+const KNOWN_STATUSES = ['Applied', 'Interview', 'Offer', 'Rejected', 'Cancelled']
+
+function sheetUrl(sheetRef: SheetRef): string {
+  return `https://docs.google.com/spreadsheets/d/${sheetRef.spreadsheetId}/edit`
+}
+
+function formatDate(iso: string): string {
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+// Settings opens as a singleton window from the background worker
+// (background/settingsWindow.ts); the options page in a tab is the fallback.
+async function openSettings() {
+  try {
+    const response = (await chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' })) as BackgroundResponse<undefined>
+    if (!response.ok) throw new Error(response.error)
+  } catch (err) {
+    console.warn('[job-app-tracker] Settings window failed, opening the options page instead:', err)
+    chrome.runtime.openOptionsPage()
+  }
+}
+
+function StatusChip({ status }: { status: string }) {
+  if (!status) return null
+  const variant = KNOWN_STATUSES.includes(status) ? ` chip-${status.toLowerCase()}` : ''
+  return <span className={`chip${variant}`}>{status}</span>
+}
+
+function NewTabHint() {
+  return <span className="sr-only"> (opens in a new tab)</span>
+}
 
 function App() {
   const [applications, setApplications] = useState<RecentApplication[] | null>(null)
@@ -31,6 +66,13 @@ function App() {
   // from "confirmed not connected," so the connect-prompt below only
   // renders once we actually know there's nothing connected.
   const [sheetRefChecked, setSheetRefChecked] = useState(false)
+  // Entry id -> the sheet's current Status, for rows that still match
+  // (background GET_LIVE_STATUSES). Shown over the cached status; never
+  // written back to the cached list.
+  const [liveStatuses, setLiveStatuses] = useState<Record<string, string>>({})
+  // Entries this popup changed itself (Undo), so a live read that was
+  // already in flight can't put their old status back.
+  const changedHere = useRef(new Set<string>())
   const [editingId, setEditingId] = useState<string | null>(editId)
   const [resumeInput, setResumeInput] = useState('')
   const [savingEditId, setSavingEditId] = useState<string | null>(null)
@@ -49,6 +91,16 @@ function App() {
       setSheetRef(stored[SHEET_REF_KEY] as SheetRef | undefined)
       setSheetRefChecked(true)
     })
+    // Cached list first (above), live statuses when they arrive. A failed
+    // read (offline, signed out) just leaves the cached statuses showing.
+    ;(chrome.runtime.sendMessage({ type: 'GET_LIVE_STATUSES' }) as Promise<BackgroundResponse<Record<string, string>>>)
+      .then((response) => {
+        if (!response.ok) throw new Error(response.error)
+        const live = { ...response.data }
+        changedHere.current.forEach((id) => delete live[id])
+        setLiveStatuses(live)
+      })
+      .catch((err) => console.warn('[job-app-tracker] live statuses unavailable, showing saved ones:', err))
   }, [])
 
   function patchApplication(id: string, patch: Partial<RecentApplication>) {
@@ -62,6 +114,13 @@ function App() {
     setEditingId(entry.id)
     setResumeInput(entry.resumeVersion)
     setActionError(null)
+  }
+
+  // Closing the panel removes the focused input, so focus goes back to the
+  // Edit button it came from instead of falling to the page.
+  function closeEditor(id: string) {
+    setEditingId(null)
+    requestAnimationFrame(() => document.getElementById(`edit-${id}`)?.focus())
   }
 
   async function handleSaveResumeVersion(entry: RecentApplication) {
@@ -90,7 +149,7 @@ function App() {
         return
       }
       patchApplication(entry.id, response.data)
-      setEditingId(null)
+      closeEditor(entry.id)
       if (isOriginalNotificationEdit) {
         window.close()
       }
@@ -118,6 +177,12 @@ function App() {
         })
         return
       }
+      changedHere.current.add(entry.id)
+      setLiveStatuses((prev) => {
+        const next = { ...prev }
+        delete next[entry.id]
+        return next
+      })
       patchApplication(entry.id, response.data)
     } catch (err) {
       console.error('[job-app-tracker] undo failed:', err)
@@ -127,76 +192,173 @@ function App() {
     }
   }
 
+  const loading = !sheetRefChecked || applications === null
+
   return (
-    <div style={{ padding: 16, minWidth: 300 }}>
-      <h1 style={{ fontSize: 16, margin: 0 }}>Job Application Tracker</h1>
-
-      <div style={{ marginTop: 12, maxHeight: 320, overflowY: 'auto' }}>
-        {(!sheetRefChecked || applications === null) && (
-          <p style={{ fontSize: 13, color: '#666' }}>Loading…</p>
+    <>
+      <header className="hdr">
+        <span className="mark" aria-hidden="true">
+          <CheckIcon size={14} />
+        </span>
+        <h1>Job Application Tracker</h1>
+        {sheetRef && (
+          <a
+            className="icon-btn"
+            href={sheetUrl(sheetRef)}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open spreadsheet (opens in a new tab)"
+            title="Open spreadsheet"
+          >
+            <SheetIcon />
+          </a>
         )}
+        <button type="button" className="icon-btn" onClick={openSettings} aria-label="Settings" title="Settings">
+          <GearIcon />
+        </button>
+      </header>
 
-        {sheetRefChecked && sheetRef === undefined && (
-          <div>
-            <p style={{ fontSize: 13 }}>Connect a spreadsheet to start tracking applications automatically.</p>
-            <button onClick={() => chrome.runtime.openOptionsPage()}>Open Settings</button>
+      {loading && (
+        <div className="list" aria-busy="true">
+          <span className="sr-only">Loading…</span>
+          {[55, 45].map((width) => (
+            <div className="item" key={width} aria-hidden="true">
+              <div className="skel" style={{ width: `${width}%` }} />
+              <div className="skel" style={{ width: `${width + 25}%` }} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && sheetRef === undefined && (
+        <div className="empty">
+          <div className="big" aria-hidden="true">
+            <SheetIcon size={22} />
           </div>
-        )}
+          <h2>Connect a spreadsheet</h2>
+          <p>Applications you submit on LinkedIn Easy Apply or Greenhouse are logged to a Google Sheet automatically.</p>
+          <button type="button" className="btn primary lg" onClick={openSettings}>
+            Open Settings
+          </button>
+        </div>
+      )}
 
-        {sheetRefChecked && sheetRef !== undefined && applications?.length === 0 && (
-          <p style={{ fontSize: 13, color: '#666' }}>No recent applications yet.</p>
-        )}
-        {sheetRefChecked && sheetRef !== undefined && applications?.map((app) => (
-          <div key={app.id} style={{ padding: '6px 0', borderBottom: '1px solid #eee', fontSize: 13 }}>
-            <div>
-              {app.company} — {app.title}
-            </div>
-            <div style={{ color: '#666', fontSize: 12 }}>
-              {app.status}
-              {app.resumeVersion ? ` · ${app.resumeVersion}` : ''}
-            </div>
+      {!loading && sheetRef !== undefined && applications.length === 0 && (
+        <div className="empty">
+          <h2>No applications yet</h2>
+          <p>Apply with LinkedIn Easy Apply or on a Greenhouse job page and it will show up here.</p>
+          <a className="link" href={sheetUrl(sheetRef)} target="_blank" rel="noopener noreferrer">
+            Open your sheet <span aria-hidden="true">↗</span>
+            <NewTabHint />
+          </a>
+        </div>
+      )}
 
-            <div style={{ marginTop: 4 }}>
-              <button onClick={() => handleStartEdit(app)} disabled={savingEditId === app.id}>
-                Edit
-              </button>
-              {app.status !== 'Cancelled' && (
-                <button
-                  onClick={() => handleUndo(app)}
-                  disabled={undoingId === app.id}
-                  style={{ marginLeft: 6 }}
-                >
-                  {undoingId === app.id ? 'Undoing…' : 'Undo'}
-                </button>
-              )}
-            </div>
+      {!loading && sheetRef !== undefined && applications.length > 0 && (
+        <>
+          <ul className="list" aria-label="Recent applications">
+            {applications.map((app) => {
+              const status = liveStatuses[app.id] ?? app.status
+              const saving = savingEditId === app.id
+              const undoing = undoingId === app.id
+              const meta = [app.resumeVersion && `Resume ${app.resumeVersion}`, formatDate(app.date)]
+                .filter(Boolean)
+                .join(' · ')
+              return (
+                <li key={app.id} className="item" aria-busy={saving || undoing || undefined}>
+                  <div className="row1">
+                    <div className="who">
+                      <div className="co">{app.company}</div>
+                      <div className="ti">
+                        {app.title}
+                        {app.location && (
+                          <>
+                            {' · '}
+                            <span className="loc" title={app.location}>
+                              {app.location}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <StatusChip status={status} />
+                  </div>
 
-            {editingId === app.id && (
-              <div style={{ marginTop: 6, padding: 8, background: '#f0f4ff', borderRadius: 6 }}>
-                <input
-                  type="text"
-                  value={resumeInput}
-                  onChange={(e) => setResumeInput(e.target.value)}
-                  placeholder="Resume version"
-                  style={{ width: '100%', boxSizing: 'border-box', padding: 4 }}
-                />
-                <button
-                  onClick={() => handleSaveResumeVersion(app)}
-                  disabled={savingEditId === app.id}
-                  style={{ marginTop: 6 }}
-                >
-                  {savingEditId === app.id ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            )}
+                  {editingId === app.id ? (
+                    <form
+                      className="edit"
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        handleSaveResumeVersion(app)
+                      }}
+                    >
+                      <label htmlFor={`rv-${app.id}`}>Resume version</label>
+                      <input
+                        id={`rv-${app.id}`}
+                        className="input"
+                        type="text"
+                        value={resumeInput}
+                        onChange={(e) => setResumeInput(e.target.value)}
+                        disabled={saving}
+                        autoFocus
+                      />
+                      <div className="acts">
+                        <button type="button" className="btn" onClick={() => closeEditor(app.id)} disabled={saving}>
+                          Cancel
+                        </button>
+                        <button type="submit" className="btn primary" disabled={saving}>
+                          {saving ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="row2">
+                      <span className="meta">{meta}</span>
+                      <button
+                        type="button"
+                        id={`edit-${app.id}`}
+                        className="btn"
+                        onClick={() => handleStartEdit(app)}
+                        aria-label={`Edit resume version, ${app.company}`}
+                      >
+                        Edit
+                      </button>
+                      {status !== 'Cancelled' && (
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => handleUndo(app)}
+                          disabled={undoing}
+                          aria-label={undoing ? undefined : `Undo: mark ${app.company} Cancelled`}
+                        >
+                          {undoing ? 'Undoing…' : 'Undo'}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
-            {actionError?.id === app.id && (
-              <p style={{ color: '#c33', fontSize: 12, marginTop: 6 }}>{actionError.message}</p>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
+                  {actionError?.id === app.id && (
+                    <div className="err" role="alert">
+                      <WarnIcon size={16} />
+                      <span>{actionError.message}</span>
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+          <footer className="foot">
+            <span>
+              {applications.length === 1 ? '1 recent application' : `${applications.length} recent applications`}
+            </span>
+            <a className="link" href={sheetUrl(sheetRef)} target="_blank" rel="noopener noreferrer">
+              Open sheet <span aria-hidden="true">↗</span>
+              <NewTabHint />
+            </a>
+          </footer>
+        </>
+      )}
+    </>
   )
 }
 

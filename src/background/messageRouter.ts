@@ -21,6 +21,8 @@ import { getSheetRef, setSheetRef } from '../lib/sheetRef'
 import { cancelApplication, getRecentApplications, updateRecentApplication } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 import { setLastResumeVersion } from '../lib/resumeVersion'
+import { LIVE_STATUS_COLUMNS, matchLiveStatuses } from '../lib/liveStatuses'
+import { openSettingsWindow } from './settingsWindow'
 
 export type BackgroundRequest =
   | { type: 'CONNECT_PROVIDER' }
@@ -30,6 +32,8 @@ export type BackgroundRequest =
       payload: { entryId: string; resumeVersion: string; skipIdentityCheck: boolean }
     }
   | { type: 'CANCEL_APPLICATION'; payload: { entryId: string } }
+  | { type: 'GET_LIVE_STATUSES' }
+  | { type: 'OPEN_SETTINGS' }
 
 // `code` distinguishes the one error case a caller needs to react to
 // differently (a stale rowNumber — popup shows a specific message and
@@ -44,6 +48,8 @@ const INTERNAL_MESSAGE_TYPES = [
   'RECONNECT_PROVIDER',
   'SAVE_RESUME_VERSION',
   'CANCEL_APPLICATION',
+  'GET_LIVE_STATUSES',
+  'OPEN_SETTINGS',
 ] as const
 
 export function isInternalMessage(message: unknown): message is BackgroundRequest {
@@ -77,6 +83,11 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
         return await handleSaveResumeVersion(message.payload)
       case 'CANCEL_APPLICATION':
         return await handleCancelApplication(message.payload)
+      case 'GET_LIVE_STATUSES':
+        return await handleGetLiveStatuses()
+      case 'OPEN_SETTINGS':
+        await openSettingsWindow()
+        return { ok: true, data: undefined }
     }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -167,4 +178,20 @@ async function handleCancelApplication({
 
   await cancelApplication(provider, sheetRef, entry)
   return { ok: true, data: { ...entry, status: 'Cancelled' } }
+}
+
+// The popup's live status chips: entry id -> the sheet's current Status,
+// only for rows that still match (lib/liveStatuses.ts). One batched read,
+// never a write, and the cached list isn't updated from it.
+async function handleGetLiveStatuses(): Promise<BackgroundResponse<Record<string, string>>> {
+  const sheetRef = await getSheetRef()
+  const entries = await getRecentApplications()
+  if (!sheetRef || entries.length === 0) return { ok: true, data: {} }
+  const provider = await getActiveProvider()
+  const rows = await provider.readCells(
+    sheetRef,
+    entries.map((entry) => entry.rowNumber),
+    LIVE_STATUS_COLUMNS,
+  )
+  return { ok: true, data: matchLiveStatuses(entries, rows) }
 }

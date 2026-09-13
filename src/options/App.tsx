@@ -2,13 +2,20 @@ import { useEffect, useState } from 'react'
 import type { SheetRef } from '../providers/types'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
 import type { BackgroundResponse } from '../background/messageRouter'
+import { CheckIcon, TickIcon, WarnIcon } from '../ui/icons'
 
+// connecting/error carry the sheetRef when the action was a Reconnect, so
+// the error's "Try again" retries Reconnect. Before this, it always ran
+// Connect, which creates a new sheet and replaces the connected one.
 type ConnectionState =
   | { status: 'loading' }
   | { status: 'disconnected' }
-  | { status: 'connecting' }
+  | { status: 'connecting'; sheetRef?: SheetRef }
   | { status: 'connected'; sheetRef: SheetRef }
-  | { status: 'error'; message: string }
+  | { status: 'error'; message: string; sheetRef?: SheetRef }
+
+const VERSION = chrome.runtime.getManifest().version
+const PRIVACY_POLICY_URL = 'https://rynjung1.github.io/job-app-tracker/privacy.html'
 
 function App() {
   const [state, setState] = useState<ConnectionState>({ status: 'loading' })
@@ -37,10 +44,8 @@ function App() {
     }
   }
 
-  async function handleReconnect() {
-    if (state.status !== 'connected') return
-    const { sheetRef } = state
-    setState({ status: 'connecting' })
+  async function handleReconnect(sheetRef: SheetRef) {
+    setState({ status: 'connecting', sheetRef })
     try {
       const response = (await chrome.runtime.sendMessage({
         type: 'RECONNECT_PROVIDER',
@@ -53,53 +58,137 @@ function App() {
       // in a new one.
       setState({ status: 'connected', sheetRef })
     } catch (err) {
-      setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+      setState({ status: 'error', message: err instanceof Error ? err.message : String(err), sheetRef })
     }
   }
 
+  const busy = state.status === 'loading' || state.status === 'connecting'
+
   return (
-    <div style={{ padding: 24, maxWidth: 480, fontFamily: 'sans-serif' }}>
-      <h1 style={{ fontSize: 20 }}>Job Application Tracker — Settings</h1>
-      <p style={{ color: '#666', fontSize: 13 }}>
-        Currently supports: LinkedIn (Easy Apply) and Greenhouse-hosted job postings.
-      </p>
+    <div className="page">
+      <header className="hdr">
+        <span className="mark lg" aria-hidden="true">
+          <CheckIcon size={17} />
+        </span>
+        <div>
+          <h1>Settings</h1>
+          <p className="sub">Job Application Tracker · v{VERSION}</p>
+        </div>
+      </header>
 
-      {state.status === 'loading' && <p style={{ color: '#666' }}>Loading…</p>}
+      <section className="sec" aria-labelledby="spreadsheet-heading">
+        <h2 id="spreadsheet-heading">Spreadsheet</h2>
+        <div className="card" aria-busy={busy || undefined}>
+          {state.status === 'loading' && <p className="muted">Checking your connection…</p>}
 
-      {state.status === 'disconnected' && (
-        <>
-          <p style={{ color: '#666' }}>
-            No spreadsheet connected yet. Connecting creates a new file automatically — no setup
-            required.
-          </p>
-          <button onClick={handleConnect}>Connect Google Sheets</button>
-        </>
-      )}
+          {state.status === 'disconnected' && (
+            <>
+              <div className="status">
+                <span className="pill" aria-hidden="true" />
+                Not connected
+              </div>
+              <p className="muted">
+                Connecting creates a new, formatted sheet in your Google Drive. The extension can only access files it
+                creates.
+              </p>
+              <div className="acts">
+                <button type="button" className="btn primary lg" onClick={handleConnect}>
+                  Connect Google Sheets
+                </button>
+              </div>
+            </>
+          )}
 
-      {state.status === 'connecting' && <p style={{ color: '#666' }}>Connecting…</p>}
+          {state.status === 'connecting' && (
+            <>
+              <div className="status">
+                <span className="pill" aria-hidden="true" />
+                {state.sheetRef ? 'Reconnecting…' : 'Connecting…'}
+              </div>
+              <p className="muted">Finish signing in with Google in the window that opened.</p>
+              <div className="acts">
+                <button type="button" className="btn primary lg" disabled>
+                  {state.sheetRef ? 'Reconnecting…' : 'Connecting…'}
+                </button>
+              </div>
+            </>
+          )}
 
-      {state.status === 'connected' && (
-        <>
-          <p style={{ color: '#2a7' }}>Connected (Google Sheets).</p>
-          <a
-            href={`https://docs.google.com/spreadsheets/d/${state.sheetRef.spreadsheetId}/edit`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open your Job Applications sheet
-          </a>
-          <div style={{ marginTop: 12 }}>
-            <button onClick={handleReconnect}>Reconnect</button>
-          </div>
-        </>
-      )}
+          {state.status === 'connected' && (
+            <>
+              <div className="status">
+                <span className="pill ok" aria-hidden="true" />
+                Connected to Google Sheets
+              </div>
+              <p className="muted">
+                Applications are logged to your Job Applications sheet. If logging stops working, Reconnect signs you in
+                again and keeps the same sheet.
+              </p>
+              <div className="acts">
+                <a
+                  className="btn primary lg"
+                  href={`https://docs.google.com/spreadsheets/d/${state.sheetRef.spreadsheetId}/edit`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open sheet <span aria-hidden="true">↗</span>
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>
+                <button type="button" className="btn lg" onClick={() => handleReconnect(state.sheetRef)}>
+                  Reconnect
+                </button>
+              </div>
+            </>
+          )}
 
-      {state.status === 'error' && (
-        <>
-          <p style={{ color: '#c33' }}>Connection failed: {state.message}</p>
-          <button onClick={handleConnect}>Try again</button>
-        </>
-      )}
+          {state.status === 'error' && (
+            <>
+              <div className="alert" role="alert">
+                <WarnIcon size={16} />
+                <span>
+                  {state.sheetRef ? "Couldn't reconnect" : "Couldn't connect"}: {state.message}
+                </span>
+              </div>
+              <div className="acts">
+                <button
+                  type="button"
+                  className="btn primary lg"
+                  onClick={() => (state.sheetRef ? handleReconnect(state.sheetRef) : handleConnect())}
+                >
+                  Try again
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="sec" aria-labelledby="sites-heading">
+        <h2 id="sites-heading">Supported sites</h2>
+        <ul className="sites">
+          <li>
+            <TickIcon size={16} className="tick" />
+            <div>
+              <b>LinkedIn</b> Easy Apply
+              <span className="note">Fully supported with LinkedIn set to English</span>
+            </div>
+          </li>
+          <li>
+            <TickIcon size={16} className="tick" />
+            <div>
+              <b>Greenhouse</b> job-boards.greenhouse.io postings
+              <span className="note">Logged once Greenhouse confirms the submission</span>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <footer className="foot">
+        <a className="link" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+          Privacy policy<span className="sr-only"> (opens in a new tab)</span>
+        </a>
+        <span>Data goes only to your Google Sheet</span>
+      </footer>
     </div>
   )
 }

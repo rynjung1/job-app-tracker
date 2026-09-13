@@ -1,0 +1,136 @@
+/* Sized for the Settings popup window (background/settingsWindow.ts). In
+   a wide tab (the options_page fallback) it becomes a centred card. */
+.page {
+  max-width: 480px;
+  margin: 0 auto;
+  background: #fff;
+}
+
+@media (min-width: 640px) {
+  body {
+    background: #f3f4f6;
+  }
+
+  .page {
+    margin: 48px auto;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+}
+
+.hdr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px 14px;
+}
+
+.hdr h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.sub {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sec {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.sec h2 {
+  margin: 0 0 10px;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.pill {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9ca3af;
+}
+
+.pill.ok {
+  background: var(--ok);
+}
+
+.muted {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.sites {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sites li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.sites b {
+  font-weight: 600;
+}
+
+.sites .note {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tick {
+  flex: none;
+  margin-top: 1px;
+  color: var(--ok);
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--subtle);
+  color: var(--muted);
+  font-size: 12px;
+}

@@ -15,6 +15,7 @@ import type { RecentApplication } from '../lib/recentApplications'
 import { withStorageLock } from '../lib/storageLock'
 import { recordPendingApplication, takePendingApplication } from '../lib/pendingApplications'
 import { handleInternalMessage, isInternalMessage } from './messageRouter'
+import { openSettingsWindow } from './settingsWindow'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 // This extension's own pages (popup, options) — used to distinguish an
@@ -37,13 +38,13 @@ const NOT_CONNECTED_NOTIFICATION_ID = 'not-connected'
 
 // reason check matters here — onInstalled also fires on 'update' and
 // 'chrome_update', not just a genuine first install. Gating strictly on
-// 'install' avoids re-opening the options page after every routine
-// extension auto-update, a real, documented pitfall of this API.
+// 'install' avoids re-opening Settings after every routine extension
+// auto-update, a real, documented pitfall of this API.
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[job-app-tracker] background service worker installed')
   chrome.alarms.create(RETRY_ALARM_NAME, { periodInMinutes: 5 })
   if (details.reason === 'install') {
-    chrome.runtime.openOptionsPage()
+    openSettingsWindow()
   }
   // Excel/OneDrive support was removed 2026-09-13: delete the Microsoft
   // token and provider choice an earlier version may have stored, so the
@@ -259,7 +260,7 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
   // undefined in exactly this notification's own scenario, so the guard
   // would otherwise silently swallow this button click entirely.
   if (notificationId === NOT_CONNECTED_NOTIFICATION_ID) {
-    chrome.runtime.openOptionsPage()
+    openSettingsWindow()
     chrome.notifications.clear(notificationId)
     return
   }
@@ -283,8 +284,10 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
     chrome.windows.create({
       type: 'popup',
       url: chrome.runtime.getURL(`src/popup/index.html?edit=${notificationId}`),
+      // Taller than the original 320: the restyled edit panel (label,
+      // input, Cancel/Save) needs the room.
       width: 360,
-      height: 320,
+      height: 480,
     })
     chrome.notifications.clear(notificationId)
   }

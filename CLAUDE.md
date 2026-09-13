@@ -267,13 +267,64 @@ between two async message handlers, so a read-decide-write on shared
 state needs a lock around the decision, not just the write (the
 pattern `lib/pendingApplications.ts` follows).
 
-3. **Popup + options page**
-   - Popup: shows a toast-style confirmation for ~5 seconds after an
-     auto-log ("Logged: Shopify — Data Engineer Co-op — [Undo]
-     [Edit]"), plus a scrollable list of recent applications.
-   - Options page: choose spreadsheet backend, authenticate,
-     auto-create a sheet (the only supported setup path — see "Sheet
-     setup" below), enable/disable individual site parsers.
+3. **Popup + Settings**
+   - Popup: the scrollable list of recent applications, with Edit/Undo
+     and a status chip per entry, plus Open-sheet and Settings buttons.
+     (The original toast-style confirmation is a system notification;
+     see Logging behavior, Phase 4 note.)
+   - Settings (the options page): authenticate and auto-create a sheet
+     (the only supported setup path — see "Sheet setup" below), and
+     Reconnect.
+
+**Updated 2026-09-13 (phase B, decided by Ryan): Settings opens as a
+small popup window, not a tab.** `background/settingsWindow.ts` opens
+it: the popup's gear and its not-connected button send the new
+`OPEN_SETTINGS` internal message, and the first-install `onInstalled`
+and the "Not connected" notification's button call it directly (the
+auto-open and "Open Settings" buttons in the 2026-09-10 note below
+now open this window). One window at a time: its id is kept in
+`chrome.storage.session` (`SETTINGS_WINDOW_KEY`), opening it again
+focuses it, `windows.onRemoved` clears the id, and concurrent opens
+share one in-flight call. `options_page` stays in the manifest as the
+fallback: chrome://extensions' "Extension options", and whenever the
+window can't be created. The popup and Settings were restyled from the
+approved mockups with shared `src/ui/tokens.css` (colours, buttons,
+focus ring, status chips) and inline SVG icons, no new dependencies:
+labelled controls, visible focus, `role="alert"` errors, `aria-busy`
+while loading or saving, and every text colour at 4.6:1 or better. The
+popup keeps a location on one line ("Seattle, WA" no longer splits
+across lines). Fixed in passing: after a failed Reconnect, the error's
+"Try again" ran Connect, which creates a new sheet and replaces the
+connected one; it now retries Reconnect. The notification's Edit
+window grew from 320 to 480px tall for the restyled edit panel.
+
+**Verified 2026-09-13** by Ryan on the reloaded build:
+- **Live statuses, shipped code**, checked via the script's JSON output:
+  an esbuild bundle of the real `googleSheets.ts` and `liveStatuses.ts`
+  run in the extension's service worker, on a throwaway sheet built by
+  the real `createSheet` with rows from the real `appendRow` and
+  `updateCell`. `readCells` made the headers read, then exactly one
+  `values:batchGet` (`B2:B40`, `C2:C40`, `G2:G40`). The entry pointing
+  at row 40 (past the data), the row whose Company was renamed by hand,
+  and the row with an emptied Status were all skipped; the result,
+  `{e5: Cancelled, e2: Interview}`, matched the expected one exactly.
+- **Settings window**: the gear opened one window, and a second click
+  focused it rather than opening another. Open sheet and Reconnect
+  worked from it.
+- **Live chip on the real sheet**: the first try missed. A Status Ryan
+  changed by hand showed in the popup only after he clicked Reconnect.
+  The re-test, with a fresh sign-in, showed a hand-changed Status on a
+  normal popup open with no Reconnect. That points at a lapsed Google
+  sign-in, not the chip code: `withAuth` doesn't catch a failing
+  non-interactive `getAuthToken`, so the read failed and the popup
+  quietly kept the saved status. The same state silently stops logging;
+  the "needs reconnect" work is the follow-up.
+
+Not yet checked live: the restyled notification Edit window (and a
+blank band the headless render showed after the input scrolled into
+view), left for Ryan's next real application; the first-install
+auto-open and the "Not connected" notification's Open Settings, left for
+the extension-ID switch (a reinstall wipes storage).
 
 **Fixed 2026-09-10 (fresh-install UX, found during a test pass):**
 a genuinely fresh install had several real, silent gaps — no
@@ -444,6 +495,19 @@ then Undo/Edit was retried on the now-stale cached entry — the
 inline error appeared, and a real re-read of that cell afterward (not
 just trusting the UI) confirmed zero write occurred.
 
+**Updated 2026-09-13 (decided by Ryan): live status chips.** The popup
+shows each entry's status from the sheet, so a status the user changed
+there (Interview, Offer...) shows up in the popup too. It renders the
+cached list first, then sends `GET_LIVE_STATUSES`: the background
+worker reads Company, Title and Status for the stored rows in one
+`values:batchGet` (the provider's `readCells`, below) and returns a
+status only for rows whose Company and Title still match the cached
+entry, the same identity rule Edit and Undo check
+(`lib/liveStatuses.ts`). A mismatched row, an empty Status cell or a
+failed read (offline, signed out) keeps the cached status. Read-only:
+nothing is written to the sheet, and the cached list isn't updated from
+it. Undo hides itself when the displayed status is `Cancelled`.
+
 ### Spreadsheet backend (Google Sheets only since 2026-09-13)
 
 A `SpreadsheetProvider` interface decouples the rest of the extension
@@ -487,6 +551,16 @@ row — `googleSheets.ts` mirrors `readHeaders`' own `1:1`-style range
 exactly, just targeting `rowNumber:rowNumber`. A row number past the
 sheet's actual filled extent doesn't error — the API just returns
 empty values, which naturally fails the identity check downstream rather than needing separate not-found handling.
+
+**Updated 2026-09-13:** `readCells(sheetRef, rowNumbers, columnNames)`
+added, for the popup's live status chips (Logging behavior, above): the
+named columns of several rows in one read, in `rowNumbers`' order. Not
+in the original interface; flagged as an addition. Google implements it
+as one `values:batchGet` after `readHeaders`: one range per column
+spanning the lowest to the highest requested row (e.g. `G2:G21`), with
+`majorDimension=COLUMNS`, so the number of requests doesn't grow with
+the number of rows. The recent list is the latest rows, so the span
+stays close to their count.
 
 **Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`, the
 numeric grid id (not the string `sheetName`),
@@ -594,6 +668,22 @@ identically (date `2026-09-13 14:29`, Roboto, centred, clipped, Notes
 wrapping, Status centred with its dropdown). Checked visually: Cancelled
 grey, and the long note wrapped over three lines with its row grown to
 fit.
+
+**Verified 2026-09-13** on the shipped code, checked via the script's
+JSON output: an esbuild bundle of the real `googleSheets.ts` run in the
+extension's service worker. The real `createSheet` built the sheet with
+all of the formatting in its own batch; the grid was shrunk to 5 rows,
+and 7 rows logged through the real `appendRow` grew it to 8. Frozen
+row 1, gridlines hidden, tab `#2563EB`, the banding and all 5 Status
+rules extended to row 8 (Cancelled `#E5E7EB` with `#4B5563` text,
+Rejected still `#F4C6C6`), header 32px and data rows 21px, widths
+130/180/280/170/200/140/120/280, and the header bold Roboto on
+`#2563EB`. Row 2 and row 8 formatted identically: date
+`2026-09-13 15:00`, still `yyyy-mm-dd hh:mm` (the data-row field mask
+left the date format alone), Roboto, vertically centred, clipped, Notes
+wrapping, Status centred with its dropdown. Checked visually at 100%
+zoom: white header text and a readable grey Cancelled cell. The sheet
+was moved to Drive trash.
 
 **Corrected 2026-09-11:** the verification above was real but too
 narrow. It tested Status cells on a freshly created sheet by typing
@@ -976,8 +1066,8 @@ commit.
 **Updated 2026-09-10 (centralization):** the rule above now applies
 literally, not just to content scripts — `popup/App.tsx` and
 `options/App.tsx` never import `providers/*` directly; every provider
-call (`authenticate`, `createSheet`, `readRow`, `updateCell`,
-`cancelApplication`) is a message to the background worker, which is
+call (`authenticate`, `createSheet`, `readRow`, `readCells`,
+`updateCell`, `cancelApplication`) is a message to the background worker, which is
 the sole caller of the `SpreadsheetProvider`. This closed a real
 finding: `options/App.tsx` previously called
 `authenticate()`/`createSheet()` directly from the options page's own
@@ -994,7 +1084,8 @@ popup mid-request killed the in-flight call along with it.
   checked separately from the content-script `TRUSTED_ORIGINS` check
   above — see `background/messageRouter.ts` for the message list
   (`CONNECT_PROVIDER`, `RECONNECT_PROVIDER`, `SAVE_RESUME_VERSION`,
-  `CANCEL_APPLICATION`) and envelope shape (`{ ok: true, data } |
+  `CANCEL_APPLICATION`, `GET_LIVE_STATUSES`, and `OPEN_SETTINGS`, which
+  opens the Settings window rather than calling a provider) and envelope shape (`{ ok: true, data } |
   { ok: false, error, code? }`). Two other fields were tried first and
   found not to actually test this, confirmed live against a real
   Chrome instance with a real loaded extension rather than assumed:

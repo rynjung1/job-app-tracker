@@ -44,4 +44,8 @@ export interface SpreadsheetProvider {
   // since reordered/edited by hand needed an actual mitigation, not just
   // acceptance — this is what that mitigation reads before writing.
   readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>>
+  // Added 2026-09-13 for the popup's live status chips: the named columns
+  // of several rows in one read, returned in rowNumbers' order, each keyed
+  // by column name. Read-only (CLAUDE.md, Logging behavior).
+  readCells(sheetRef: SheetRef, rowNumbers: number[], columnNames: string[]): Promise<Record<string, string>[]>
 }

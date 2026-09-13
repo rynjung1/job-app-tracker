@@ -436,4 +436,40 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     })
     return row
   },
+
+  async readCells(sheetRef: SheetRef, rowNumbers: number[], columnNames: string[]): Promise<Record<string, string>[]> {
+    if (rowNumbers.length === 0) return []
+    if (!rowNumbers.every((n) => Number.isInteger(n) && n >= 1)) {
+      throw new Error(`Invalid row numbers: ${rowNumbers.join(', ')}`)
+    }
+    const headers = await this.readHeaders(sheetRef)
+    const letters = columnNames.map((name) => {
+      const index = headers.indexOf(name)
+      if (index === -1) {
+        throw new Error(`Column "${name}" not found in sheet headers: ${headers.join(', ')}`)
+      }
+      return columnIndexToLetter(index)
+    })
+    // One range per column spanning every requested row (e.g. B2:B21), so
+    // the read is a single batchGet however many rows are asked for. The
+    // recent list is the latest rows, so the span stays close to their
+    // count. With majorDimension=COLUMNS each range comes back as one array
+    // starting at row `first`; the API leaves out trailing empty cells,
+    // hence the ?? ''. valueRanges come back in the order requested.
+    const first = Math.min(...rowNumbers)
+    const last = Math.max(...rowNumbers)
+    const ranges = letters
+      .map((letter) => `ranges=${encodeURIComponent(`${sheetRef.sheetName}!${letter}${first}:${letter}${last}`)}`)
+      .join('&')
+    const data = (await withAuth((token) =>
+      apiFetch(`/${sheetRef.spreadsheetId}/values:batchGet?${ranges}&majorDimension=COLUMNS`, token),
+    )) as { valueRanges?: Array<{ values?: string[][] }> }
+    return rowNumbers.map((rowNumber) => {
+      const record: Record<string, string> = {}
+      columnNames.forEach((name, i) => {
+        record[name] = data.valueRanges?.[i]?.values?.[0]?.[rowNumber - first] ?? ''
+      })
+      return record
+    })
+  },
 }
