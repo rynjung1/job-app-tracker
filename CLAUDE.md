@@ -546,15 +546,21 @@ computed from the actual `templateColumns` array passed in
 (`indexOf('Status')`, etc.), never hardcoded, so this doesn't
 silently break if the template's shape ever changes.
 
-- **Header row**: bold, white text on a `#3366CC` background, one
-  `repeatCell` request.
-- **Column widths**: `URL`/`Notes` widened so they aren't crushed
-  (`updateDimensionProperties`, `pixelSize: 250`).
+- **Header row**: bold white Roboto on the brand blue `#2563EB` (the
+  icon's), vertically centred, 32px tall, and frozen.
+- **Sheet**: gridlines hidden and a brand-coloured tab.
+- **Data rows**: Roboto, vertically centred, long text clipped rather
+  than spilling over; Notes wraps instead, and Status is centred.
+  Alternating white/`#F5F7FB` banding on the data rows.
+- **Column widths**: a pixel width for every column (Date 130, Company
+  180, Title 280, Location 170, URL 200, Resume Version 140, Status
+  120, Notes 280).
 - **Status conditional formatting**: real, persistent
   `addConditionalFormatRule` rules (`TEXT_EQ` per value: `Offer` →
-  green, `Interview` → blue, `Applied` → yellow, `Rejected`/
-  `Cancelled` → red), so the colour keeps re-evaluating live even if a
-  value is changed by hand later, with no code involved at all.
+  green, `Interview` → blue, `Applied` → yellow, `Rejected` → red,
+  `Cancelled` → grey with grey text), so the colour keeps re-evaluating
+  live even if a value is changed by hand later, with no code involved
+  at all.
 - **Status dropdown (data validation)**: restricts `Status` to exactly
   the five values above via `setDataValidation` (`ONE_OF_LIST`,
   `strict: true`, `showCustomUi: true` for the actual dropdown
@@ -571,6 +577,23 @@ actually renders on Status cells; selecting a value from it works;
 typing a non-matching value is actually rejected (not just shown a
 warning); and the conditional-formatting colors correctly fire off
 dropdown-driven selections, not just typed text.
+
+**Updated 2026-09-13 (decided by Ryan):** the formatting above grew from
+a blue header, two widened columns and the Status rules to the full set
+listed (frozen header, hidden gridlines, banding, Roboto, vertical
+centring, clip/wrap, a width per column, Cancelled grey). Only new
+sheets get it; Ryan gets a fresh sheet at the extension-ID switch.
+Previewed on a throwaway sheet before building, per the 2026-09-11
+lesson below: the real `createSheet`, then the candidate formatting,
+then 7 rows through the real `appendRow` with the grid shrunk to 5 rows
+so the last 3 appends extended it, and statuses and a long note through
+the real `updateCell`. Checked via the script's JSON: frozen row 1,
+gridlines hidden, the banding and all 5 Status rules extended to row 8,
+header 32px, and row 2 and row 8 (past the original grid) formatted
+identically (date `2026-09-13 14:29`, Roboto, centred, clipped, Notes
+wrapping, Status centred with its dropdown). Checked visually: Cancelled
+grey, and the long note wrapped over three lines with its row grown to
+fit.
 
 **Corrected 2026-09-11:** the verification above was real but too
 narrow. It tested Status cells on a freshly created sheet by typing

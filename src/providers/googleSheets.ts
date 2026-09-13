@@ -80,20 +80,48 @@ function parseAppendedRange(updatedRange: string): AppendedRow {
 // New-sheet visual formatting (createSheet only — never applied to an
 // already-existing sheet). Real Sheets conditional-format rules, not
 // colors painted at write time, so they keep re-evaluating live even if
-// the user retypes a Status value by hand later.
-const HEADER_BACKGROUND_COLOR = { red: 0.2, green: 0.4, blue: 0.8 } // #3366CC
-const HEADER_TEXT_COLOR = { red: 1, green: 1, blue: 1 }
+// the user retypes a Status value by hand later. The whole set below was
+// previewed on a throwaway sheet on 2026-09-13 and checked on rows logged
+// through the real appendRow, including rows past the original grid
+// (CLAUDE.md, Sheet setup).
+type Rgb = { red: number; green: number; blue: number }
 
-const STATUS_COLORS: Record<string, { red: number; green: number; blue: number }> = {
-  Offer: { red: 0.72, green: 0.88, blue: 0.72 },
-  Interview: { red: 0.78, green: 0.86, blue: 0.98 },
-  Applied: { red: 1, green: 0.94, blue: 0.6 },
-  Rejected: { red: 0.96, green: 0.78, blue: 0.78 },
-  Cancelled: { red: 0.96, green: 0.78, blue: 0.78 },
+function hexToRgb(hex: string): Rgb {
+  return {
+    red: parseInt(hex.slice(1, 3), 16) / 255,
+    green: parseInt(hex.slice(3, 5), 16) / 255,
+    blue: parseInt(hex.slice(5, 7), 16) / 255,
+  }
 }
 
-const WIDE_COLUMNS = ['URL', 'Notes']
-const WIDE_COLUMN_PIXELS = 250
+const BRAND_BLUE = hexToRgb('#2563EB') // the extension icon's blue
+const WHITE = hexToRgb('#FFFFFF')
+const BAND_COLOR = hexToRgb('#F5F7FB')
+const FONT_FAMILY = 'Roboto'
+const HEADER_ROW_PIXELS = 32
+
+// Cancelled is grey with grey text, distinct from Rejected's red and
+// matching the popup's status chip.
+const STATUS_COLORS: Record<string, { background: Rgb; text?: Rgb }> = {
+  Offer: { background: { red: 0.72, green: 0.88, blue: 0.72 } },
+  Interview: { background: { red: 0.78, green: 0.86, blue: 0.98 } },
+  Applied: { background: { red: 1, green: 0.94, blue: 0.6 } },
+  Rejected: { background: { red: 0.96, green: 0.78, blue: 0.78 } },
+  Cancelled: { background: hexToRgb('#E5E7EB'), text: hexToRgb('#4B5563') },
+}
+
+// A pixel width for every template column; a column missing here keeps
+// Sheets' default width.
+const COLUMN_WIDTHS: Record<string, number> = {
+  Date: 130,
+  Company: 180,
+  Title: 280,
+  Location: 170,
+  URL: 200,
+  'Resume Version': 140,
+  Status: 120,
+  Notes: 280,
+}
 
 // appendRow writes Date as a date serial (see toDateCellValue), which
 // shows as a bare number like 46276.85 without a date format on the cell.
@@ -118,16 +146,59 @@ function toDateCellValue(value: string | undefined): string | number {
 // ever changes shape.
 function buildFormattingRequests(sheetId: number, templateColumns: string[]): unknown[] {
   const requests: unknown[] = [
+    // Frozen header row, no gridlines (the banding separates rows), and a
+    // brand-coloured sheet tab.
+    {
+      updateSheetProperties: {
+        properties: {
+          sheetId,
+          gridProperties: { frozenRowCount: 1, hideGridlines: true },
+          tabColorStyle: { rgbColor: BRAND_BLUE },
+        },
+        fields: 'gridProperties.frozenRowCount,gridProperties.hideGridlines,tabColorStyle',
+      },
+    },
+    // Header: brand blue, bold white text, vertically centred, taller row.
     {
       repeatCell: {
         range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
         cell: {
           userEnteredFormat: {
-            backgroundColor: HEADER_BACKGROUND_COLOR,
-            textFormat: { bold: true, foregroundColor: HEADER_TEXT_COLOR },
+            backgroundColor: BRAND_BLUE,
+            textFormat: { bold: true, foregroundColor: WHITE, fontFamily: FONT_FAMILY },
+            verticalAlignment: 'MIDDLE',
+            padding: { left: 6, right: 6 },
           },
         },
-        fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment,padding)',
+      },
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'ROWS', startIndex: 0, endIndex: 1 },
+        properties: { pixelSize: HEADER_ROW_PIXELS },
+        fields: 'pixelSize',
+      },
+    },
+    // Data rows: same font, vertically centred, long text clipped rather
+    // than spilling into the next cell (Notes wraps instead, below). The
+    // field mask leaves the Date column's number format alone.
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1 },
+        cell: { userEnteredFormat: { textFormat: { fontFamily: FONT_FAMILY }, verticalAlignment: 'MIDDLE', wrapStrategy: 'CLIP' } },
+        fields: 'userEnteredFormat.textFormat.fontFamily,userEnteredFormat.verticalAlignment,userEnteredFormat.wrapStrategy',
+      },
+    },
+    // Alternating row colours on data rows only; the header is styled above.
+    // The preview confirmed the banded range grows with rows appended past
+    // the grid.
+    {
+      addBanding: {
+        bandedRange: {
+          range: { sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: templateColumns.length },
+          rowProperties: { firstBandColor: WHITE, secondBandColor: BAND_COLOR },
+        },
       },
     },
   ]
@@ -142,13 +213,24 @@ function buildFormattingRequests(sheetId: number, templateColumns: string[]): un
             ranges: [{ sheetId, startRowIndex: 1, startColumnIndex: statusColumnIndex, endColumnIndex: statusColumnIndex + 1 }],
             booleanRule: {
               condition: { type: 'TEXT_EQ', values: [{ userEnteredValue: statusValue }] },
-              format: { backgroundColor: color },
+              format: {
+                backgroundColor: color.background,
+                ...(color.text ? { textFormat: { foregroundColor: color.text } } : {}),
+              },
             },
           },
           index: ruleIndex++,
         },
       })
     }
+
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, startColumnIndex: statusColumnIndex, endColumnIndex: statusColumnIndex + 1 },
+        cell: { userEnteredFormat: { horizontalAlignment: 'CENTER' } },
+        fields: 'userEnteredFormat.horizontalAlignment',
+      },
+    })
 
     // Dropdown restricted to exactly the 5 values CLAUDE.md's Status field
     // section already locks in. strict:true (reject, not just warn) —
@@ -185,17 +267,30 @@ function buildFormattingRequests(sheetId: number, templateColumns: string[]): un
     })
   }
 
-  for (const columnName of WIDE_COLUMNS) {
-    const columnIndex = templateColumns.indexOf(columnName)
-    if (columnIndex === -1) continue
+  // Notes is the one column that wraps: a long note grows its row instead of
+  // being cut off (Sheets fits the row height to the wrapped text).
+  const notesColumnIndex = templateColumns.indexOf('Notes')
+  if (notesColumnIndex !== -1) {
     requests.push({
-      updateDimensionProperties: {
-        range: { sheetId, dimension: 'COLUMNS', startIndex: columnIndex, endIndex: columnIndex + 1 },
-        properties: { pixelSize: WIDE_COLUMN_PIXELS },
-        fields: 'pixelSize',
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, startColumnIndex: notesColumnIndex, endColumnIndex: notesColumnIndex + 1 },
+        cell: { userEnteredFormat: { wrapStrategy: 'WRAP' } },
+        fields: 'userEnteredFormat.wrapStrategy',
       },
     })
   }
+
+  templateColumns.forEach((columnName, columnIndex) => {
+    const pixelSize = COLUMN_WIDTHS[columnName]
+    if (!pixelSize) return
+    requests.push({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: columnIndex, endIndex: columnIndex + 1 },
+        properties: { pixelSize },
+        fields: 'pixelSize',
+      },
+    })
+  })
 
   return requests
 }
