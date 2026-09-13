@@ -570,6 +570,47 @@ token, a real revoke, and offline. Real Chrome's error text and
 behaviour are unverified until the extension-ID switch, where the
 re-verify step covers them.
 
+**Updated 2026-09-13 (decided by Ryan): saved queue rows reach the
+popup, Connect saves the queue, and a failed notification Undo shows.**
+- A row the offline-queue drain saves now gets a recent-list entry,
+  built from the queued row and the append's row number, with no
+  "Logged" toast. This replaces the Phase 4 boundary where a row saved
+  later by the drain never reached the list; with "needs reconnect"
+  every application made during a lapse would otherwise be missing from
+  the popup after Reconnect, with no Edit, Undo or live chip. The drain
+  adds them in one locked write (`addRecentApplications`), re-sorts the
+  whole list by the date the user applied, newest first, then keeps 20.
+  During a lapse nothing else is logged, so saved rows are normally the
+  newest; a row queued hours earlier lands at its date, and one older
+  than the 20th entry is saved to the sheet but doesn't enter the list.
+- `CONNECT_PROVIDER` drains the queue right after creating the sheet,
+  like `RECONNECT_PROVIDER`, instead of waiting up to 5 minutes, and
+  Settings shows the same "Saved N waiting applications" line. That
+  drain never fails either message (`drainAfterSignIn`): a throw outside
+  its per-row catch (a storage read or write, the recent-list update) is
+  logged and counts as saved 0, and the rows stay queued for the next
+  alarm. Otherwise Connect would report an error after creating the
+  sheet, and its "Try again" would create and swap in a second one.
+- The notification's Undo used to fail silently (a console warning only,
+  and the "Logged" notification closed either way). Now an
+  `AuthRequiredError` shows "Sign-in needed" again (the wrapper only
+  shows it on the first failure), and any other failure shows a fixed-id
+  `undo-failed` notification, with no button: "{Company} — {Title} is
+  still logged. Use Undo in the extension's popup."
+
+**Verified 2026-09-13 in Node only**, in the same test as above, now 18
+of 18: 3 queued rows drained into a list of 19 came out sorted by
+applied date and capped at 20 (the oldest queued row and the oldest
+existing entry dropped, the middle one at position 13 with its real row
+number, no toast); `CONNECT_PROVIDER` returned the new sheet with
+`saved: 1, waiting: 0` and the entry at the top of the list, and one
+whose drain threw (its queue write failing) still returned ok, with the
+new sheet kept and `saved: 0, waiting: 1`; a
+notification Undo failing with a 500 showed `undo-failed` with the
+entry still Applied, one failing signed out with the flag already set
+showed "Sign-in needed", and a successful one marked it Cancelled with
+no failure notification. Not run live.
+
 ### Spreadsheet backend (Google Sheets only since 2026-09-13)
 
 A `SpreadsheetProvider` interface decouples the rest of the extension

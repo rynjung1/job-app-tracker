@@ -36,6 +36,21 @@ export async function addRecentApplication(entry: RecentApplication): Promise<vo
   })
 }
 
+// Rows the offline-queue drain saved (background/offlineQueue.ts), added in
+// one locked write. A drained row can be hours old (queued while signed out
+// or offline), so the whole list is re-sorted by applied date, newest
+// first, then capped: a row older than the 20th entry is saved to the sheet
+// but doesn't enter the list. An unreadable date sorts last.
+export async function addRecentApplications(entries: RecentApplication[]): Promise<void> {
+  if (entries.length === 0) return
+  await withStorageLock(async () => {
+    const list = [...entries, ...(await getRecentApplications())]
+    const appliedAt = (entry: RecentApplication) => Date.parse(entry.date) || 0
+    list.sort((a, b) => appliedAt(b) - appliedAt(a))
+    await chrome.storage.local.set({ [RECENT_APPLICATIONS_KEY]: list.slice(0, MAX_RECENT) })
+  })
+}
+
 export async function updateRecentApplication(
   id: string,
   patch: Partial<RecentApplication>,

@@ -43,6 +43,11 @@ export interface ReconnectResult {
   waiting: number
 }
 
+// CONNECT_PROVIDER's result: the new sheet, plus the same drain counts.
+export interface ConnectResult extends ReconnectResult {
+  sheetRef: SheetRef
+}
+
 // `code` distinguishes the one error case a caller needs to react to
 // differently (a stale rowNumber — popup shows a specific message and
 // does not retry) from every other failure (network, auth, etc.), which
@@ -102,7 +107,7 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
   }
 }
 
-async function handleConnectProvider(): Promise<BackgroundResponse<SheetRef>> {
+async function handleConnectProvider(): Promise<BackgroundResponse<ConnectResult>> {
   const provider = await getActiveProvider()
   // Interactive — this is one of the few places allowed to trigger a
   // provider's OAuth consent popup, since it's a direct result of the
@@ -112,7 +117,10 @@ async function handleConnectProvider(): Promise<BackgroundResponse<SheetRef>> {
   await provider.authenticate()
   const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS])
   await setSheetRef(sheetRef)
-  return { ok: true, data: sheetRef }
+  // Save what queued before a sheet was connected (the "Not connected"
+  // notification's case) now, not at the next 5-minute alarm, the same way
+  // Reconnect does, so Settings can say so.
+  return { ok: true, data: { sheetRef, ...(await drainAfterSignIn()) } }
 }
 
 async function handleReconnectProvider(): Promise<BackgroundResponse<ReconnectResult>> {
@@ -126,9 +134,30 @@ async function handleReconnectProvider(): Promise<BackgroundResponse<ReconnectRe
   // Then save what queued while signed out now, not at the next 5-minute
   // alarm, so Settings can say so. If the alarm's drain is already running,
   // this one returns 0 and those rows are saved by that drain instead.
-  const saved = await drainOfflineQueue()
-  const waiting = (await getOfflineQueue()).length
-  return { ok: true, data: { saved, waiting } }
+  return { ok: true, data: await drainAfterSignIn() }
+}
+
+// The drain after a Connect or Reconnect never fails the message: by then
+// the sheet is connected and the user signed in. drainOfflineQueue can
+// still throw outside its per-row catch (a storage read or write, the
+// recent-list update), and for Connect an error would offer "Try again",
+// which creates and swaps in a second sheet: the bug phase B fixed for
+// Reconnect. So a throw is logged and counts as saved 0; the rows stay
+// queued and the next alarm retries them.
+async function drainAfterSignIn(): Promise<ReconnectResult> {
+  let saved = 0
+  try {
+    saved = await drainOfflineQueue()
+  } catch (err) {
+    console.warn('[job-app-tracker] drain after sign-in failed; queued rows stay for the next retry:', err)
+  }
+  let waiting = 0
+  try {
+    waiting = (await getOfflineQueue()).length
+  } catch (err) {
+    console.warn('[job-app-tracker] could not read the offline queue after sign-in:', err)
+  }
+  return { saved, waiting }
 }
 
 async function findEntryOrThrow(entryId: string): Promise<RecentApplication> {

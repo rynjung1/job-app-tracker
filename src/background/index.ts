@@ -37,6 +37,8 @@ const NOTIFICATION_CLEAR_DELAY_MINUTES = 5 / 60
 // documented create() behavior: reusing an id clears the existing one
 // first) rather than stacking up identical repeats on rapid-fire.
 const NOT_CONNECTED_NOTIFICATION_ID = 'not-connected'
+// Fixed id, no buttons, no auto-clear: a notification Undo that failed.
+const UNDO_FAILED_NOTIFICATION_ID = 'undo-failed'
 
 // reason check matters here — onInstalled also fires on 'update' and
 // 'chrome_update', not just a genuine first install. Gating strictly on
@@ -68,9 +70,10 @@ chrome.runtime.onStartup.addListener(() => {
 // behavior, Phase 4 note for why this isn't literally "the popup" opening
 // itself) and records the entry so the popup's recent-applications list
 // and the Edit window both have something to show. Only called on an
-// immediate successful write — a row that only succeeds later via the
-// offline-queue drain does not get a toast or a list entry; known Phase 4
-// scope boundary, not an oversight.
+// immediate successful write. A row that only succeeds later via the
+// offline-queue drain gets a list entry from the drain itself
+// (offlineQueue.ts, since 2026-09-13) but no toast: the correction window
+// is for the moment of applying, which has long passed by then.
 async function notifyApplicationLogged(payload: JobPostingData, row: Record<string, string>, appended: AppendedRow) {
   const id = crypto.randomUUID()
   const entry: RecentApplication = {
@@ -213,7 +216,21 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
       await cancelApplication(provider, sheetRef, entry)
       console.log('[job-app-tracker] undo: marked row', entry.rowNumber, 'Cancelled')
     } catch (err) {
+      // Used to be console-only, so a failed Undo looked like it worked:
+      // the "Logged" notification closed either way. Signed out, show
+      // "Sign-in needed" again (the wrapper only shows it on the first
+      // failure); otherwise say the row is still logged and where to retry.
       console.warn('[job-app-tracker] undo failed:', err)
+      if (err instanceof AuthRequiredError) {
+        await showNeedsReconnectNotification()
+      } else {
+        chrome.notifications.create(UNDO_FAILED_NOTIFICATION_ID, {
+          type: 'basic',
+          iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+          title: "Undo didn't go through",
+          message: `${entry.company} — ${entry.title} is still logged. Use Undo in the extension's popup.`,
+        })
+      }
     }
     chrome.notifications.clear(notificationId)
   } else if (buttonIndex === 1) {

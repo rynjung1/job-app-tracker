@@ -1,11 +1,35 @@
 // The offline write queue (CLAUDE.md, Background service worker). Moved out
 // of background/index.ts unchanged on 2026-09-13, so messageRouter.ts can
-// drain it right after a Reconnect without a circular import. The one
-// addition: drainOfflineQueue returns how many rows it saved.
+// drain it right after a Connect or Reconnect without a circular import.
+// Additions: drainOfflineQueue returns how many rows it saved, and each
+// saved row now gets a recent-list entry (no "Logged" toast), so an
+// application made while signed out or offline still shows in the popup
+// with Edit, Undo and its live status once it's saved.
 import { getActiveProvider } from '../providers/activeProvider'
+import type { AppendedRow } from '../providers/types'
 import { OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
 import { withStorageLock } from '../lib/storageLock'
+import { addRecentApplications } from '../lib/recentApplications'
+import type { RecentApplication } from '../lib/recentApplications'
+
+// A queued row keeps the sheet's column names (buildRow) and the ISO date
+// the user applied, so the entry sorts by when they applied, not when it
+// was saved. rowNumber comes from the append itself, as for a direct log.
+function recentEntryFor(row: Record<string, string>, appended: AppendedRow): RecentApplication {
+  return {
+    id: crypto.randomUUID(),
+    title: row.Title ?? '',
+    company: row.Company ?? '',
+    location: row.Location || null,
+    url: row.URL ?? '',
+    date: row.Date ?? '',
+    resumeVersion: row['Resume Version'] ?? '',
+    status: row.Status || 'Applied',
+    sheetName: appended.sheetName,
+    rowNumber: appended.rowNumber,
+  }
+}
 
 export async function getOfflineQueue(): Promise<Record<string, string>[]> {
   const stored = await chrome.storage.local.get(OFFLINE_QUEUE_KEY)
@@ -77,11 +101,13 @@ export async function drainOfflineQueue(): Promise<number> {
 
     const provider = await getActiveProvider()
     let drainedCount = 0
+    const saved: RecentApplication[] = []
     for (const row of queue) {
       try {
-        await provider.appendRow(sheetRef, row)
+        const appended = await provider.appendRow(sheetRef, row)
         console.log('[job-app-tracker] queued row written to sheet')
         drainedCount++
+        saved.push(recentEntryFor(row, appended))
       } catch (err) {
         console.warn('[job-app-tracker] retry failed, stopping this pass:', err)
         break
@@ -93,6 +119,9 @@ export async function drainOfflineQueue(): Promise<number> {
       const current = await getOfflineQueue()
       await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: current.slice(drainedCount) })
     })
+    // After the queue write, in its own lock: the rows are already saved
+    // either way; this only makes them visible in the popup.
+    await addRecentApplications(saved)
     return drainedCount
   } finally {
     isDraining = false

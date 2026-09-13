@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { SheetRef } from '../providers/types'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
 import { applicationCount } from '../lib/authStatus'
-import type { BackgroundResponse, ReconnectResult } from '../background/messageRouter'
+import type { BackgroundResponse, ConnectResult, ReconnectResult } from '../background/messageRouter'
 import { CheckIcon, TickIcon, WarnIcon } from '../ui/icons'
 import { useSyncStatus } from '../ui/useSyncStatus'
 
@@ -51,9 +51,11 @@ function App() {
       // methods directly.
       const response = (await chrome.runtime.sendMessage({
         type: 'CONNECT_PROVIDER',
-      })) as BackgroundResponse<SheetRef>
+      })) as BackgroundResponse<ConnectResult>
       if (!response.ok) throw new Error(response.error)
-      setState({ status: 'connected', sheetRef: response.data })
+      setState({ status: 'connected', sheetRef: response.data.sheetRef })
+      // Applications made before connecting are saved right away.
+      setNotice(savedNotice(response.data))
     } catch (err) {
       setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
     }
