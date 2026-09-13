@@ -1,3 +1,4 @@
+import { AuthRequiredError } from './types'
 import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
 import { columnIndexToLetter } from '../lib/columnLetter'
 import { isoToLocalDateSerial } from '../lib/dateSerial'
@@ -51,15 +52,43 @@ async function apiFetch(path: string, token: string, init?: RequestInit): Promis
 // lifecycle (refresh, expiry)" requirement from CLAUDE.md, kept inside the
 // provider so the background worker doesn't need provider-specific
 // knowledge of what "refresh" means for this backend.
+//
+// "Needs reconnect" (2026-09-13): the two ways a call can fail for lack of
+// sign-in now throw AuthRequiredError. Before, a failing non-interactive
+// getAuthToken escaped as a plain error, so logging queued and retried
+// forever and the popup quietly kept its saved statuses (found when a
+// lapsed sign-in hid a live status until Ryan clicked Reconnect).
 async function withAuth<T>(fn: (token: string) => Promise<T>): Promise<T> {
-  const token = await getToken(false)
+  const token = await getTokenForCall()
   try {
     return await fn(token)
   } catch (err) {
-    if (err instanceof SheetsApiError && err.status === 401) {
-      await chrome.identity.removeCachedAuthToken({ token })
-      const freshToken = await getToken(false)
-      return fn(freshToken)
+    if (!(err instanceof SheetsApiError && err.status === 401)) throw err
+    await chrome.identity.removeCachedAuthToken({ token })
+    const freshToken = await getTokenForCall()
+    try {
+      return await fn(freshToken)
+    } catch (retryErr) {
+      // A 401 on a token Chrome has just issued: the grant itself is gone.
+      if (retryErr instanceof SheetsApiError && retryErr.status === 401) {
+        throw new AuthRequiredError(`Google sign-in needed: ${retryErr.message}`)
+      }
+      throw retryErr
+    }
+  }
+}
+
+// getAuthToken({ interactive: false }) rejects when Chrome has no usable
+// token and can't get one without the user (access revoked, or the sign-in
+// lapsed). Offline it can also fail only because Google can't be reached:
+// an ordinary failure, queued and retried, so only an online failure means
+// sign-in is needed.
+async function getTokenForCall(): Promise<string> {
+  try {
+    return await getToken(false)
+  } catch (err) {
+    if (navigator.onLine) {
+      throw new AuthRequiredError(`Google sign-in needed: ${err instanceof Error ? err.message : String(err)}`)
     }
     throw err
   }

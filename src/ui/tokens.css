@@ -11,6 +11,11 @@
   --subtle: #f9fafb;
   --danger: #b91c1c;
   --ok: #15803d;
+  /* "Sign-in needed" (amber): text 6.84:1 on its background. */
+  --warn-bg: #fffbeb;
+  --warn-border: #fde68a;
+  --warn-text: #92400e;
+  --warn-dot: #d97706;
   color-scheme: light;
 }
 

@@ -20,6 +20,19 @@ export interface AppendedRow {
   rowNumber: number
 }
 
+// Added 2026-09-13 ("needs reconnect"), a flagged addition to the provider
+// contract: a provider throws this when it can't get authorization without
+// the user signing in again. For Google: the non-interactive token request
+// fails while online, or a 401 survives the one retry. getActiveProvider()'s
+// wrapper turns it into the "sign-in needed" flag (lib/authStatus.ts). The
+// message keeps the provider's original error text.
+export class AuthRequiredError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AuthRequiredError'
+  }
+}
+
 export interface SpreadsheetProvider {
   authenticate(): Promise<void>
   createSheet(templateColumns: string[]): Promise<SheetRef>

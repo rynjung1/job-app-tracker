@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { SheetRef } from '../providers/types'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
-import type { BackgroundResponse } from '../background/messageRouter'
+import { applicationCount } from '../lib/authStatus'
+import type { BackgroundResponse, ReconnectResult } from '../background/messageRouter'
 import { CheckIcon, TickIcon, WarnIcon } from '../ui/icons'
+import { useSyncStatus } from '../ui/useSyncStatus'
 
 // connecting/error carry the sheetRef when the action was a Reconnect, so
 // the error's "Try again" retries Reconnect. Before this, it always ran
@@ -17,17 +19,30 @@ type ConnectionState =
 const VERSION = chrome.runtime.getManifest().version
 const PRIVACY_POLICY_URL = 'https://rynjung1.github.io/job-app-tracker/privacy.html'
 
+// Opened at ?reconnect=1 (the popup's "Sign-in needed" banner or the
+// notification's Reconnect): start Google's sign-in as soon as the
+// connected sheet is known. 'started' also keeps a second run of the load
+// effect (React StrictMode in dev) from overwriting the Reconnecting state.
+let autoReconnect: 'pending' | 'started' | 'none' =
+  new URLSearchParams(window.location.search).get('reconnect') === '1' ? 'pending' : 'none'
+
+function savedNotice({ saved, waiting }: ReconnectResult): string {
+  const parts: string[] = []
+  if (saved > 0) parts.push(`Saved ${saved} waiting application${saved === 1 ? '' : 's'} to your sheet.`)
+  if (waiting > 0) {
+    parts.push(`${applicationCount(waiting)} still waiting; retried automatically every 5 minutes.`)
+  }
+  return parts.join(' ')
+}
+
 function App() {
   const [state, setState] = useState<ConnectionState>({ status: 'loading' })
-
-  useEffect(() => {
-    chrome.storage.local.get(SHEET_REF_KEY).then((stored) => {
-      const sheetRef = stored[SHEET_REF_KEY] as SheetRef | undefined
-      setState(sheetRef ? { status: 'connected', sheetRef } : { status: 'disconnected' })
-    })
-  }, [])
+  // After a Reconnect: what its immediate drain saved (role="status").
+  const [notice, setNotice] = useState('')
+  const { authStatus, queued } = useSyncStatus()
 
   async function handleConnect() {
+    setNotice('')
     setState({ status: 'connecting' })
     try {
       // authenticate()/createSheet() run in the background worker — this
@@ -45,11 +60,12 @@ function App() {
   }
 
   async function handleReconnect(sheetRef: SheetRef) {
+    setNotice('')
     setState({ status: 'connecting', sheetRef })
     try {
       const response = (await chrome.runtime.sendMessage({
         type: 'RECONNECT_PROVIDER',
-      })) as BackgroundResponse<undefined>
+      })) as BackgroundResponse<ReconnectResult>
       if (!response.ok) throw new Error(response.error)
       // Keep the existing sheetRef — only the OAuth grant needed
       // refreshing, not the sheet itself. background's handler
@@ -57,12 +73,30 @@ function App() {
       // same reason: it would orphan the current sheet and silently swap
       // in a new one.
       setState({ status: 'connected', sheetRef })
+      setNotice(savedNotice(response.data))
     } catch (err) {
       setState({ status: 'error', message: err instanceof Error ? err.message : String(err), sheetRef })
     }
   }
 
+  useEffect(() => {
+    chrome.storage.local.get(SHEET_REF_KEY).then((stored) => {
+      const sheetRef = stored[SHEET_REF_KEY] as SheetRef | undefined
+      if (autoReconnect === 'started') return
+      if (sheetRef && autoReconnect === 'pending') {
+        autoReconnect = 'started'
+        // Drop ?reconnect=1 so reloading the window doesn't sign in again.
+        window.history.replaceState(null, '', window.location.pathname)
+        handleReconnect(sheetRef)
+        return
+      }
+      setState(sheetRef ? { status: 'connected', sheetRef } : { status: 'disconnected' })
+    })
+    // Runs once on load.
+  }, [])
+
   const busy = state.status === 'loading' || state.status === 'connecting'
+  const needsReconnect = state.status === 'connected' && authStatus !== undefined
 
   return (
     <div className="page">
@@ -78,7 +112,7 @@ function App() {
 
       <section className="sec" aria-labelledby="spreadsheet-heading">
         <h2 id="spreadsheet-heading">Spreadsheet</h2>
-        <div className="card" aria-busy={busy || undefined}>
+        <div className={needsReconnect ? 'card warn' : 'card'} aria-busy={busy || undefined}>
           {state.status === 'loading' && <p className="muted">Checking your connection…</p>}
 
           {state.status === 'disconnected' && (
@@ -114,7 +148,35 @@ function App() {
             </>
           )}
 
-          {state.status === 'connected' && (
+          {state.status === 'connected' && needsReconnect && (
+            <>
+              <div className="status">
+                <span className="pill warn" aria-hidden="true" />
+                Google sign-in needed
+              </div>
+              <p className="muted">
+                Google access to your sheet was lost, so logging is paused.
+                {queued > 0 && ` ${applicationCount(queued)} ${queued === 1 ? 'is' : 'are'} waiting.`} Reconnect signs
+                you in again and keeps the same sheet.
+              </p>
+              <div className="acts">
+                <button type="button" className="btn primary lg" onClick={() => handleReconnect(state.sheetRef)}>
+                  Reconnect
+                </button>
+                <a
+                  className="btn lg"
+                  href={`https://docs.google.com/spreadsheets/d/${state.sheetRef.spreadsheetId}/edit`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open sheet <span aria-hidden="true">↗</span>
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              </div>
+            </>
+          )}
+
+          {state.status === 'connected' && !needsReconnect && (
             <>
               <div className="status">
                 <span className="pill ok" aria-hidden="true" />
@@ -124,6 +186,11 @@ function App() {
                 Applications are logged to your Job Applications sheet. If logging stops working, Reconnect signs you in
                 again and keeps the same sheet.
               </p>
+              {queued > 0 && !notice && (
+                <p className="muted">
+                  {applicationCount(queued)} waiting to be saved; retried automatically every 5 minutes.
+                </p>
+              )}
               <div className="acts">
                 <a
                   className="btn primary lg"
@@ -160,6 +227,10 @@ function App() {
               </div>
             </>
           )}
+
+          <p className="notice" role="status">
+            {state.status === 'connected' ? notice : ''}
+          </p>
         </div>
       </section>
 

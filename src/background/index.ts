@@ -3,19 +3,21 @@
 // Content scripts and other components must never write to a spreadsheet directly.
 
 import { getActiveProvider } from '../providers/activeProvider'
+import { AuthRequiredError } from '../providers/types'
 import type { AppendedRow } from '../providers/types'
 import type { JobPostingData } from '../parsers/types'
 import { buildRow } from '../lib/buildRow'
 import { sanitizeRow } from '../lib/sanitize'
-import { OFFLINE_QUEUE_KEY, REMOVED_EXCEL_KEYS } from '../lib/storageKeys'
+import { REMOVED_EXCEL_KEYS } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
 import { getDefaultResumeVersion } from '../lib/resumeVersion'
 import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
-import { withStorageLock } from '../lib/storageLock'
 import { recordPendingApplication, takePendingApplication } from '../lib/pendingApplications'
+import { NEEDS_RECONNECT_NOTIFICATION_ID, showNeedsReconnectNotification, syncBadge } from '../lib/authStatus'
 import { handleInternalMessage, isInternalMessage } from './messageRouter'
 import { openSettingsWindow } from './settingsWindow'
+import { drainOfflineQueue, queueRow } from './offlineQueue'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 // This extension's own pages (popup, options) — used to distinguish an
@@ -43,6 +45,7 @@ const NOT_CONNECTED_NOTIFICATION_ID = 'not-connected'
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[job-app-tracker] background service worker installed')
   chrome.alarms.create(RETRY_ALARM_NAME, { periodInMinutes: 5 })
+  syncBadge()
   if (details.reason === 'install') {
     openSettingsWindow()
   }
@@ -54,22 +57,11 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 })
 
-async function getOfflineQueue(): Promise<Record<string, string>[]> {
-  const stored = await chrome.storage.local.get(OFFLINE_QUEUE_KEY)
-  return (stored[OFFLINE_QUEUE_KEY] as Record<string, string>[] | undefined) ?? []
-}
-
-// Locked — a read-modify-write against shared storage, real-demonstrated
-// to silently lose data under two concurrent calls without this (e.g. two
-// applications logged in quick succession). See CLAUDE.md's concurrency-
-// fix note for the reproduction.
-async function queueRow(row: Record<string, string>): Promise<void> {
-  await withStorageLock(async () => {
-    const queue = await getOfflineQueue()
-    queue.push(row)
-    await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: queue })
-  })
-}
+// The "sign-in needed" badge doesn't survive a browser restart; re-apply it
+// from the stored flag (lib/authStatus.ts).
+chrome.runtime.onStartup.addListener(() => {
+  syncBadge()
+})
 
 // Fires the proactive "Logged: Company — Title" toast (a real
 // chrome.notifications system notification — see CLAUDE.md Logging
@@ -141,6 +133,12 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
   } catch (err) {
     console.warn('[job-app-tracker] appendRow failed, queuing for retry:', err)
     await queueRow(row)
+    // Signed out: the user just applied and gets no "Logged" toast, so tell
+    // them why, every time (the fixed id replaces it in place). Queued
+    // first, so the count includes this application.
+    if (err instanceof AuthRequiredError) {
+      await showNeedsReconnectNotification()
+    }
   }
 }
 
@@ -168,77 +166,8 @@ async function handleJobApplicationConfirmed(scopedKey: string) {
   await handleJobApplicationLogged(payload)
 }
 
-// Retries queued rows in original order, stopping at the first failure this
-// pass (a systemic issue — expired auth, network down — shouldn't hammer
-// the API once per queued row) and leaving the failed row plus everything
-// after it queued for the next alarm.
-//
-// The closing write does NOT hold the lock for the whole function — only
-// for the final read+write, after every appendRow (real network round
-// trips) has already happened. Real-demonstrated bug this fixes: a row
-// queued by a concurrent apply while a drain is mid-flight used to be
-// silently discarded by an overwrite based on a stale snapshot taken
-// before the drain started (see CLAUDE.md's concurrency-fix note). Fixed
-// by re-reading the current queue inside the lock and dropping only the
-// first `drainedCount` entries — correct by construction, not a
-// heuristic: queueRow only ever appends to the end and this function only
-// ever processes from the start in order, so nothing queued mid-drain can
-// land anywhere but after the entries already being drained.
-//
-// Fixed 2026-09-10 (re-entrancy): a second, distinct real bug, not covered
-// by the fix above — RETRY_ALARM_NAME fires every 5 minutes with no
-// guarantee the previous invocation has finished, and (before this fix)
-// no fetch() call in any provider had a timeout, so one genuinely stalled
-// request could keep this function mid-loop past the next alarm. A second
-// invocation starting then reads the *same* un-drained queue (per-row
-// success was never flushed to storage incrementally, only the whole
-// loop's closing write is), and re-appends whatever the first invocation
-// already wrote — a real, reproduced double-append, not theoretical (see
-// CLAUDE.md's offline-queue notes for the repro). isDraining is safe as a
-// plain module-scope flag here specifically because this function only
-// ever runs inside the background worker's own realm — no popup/options
-// caller exists for it, unlike the still-open MS_TOKEN_KEY cross-realm
-// question. Paired with FETCH_TIMEOUT_MS (lib/fetchWithTimeout.ts) so a
-// stuck request now fails within 30s instead of indefinitely, shrinking
-// the window this guard needs to cover in the first place.
-let isDraining = false
-
-async function drainOfflineQueue() {
-  if (isDraining) {
-    console.log('[job-app-tracker] drain already in progress, skipping this alarm fire')
-    return
-  }
-  isDraining = true
-  try {
-    const sheetRef = await getSheetRef()
-    if (!sheetRef) return
-
-    const queue = await getOfflineQueue()
-    if (queue.length === 0) return
-
-    const provider = await getActiveProvider()
-    let drainedCount = 0
-    for (const row of queue) {
-      try {
-        await provider.appendRow(sheetRef, row)
-        console.log('[job-app-tracker] queued row written to sheet')
-        drainedCount++
-      } catch (err) {
-        console.warn('[job-app-tracker] retry failed, stopping this pass:', err)
-        break
-      }
-    }
-    if (drainedCount === 0) return
-
-    await withStorageLock(async () => {
-      const current = await getOfflineQueue()
-      await chrome.storage.local.set({ [OFFLINE_QUEUE_KEY]: current.slice(drainedCount) })
-    })
-  } finally {
-    isDraining = false
-  }
-}
-
+// The offline queue itself (queueRow, drainOfflineQueue, its re-entrancy
+// guard) lives in ./offlineQueue.ts.
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RETRY_ALARM_NAME) {
     drainOfflineQueue()
@@ -261,6 +190,13 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
   // would otherwise silently swallow this button click entirely.
   if (notificationId === NOT_CONNECTED_NOTIFICATION_ID) {
     openSettingsWindow()
+    chrome.notifications.clear(notificationId)
+    return
+  }
+
+  // Reconnect runs in the Settings window, which shows how it went.
+  if (notificationId === NEEDS_RECONNECT_NOTIFICATION_ID) {
+    openSettingsWindow({ reconnect: true })
     chrome.notifications.clear(notificationId)
     return
   }

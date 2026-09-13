@@ -508,6 +508,68 @@ failed read (offline, signed out) keeps the cached status. Read-only:
 nothing is written to the sheet, and the cached list isn't updated from
 it. Undo hides itself when the displayed status is `Cancelled`.
 
+**Updated 2026-09-13 (decided by Ryan): "needs reconnect".** A lapsed or
+revoked Google sign-in used to be silent: `appendRow` failed, the row
+was queued, every 5-minute drain failed again, and nothing in the UI
+said so (found when the popup's live chip only updated after a
+Reconnect). Now:
+- **Detection** (`googleSheets.ts`, `withAuth`): a failing
+  non-interactive `getAuthToken` while `navigator.onLine`, or a 401
+  that survives the one retry, throws `AuthRequiredError` (Spreadsheet
+  backend, below). Offline, a failing `getAuthToken` stays an ordinary,
+  retried failure.
+  Known limitation: `navigator.onLine` is still true on a network with
+  no internet (a captive portal), so a `getAuthToken` failing there
+  shows a false "sign-in needed". The next successful call clears it;
+  no code change.
+- **The flag** (`lib/authStatus.ts`, `authStatus` in
+  `chrome.storage.local`, with the original error text as `reason`):
+  set by `getActiveProvider()`'s wrapper when any provider call throws
+  `AuthRequiredError`, cleared by any call that succeeds, so every
+  caller is covered. Setting and clearing run under `withStorageLock`
+  (no provider call runs inside that lock anywhere, checked), so
+  concurrent failures notify once.
+- **Notification**: fixed id `needs-reconnect`, with a Reconnect
+  button. Shown when the flag is first set, whatever call hit it, and
+  again for each application queued while it's set; later drains never
+  show it. The first application after sign-in lapses shows it twice in
+  a row (the first failure, then the apply with the count), the second
+  replacing the first in place.
+  A popup open can also be the first failure: its `GET_LIVE_STATUSES`
+  read sets the flag, so the notification appears alongside the popup's
+  banner. Expected.
+- **Badge**: a "!" on the toolbar icon (`#B45309`, 5.02:1) and an
+  action title saying sign-in is needed, re-applied on browser startup.
+- **Popup**: an amber "Google sign-in needed" banner with the queued
+  count and Reconnect; when the queue isn't empty without the flag, a
+  neutral "waiting to be saved" banner. The list keeps the saved
+  statuses, since the live read needs sign-in too.
+- **Settings**: the connected card turns amber with Reconnect. Reconnect
+  from the popup banner or the notification opens the Settings window at
+  `?reconnect=1` (`OPEN_SETTINGS` with `reconnect: true`; an open window
+  is reloaded there), which starts Google's sign-in on load, since the
+  popup closes as soon as Google's window opens. `RECONNECT_PROVIDER`
+  then drains the queue immediately (`background/offlineQueue.ts`, the
+  drain moved out of `index.ts` unchanged, returning the rows saved) and
+  Settings shows "Saved N waiting applications to your sheet."
+  inline, with no notification for it.
+
+**Verified 2026-09-13 in Node only:** the real `withAuth`,
+`activeProvider` wrapper, `authStatus`, offline queue, message router and
+background listeners against mocked `chrome`/`fetch`/`navigator`, 12 of
+12: a rejected `getAuthToken` while online sets the flag, the badge and
+one notification; a 401 that survives the retry sets it; a 401 then
+success, a 500, a timeout and a `getAuthToken` failure while offline
+don't; 5 concurrent failures notify once; a success clears the flag,
+badge and notification; 3 failing drains notify once and keep the
+queue; 2 applications while signed out queue 2 and notify with the
+count, and a later drain adds none; `RECONNECT_PROVIDER` saves both
+(`{saved: 2, waiting: 0}`) and clears everything; `OPEN_SETTINGS` with
+`reconnect: true` opens `?reconnect=1`. Not run live: a cleared cached
+token, a real revoke, and offline. Real Chrome's error text and
+behaviour are unverified until the extension-ID switch, where the
+re-verify step covers them.
+
 ### Spreadsheet backend (Google Sheets only since 2026-09-13)
 
 A `SpreadsheetProvider` interface decouples the rest of the extension
@@ -561,6 +623,14 @@ spanning the lowest to the highest requested row (e.g. `G2:G21`), with
 `majorDimension=COLUMNS`, so the number of requests doesn't grow with
 the number of rows. The recent list is the latest rows, so the span
 stays close to their count.
+
+**Updated 2026-09-13:** `AuthRequiredError` added to
+`providers/types.ts`, a flagged addition to the provider contract: a
+provider throws it when it can't get authorization without the user
+signing in again, and `getActiveProvider()`'s wrapper turns it into the
+"needs reconnect" flag (Logging behavior, above). The wrapper lists
+every `SpreadsheetProvider` method, so a new method is a type error there
+until it's tracked too.
 
 **Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`, the
 numeric grid id (not the string `sheetName`),

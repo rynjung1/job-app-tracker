@@ -23,6 +23,7 @@ import type { RecentApplication } from '../lib/recentApplications'
 import { setLastResumeVersion } from '../lib/resumeVersion'
 import { LIVE_STATUS_COLUMNS, matchLiveStatuses } from '../lib/liveStatuses'
 import { openSettingsWindow } from './settingsWindow'
+import { drainOfflineQueue, getOfflineQueue } from './offlineQueue'
 
 export type BackgroundRequest =
   | { type: 'CONNECT_PROVIDER' }
@@ -33,7 +34,14 @@ export type BackgroundRequest =
     }
   | { type: 'CANCEL_APPLICATION'; payload: { entryId: string } }
   | { type: 'GET_LIVE_STATUSES' }
-  | { type: 'OPEN_SETTINGS' }
+  | { type: 'OPEN_SETTINGS'; payload?: { reconnect?: boolean } }
+
+// RECONNECT_PROVIDER's result: rows the immediate drain saved, and rows
+// still queued after it (Settings shows both).
+export interface ReconnectResult {
+  saved: number
+  waiting: number
+}
 
 // `code` distinguishes the one error case a caller needs to react to
 // differently (a stale rowNumber — popup shows a specific message and
@@ -86,7 +94,7 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
       case 'GET_LIVE_STATUSES':
         return await handleGetLiveStatuses()
       case 'OPEN_SETTINGS':
-        await openSettingsWindow()
+        await openSettingsWindow({ reconnect: message.payload?.reconnect === true })
         return { ok: true, data: undefined }
     }
   } catch (err) {
@@ -107,14 +115,20 @@ async function handleConnectProvider(): Promise<BackgroundResponse<SheetRef>> {
   return { ok: true, data: sheetRef }
 }
 
-async function handleReconnectProvider(): Promise<BackgroundResponse<undefined>> {
+async function handleReconnectProvider(): Promise<BackgroundResponse<ReconnectResult>> {
   const provider = await getActiveProvider()
   await provider.authenticate()
   // Keep the existing sheetRef — only the OAuth grant needed refreshing,
   // not the sheet itself. Calling createSheet() here would orphan the
   // current sheet and silently swap in a new one (same reasoning as
   // options/App.tsx's original handleReconnect).
-  return { ok: true, data: undefined }
+  //
+  // Then save what queued while signed out now, not at the next 5-minute
+  // alarm, so Settings can say so. If the alarm's drain is already running,
+  // this one returns 0 and those rows are saved by that drain instead.
+  const saved = await drainOfflineQueue()
+  const waiting = (await getOfflineQueue()).length
+  return { ok: true, data: { saved, waiting } }
 }
 
 async function findEntryOrThrow(entryId: string): Promise<RecentApplication> {

@@ -4,7 +4,9 @@ import { getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
 import type { BackgroundResponse } from '../background/messageRouter'
-import { CheckIcon, GearIcon, SheetIcon, WarnIcon } from '../ui/icons'
+import { CheckIcon, ClockIcon, GearIcon, LockIcon, SheetIcon, WarnIcon } from '../ui/icons'
+import { applicationCount } from '../lib/authStatus'
+import { useSyncStatus } from '../ui/useSyncStatus'
 
 // If opened via the notification's Edit button (background/index.ts), this
 // is set to that entry's id and this window was created just for editing
@@ -38,9 +40,14 @@ function formatDate(iso: string): string {
 
 // Settings opens as a singleton window from the background worker
 // (background/settingsWindow.ts); the options page in a tab is the fallback.
-async function openSettings() {
+// { reconnect: true } starts Google's sign-in there: the popup closes as
+// soon as Google's window opens, so Settings is where the result shows.
+async function openSettings({ reconnect = false }: { reconnect?: boolean } = {}) {
   try {
-    const response = (await chrome.runtime.sendMessage({ type: 'OPEN_SETTINGS' })) as BackgroundResponse<undefined>
+    const response = (await chrome.runtime.sendMessage({
+      type: 'OPEN_SETTINGS',
+      payload: { reconnect },
+    })) as BackgroundResponse<undefined>
     if (!response.ok) throw new Error(response.error)
   } catch (err) {
     console.warn('[job-app-tracker] Settings window failed, opening the options page instead:', err)
@@ -78,6 +85,7 @@ function App() {
   const [savingEditId, setSavingEditId] = useState<string | null>(null)
   const [undoingId, setUndoingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<ActionError | null>(null)
+  const { authStatus, queued } = useSyncStatus()
 
   useEffect(() => {
     getRecentApplications().then((apps) => {
@@ -213,10 +221,42 @@ function App() {
             <SheetIcon />
           </a>
         )}
-        <button type="button" className="icon-btn" onClick={openSettings} aria-label="Settings" title="Settings">
+        <button type="button" className="icon-btn" onClick={() => openSettings()} aria-label="Settings" title="Settings">
           <GearIcon />
         </button>
       </header>
+
+      {/* Statuses in the list stay the saved ones while signed out: the live
+          read needs sign-in too, and a failed read shows nothing live. */}
+      {!loading && sheetRef !== undefined && authStatus && (
+        <div className="banner" role="alert">
+          <LockIcon />
+          <div>
+            <b>Google sign-in needed</b>
+            <p>
+              {queued > 0
+                ? `Logging is paused. ${applicationCount(queued)} ${queued === 1 ? 'is' : 'are'} waiting and will be saved to your sheet when you reconnect.`
+                : 'Logging is paused until you reconnect.'}
+            </p>
+            <button type="button" className="btn primary" onClick={() => openSettings({ reconnect: true })}>
+              Reconnect
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!loading && sheetRef !== undefined && !authStatus && queued > 0 && (
+        <div className="banner info" role="status">
+          <ClockIcon />
+          <div>
+            <b>{applicationCount(queued)} waiting to be saved</b>
+            <p>
+              Saving didn't go through (offline?). {queued === 1 ? "It'll" : "They'll"} be retried automatically every 5
+              minutes.
+            </p>
+          </div>
+        </div>
+      )}
 
       {loading && (
         <div className="list" aria-busy="true">
@@ -237,7 +277,7 @@ function App() {
           </div>
           <h2>Connect a spreadsheet</h2>
           <p>Applications you submit on LinkedIn Easy Apply or Greenhouse are logged to a Google Sheet automatically.</p>
-          <button type="button" className="btn primary lg" onClick={openSettings}>
+          <button type="button" className="btn primary lg" onClick={() => openSettings()}>
             Open Settings
           </button>
         </div>
