@@ -62,7 +62,14 @@ Automatically logs the job applications you submit on supported job sites (Linke
 `storage`:
 
 ```text
-Stores, only on this device: which spreadsheet you connected and whether it is Google or Microsoft; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; your 20 most recent logged applications, shown in the popup for Edit and Undo; the last resume version you used for each type of role; and, for the Excel option only, your Microsoft sign-in tokens.
+Stores, only on this device: which spreadsheet you connected and whether it is Google or Microsoft; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged, after 30 minutes, or when the browser closes); your 20 most recent logged applications, shown in the popup for Edit and Undo; the last resume version you used for each type of role; and, for the Excel option only, your Microsoft sign-in tokens.
+```
+
+Shorter fallback, use if the dashboard rejects the long one (no
+documented limit was found for these fields):
+
+```text
+Stores on this device only: the connected spreadsheet and provider; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (at most 30 minutes); the 20 most recent applications, for Edit and Undo; the last resume version per role type; and, for Excel only, Microsoft sign-in tokens.
 ```
 
 `identity`:
