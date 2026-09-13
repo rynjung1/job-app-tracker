@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "package": "node scripts/package.mjs",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# Web Store upload zips (npm run package)
+release
 *.local
 
 # Secrets / local config — never commit

@@ -1268,6 +1268,18 @@ narrowest-scope principle already applied to OAuth scopes now
 applies to the manifest itself — re-add only when a real feature
 actually needs it, not speculatively ahead of time.
 
+**Updated 2026-09-13:** the build plugin (crxjs 2.7.1) adds
+`web_accessible_resources` to the production manifest: one entry per
+content script, exposing only that script's own bundled file to its
+site's origin (`*://www.linkedin.com/*`,
+`*://job-boards.greenhouse.io/*`, `use_dynamic_url: false`). No plugin
+option turns it off, and it's accepted: a page on those two sites can
+detect the extension is installed if it knows the hashed file path, and
+nothing else is exposed. A Vite dev-server build instead exposes every
+file to every site (`<all_urls>`, `**/*`), so upload zips come only from
+`npm run package` (`scripts/package.mjs`), which pins exactly those two
+entries.
+
 **Manifest / build**
 - Manifest V3 from day one.
 - No `eval()`, no remotely hosted or inline scripts — required for
