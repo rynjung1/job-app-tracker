@@ -1126,6 +1126,13 @@ secret — public by design for this client type) is hardcoded in
 `manifest.config.ts`'s `oauth2` key; that's expected and fine to
 commit.
 
+**Updated 2026-09-13:** no provider stores a token now. With Excel
+removed, Google is the only provider and Chrome caches its token; the
+extension's own storage holds no credential (the "needs reconnect"
+`authStatus` flag is a timestamp and an error message). The PKCE and
+"tokens only in `chrome.storage.local`" lines above apply only to a
+future provider that has to handle its own tokens.
+
 **Trust boundary**
 - The background service worker is the only component allowed to
   hold tokens or call spreadsheet APIs. Content scripts only ever
@@ -1303,6 +1310,17 @@ published 2026-09-09).
    padding, full-bleed screenshots, Dependabot, pre-commit secret
    check, public logging, version). Submission follows the
    extension-ID sequence in the `web-store-deploy` skill.
+   Status 2026-09-13: Excel/OneDrive support removed (`7727a9a`); new
+   sheets get the fuller formatting (`d2735ff`); the popup and Settings
+   restyled, with the Settings window and live status chips
+   (`9d6fbbb`); the "needs reconnect" sign-in warning (`88816bf`,
+   verified in Node only); minimum Chrome 110; and the privacy policy
+   and listing rewritten for Google Sheets only. Still to do before
+   submission: queued rows into the recent list plus a drain on Connect,
+   a visible notification-Undo failure, the store screenshots rebuilt
+   for the new popup and sheet, and a packaging script (a zip with no
+   `key`, plus a contents check). Then the extension-ID sequence, which
+   waits on Ryan's developer account.
 
 **Deferred, not abandoned:**
 - **Indeed parser (2026-09-01):** every fetch attempt (curl and

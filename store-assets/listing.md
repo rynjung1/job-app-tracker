@@ -5,10 +5,14 @@ Dashboard's Store listing tab. Kept out of `public/` (Vite copies that
 into `dist/`, so it would ship inside the extension) and `docs/`
 (published on GitHub Pages).
 
-## Short description (126 of 132 characters)
+Updated 2026-09-13 (draft, awaiting review): Google Sheets only (Excel/
+OneDrive support removed), the popup's live statuses, the "Sign-in
+needed" warning, and the new locally stored items.
+
+## Short description (117 of 132 characters)
 
 ```text
-Automatically logs job applications to Google Sheets or Excel when you apply on LinkedIn or Greenhouse — no manual data entry.
+Automatically logs job applications to Google Sheets when you apply on LinkedIn or Greenhouse — no manual data entry.
 ```
 
 ## Detailed description
@@ -16,15 +20,15 @@ Automatically logs job applications to Google Sheets or Excel when you apply on 
 The dashboard shows this as plain text, so it has no Markdown.
 
 ```text
-Job Application Tracker eliminates the copy-paste step of a job search. When you submit an application on LinkedIn (Easy Apply) or a Greenhouse-hosted job posting, it automatically logs the company, title, location, date, and a link to the job posting to a spreadsheet you control — Google Sheets or Microsoft Excel/OneDrive, your choice.
+Job Application Tracker eliminates the copy-paste step of a job search. When you submit an application on LinkedIn (Easy Apply) or a Greenhouse-hosted job posting, it automatically logs the company, title, location, date, and a link to the job posting to a Google Sheet you control.
 
 Easy Apply detection is fully supported with LinkedIn set to English.
 
-No setup beyond connecting your account: the extension creates a new, formatted spreadsheet on first use, with a Status column, dropdown, and color-coded conditional formatting (Sheets) so you can track Applied / Interview / Offer / Rejected at a glance.
+No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected at a glance.
 
-From the extension's popup you can edit the resume version of, or undo, any of your 20 most recent applications at any time, so you can correct a mismatched resume choice or cancel an accidental log without ever touching the spreadsheet by hand.
+From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, and edit its resume version or undo it at any time, so you can correct a mismatched resume choice or cancel an accidental log without touching the spreadsheet by hand. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
 
-Privacy: the extension only reads job-posting pages on the specific sites it supports — it never has access to other tabs or browsing activity. It only ever talks to Google's or Microsoft's own APIs to write your spreadsheet; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) or its own app folder (Microsoft Files.ReadWrite.AppFolder) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
+Privacy: the extension only reads job-posting pages on the specific sites it supports — it never has access to other tabs or browsing activity. It only ever talks to Google's own API to read and write your spreadsheet; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
 ```
 
 ## Screenshots (1280×800, 24-bit PNG, no alpha, full bleed)
@@ -38,23 +42,25 @@ order:
    Edit/Undo, open over the auto-created sheet. It's a composite of two
    unedited product captures: the popup, cropped to its card, placed
    top-right where it opens from the toolbar, with a drop shadow and a
-   1px border, over screenshot 3. Neither capture is retouched. The
-   popup shows Arclight and Northwind as Applied while the sheet shows
-   Offer and Interview. That's real behaviour: the popup only knows
-   statuses the extension set itself, and those two were changed in the
-   sheet by hand.
+   1px border, over screenshot 3. Neither capture is retouched. To be
+   rebuilt for the 2026-09-13 popup: the current image shows Arclight
+   and Northwind as Applied while the sheet shows Offer and Interview,
+   which was the old behaviour. The popup now shows statuses changed in
+   the sheet, so in the rebuilt capture its chips match the sheet.
 2. `screenshots/3-spreadsheet.png`: the auto-created sheet, with the
    formatted header, real dates, and the Status dropdown and colours.
+   To be rebuilt for the 2026-09-13 sheet formatting.
 
 ## Privacy practices tab
 
 Drafted 2026-09-11 from the published privacy policy and the code (see
-the notes under each part). Paste each block into the matching field.
+the notes under each part), updated 2026-09-13. Paste each block into
+the matching field.
 
 ### Single purpose
 
 ```text
-Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply and Greenhouse-hosted job postings) as rows in a spreadsheet you own, in Google Sheets or Microsoft Excel on OneDrive.
+Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply and Greenhouse-hosted job postings) as rows in a Google Sheet you own.
 ```
 
 ### Permission justifications
@@ -62,20 +68,20 @@ Automatically logs the job applications you submit on supported job sites (Linke
 `storage`:
 
 ```text
-Stores, only on this device: which spreadsheet you connected and whether it is Google or Microsoft; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged, after 30 minutes, or when the browser closes); your 20 most recent logged applications, shown in the popup for Edit and Undo; the last resume version you used for each type of role; and, for the Excel option only, your Microsoft sign-in tokens.
+Stores, only on this device: which Google Sheet you connected; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged, after 30 minutes, or when the browser closes); your 20 most recent logged applications, shown in the popup for Edit and Undo; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and Chrome's error message, until you reconnect; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
 ```
 
 Shorter fallback, use if the dashboard rejects the long one (no
 documented limit was found for these fields):
 
 ```text
-Stores on this device only: the connected spreadsheet and provider; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (at most 30 minutes); the 20 most recent applications, for Edit and Undo; the last resume version per role type; and, for Excel only, Microsoft sign-in tokens.
+Stores on this device only: the connected Google Sheet; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (at most 30 minutes); the 20 most recent applications, for Edit and Undo; the last resume version per role type; a sign-in-needed flag with Chrome's error; and the open Settings window's id (session).
 ```
 
 `identity`:
 
 ```text
-Signs you in to the spreadsheet service you choose: chrome.identity.getAuthToken for Google Sheets (scope drive.file, which only covers files this extension creates) and chrome.identity.launchWebAuthFlow for Microsoft (scope Files.ReadWrite.AppFolder, which only covers this extension's own OneDrive folder). No profile, email or other account data is requested.
+Signs you in to Google Sheets with chrome.identity.getAuthToken (scope drive.file, which only covers files this extension creates). Chrome caches the token; the extension stores no credential itself. No profile, email or other account data is requested.
 ```
 
 `alarms`:
@@ -87,25 +93,13 @@ Retries writing queued applications every 5 minutes after a network or sign-in f
 `notifications`:
 
 ```text
-Shows a "Logged" notification after each automatic log, with Undo and Edit buttons to correct it, and a notice if you applied while no spreadsheet was connected, with a button that opens Settings.
+Shows a "Logged" notification after each automatic log, with Undo and Edit buttons to correct it; a notice if you applied while no spreadsheet was connected, with a button that opens Settings; and a "Sign-in needed" notice when Google access to your sheet has lapsed, with a Reconnect button, so applications waiting to be saved don't go unnoticed.
 ```
 
 Host permission `https://sheets.googleapis.com/*`:
 
 ```text
-Writes each logged application as a row in the Google Sheet this extension created, and updates one cell when you use Undo or Edit, through the Google Sheets API.
-```
-
-Host permission `https://login.microsoftonline.com/*`:
-
-```text
-Microsoft sign-in for the Excel option: exchanges the sign-in code for tokens and refreshes them (OAuth 2.0 with PKCE; no client secret).
-```
-
-Host permission `https://graph.microsoft.com/*`:
-
-```text
-Creates the Excel workbook in this extension's own OneDrive app folder and writes each logged application to it, through Microsoft Graph.
+Through the Google Sheets API: writes each logged application as a row in the Google Sheet this extension created and updates one cell for Undo or Edit; reads your recent rows' Company, Title and Status for the popup, and a row before a popup Edit or Undo to check it still matches.
 ```
 
 If the dashboard also asks about the content-script sites (they're
@@ -127,9 +121,11 @@ processed on the device, so local storage is disclosed too.
 
 - **Website content: check.** The job title, company, location and page
   URL, read from the job page when you apply.
-- **Authentication information: check.** For the Excel option, the
-  Microsoft sign-in tokens stored in local extension storage. (Google
-  tokens are cached by Chrome itself, not by this extension.)
+- **Authentication information: check.** The extension uses a Google
+  OAuth access token, from `chrome.identity.getAuthToken`, to call the
+  Sheets API. Chrome caches the token and the extension stores no
+  credential itself, but it does handle the token for each request, so
+  this errs on the side of disclosing.
 - **Web history: check.** Every logged row stores the job posting's URL
   and the date you applied. The Web Store's User Data FAQ defines web
   browsing activity as "any information about the websites or other web
@@ -144,16 +140,16 @@ processed on the device, so local storage is disclosed too.
   errs on the side of disclosing. It doesn't track other clicks,
   keystrokes, scrolling or mouse movement.
 - **Don't check:** personally identifiable information (it never reads
-  your name, email or profile, and the Microsoft scopes don't include
-  `openid`/`profile`), health, financial and payment, personal
-  communications, and location (the job's location isn't yours).
+  your name, email or profile, and its only Google scope is
+  `drive.file`), health, financial and payment, personal communications,
+  and location (the job's location isn't yours).
 
 ### Data usage: certifications (check all three)
 
 Match these to the dashboard's exact wording:
 
 - Doesn't sell or transfer user data to third parties outside the
-  approved use cases. Data only goes to Google's or Microsoft's API to
+  approved use cases. Data only goes to Google's Sheets API to read and
   write your own spreadsheet, which is the single purpose.
 - Doesn't use or transfer user data for purposes unrelated to the
   single purpose.

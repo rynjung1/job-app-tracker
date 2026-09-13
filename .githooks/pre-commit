@@ -5,8 +5,8 @@
 # For a known false positive: git commit --no-verify.
 #
 # Public identifiers are deliberately not matched and are fine to commit:
-# the Google OAuth client ID (*.apps.googleusercontent.com), the Azure
-# client ID (a GUID), and the manifest "key" (a public key).
+# the Google OAuth client ID (*.apps.googleusercontent.com) and the
+# manifest "key" (a public key).
 
 status=0
 
@@ -22,8 +22,8 @@ fi
 # OAuth client secrets, Google access and refresh tokens, and JWTs.
 patterns='-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{35}|GOCSPX-[0-9A-Za-z_-]{20,}|ya29\.[0-9A-Za-z_-]{20,}|1//0[0-9A-Za-z_-]{30,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
 # A secret-named field assigned a quoted literal, e.g. client_secret: "...".
-# Unquoted values are code (refresh_token: stored.refreshToken in
-# msAuth.ts), so they're deliberately not matched.
+# Unquoted values are code (e.g. refresh_token: stored.refreshToken), so
+# they're deliberately not matched.
 literal="(client_secret|refresh_token|access_token)[\"']?[[:space:]]*[:=][[:space:]]*[\"'][A-Za-z0-9._~+/-]{16,}"
 
 # Report file names only, so a real secret isn't echoed to the terminal.

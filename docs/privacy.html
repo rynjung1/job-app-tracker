@@ -25,38 +25,36 @@
 <body>
 
 <h1>Privacy Policy — Job Application Tracker</h1>
-<p class="updated">Last updated: 2026-09-12</p>
+<p class="updated">Last updated: 2026-09-13</p>
 
-<p>Job Application Tracker is a browser extension that automatically logs job applications you submit on supported job sites (currently LinkedIn and Greenhouse) to a spreadsheet you own — either a Google Sheet or a Microsoft Excel file on OneDrive. This page explains what data the extension accesses, stores, and sends, in plain terms.</p>
+<p>Job Application Tracker is a browser extension that automatically logs job applications you submit on supported job sites (currently LinkedIn and Greenhouse) to a Google Sheet you own. This page explains what data the extension accesses, stores, and sends, in plain terms.</p>
 
 <h2>What the extension reads from job pages</h2>
 <p>When you're on a supported job posting page, the extension reads the job title, company name, location, and page URL directly from that page. It does not read your LinkedIn or Greenhouse profile, account information, messages, or any other page content.</p>
 
 <h2>Where your data goes</h2>
-<p>When you apply, those four fields — plus the date, your resume version, and blank Status/Notes fields for you to fill in — are written as a new row to a spreadsheet you control. On LinkedIn this happens when you click Easy Apply. On Greenhouse it happens once Greenhouse confirms your application was submitted, so an attempt the form rejects isn't logged:</p>
-<ul>
-  <li>If you connect Google Sheets, the extension can only access files it creates itself (Google's <code>drive.file</code> permission) — it cannot see or modify any other file in your Google Drive.</li>
-  <li>If you connect Excel/OneDrive, the extension can only access its own dedicated folder in your OneDrive (Microsoft's <code>Files.ReadWrite.AppFolder</code> permission) — it cannot see or modify anything else in your OneDrive.</li>
-</ul>
-<p>The extension has no server of its own. Data goes directly from your browser to Google's or Microsoft's servers, using their official APIs, over HTTPS. Nothing passes through, or is stored on, any server operated by this extension's developer.</p>
+<p>When you apply, those four fields — plus the date, your resume version, and blank Status/Notes fields for you to fill in — are written as a new row to a spreadsheet you control. On LinkedIn this happens when you click Easy Apply. On Greenhouse it happens once Greenhouse confirms your application was submitted, so an attempt the form rejects isn't logged.</p>
+<p>The extension can only access files it creates itself (Google's <code>drive.file</code> permission) — it cannot see or modify any other file in your Google Drive. When you open the extension's popup, it reads the Company, Title and Status of your recent rows back from that same spreadsheet, so it can show each application's current status, and before an Edit or Undo from the popup it reads that row to check it still matches. It reads nothing else from your Drive.</p>
+<p>The extension has no server of its own. Data goes directly from your browser to Google's servers, using Google's official APIs, over HTTPS. Nothing passes through, or is stored on, any server operated by this extension's developer.</p>
 
 <h2>What's stored on your device</h2>
 <p>The extension stores the following locally, in your browser's extension storage (not synced to any account or accessible to other extensions or websites):</p>
 <ul>
-  <li>A short-term queue of job applications waiting to be written, in case of a network or authentication issue.</li>
+  <li>A short-term queue of job applications waiting to be written, in case of a network or sign-in issue.</li>
   <li>Briefly, for a Greenhouse application: the job title, company, location and page URL from your Submit click, kept in session storage (memory only) until Greenhouse confirms the submission. It's deleted when that application is logged, after 30 minutes, or when you close the browser, whichever comes first.</li>
   <li>Your 20 most recent logged applications, so the extension can show you a list where you can edit the resume version, or undo an entry (which marks it Cancelled in your spreadsheet), at any time.</li>
-  <li>Which spreadsheet/workbook you've connected, and which service (Google or Microsoft) you've chosen.</li>
+  <li>Which spreadsheet you've connected.</li>
   <li>The last resume version you used for each type of role, so future applications can suggest it automatically.</li>
-  <li>If you use the Excel/OneDrive option, your Microsoft sign-in tokens (used to keep you signed in without asking you to log in again every time).</li>
+  <li>If the extension can't reach your spreadsheet because your Google sign-in has lapsed or been removed: when that happened and the error message Chrome gave, so it can show a "Sign-in needed" notice until you reconnect. It's deleted as soon as the extension reaches your spreadsheet again.</li>
+  <li>While the extension's Settings window is open, that window's number, in session storage (memory only), so opening Settings again brings the same window forward.</li>
 </ul>
-<p>None of this is ever transmitted anywhere except as described above.</p>
+<p>The extension doesn't store any sign-in credential: Chrome itself keeps the Google access token it uses. None of this is ever transmitted anywhere except as described above.</p>
 
 <h2>What this extension does not do</h2>
-<p>It does not use analytics or tracking of any kind. It does not share, sell, or transmit your data to any third party. It does not display ads. It does not access any website other than the specific job sites and the Google/Microsoft APIs described here.</p>
+<p>It does not use analytics or tracking of any kind. It does not share, sell, or transmit your data to any third party. It does not display ads. It does not access any website other than the specific job sites and the Google API described here.</p>
 
 <h2>Your control over your data</h2>
-<p>You can disconnect the extension's access to your Google or Microsoft account at any time from your Google Account or Microsoft Account security settings. Uninstalling the extension removes all data stored locally by it. The spreadsheet or workbook it created remains yours — deleting it is entirely up to you, the same as any other file in your account.</p>
+<p>You can disconnect the extension's access to your Google account at any time from your Google Account's security settings. Uninstalling the extension removes all data stored locally by it. The spreadsheet it created remains yours — deleting it is entirely up to you, the same as any other file in your account.</p>
 
 <h2>Changes to this policy</h2>
 <p>If this policy changes, the "Last updated" date above will change accordingly.</p>

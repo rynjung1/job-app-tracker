@@ -60,6 +60,24 @@ description: Steps and status for publishing this extension to the Chrome Web St
      - Edit from the popup's recent list (never run since provider
        calls moved into the background worker), and Reconnect.
      - Undo and Edit from the "Logged" notification.
+     - The "needs reconnect" sign-in warning (CLAUDE.md, Logging
+       behavior), verified in Node only so far. Revoke the extension's
+       access in the Google Account, then check the popup's amber
+       banner, the "!" badge and the "Sign-in needed" notification.
+       Make one Easy Apply click (close the modal) so a row queues, then
+       Reconnect from the banner: Settings should show "Saved 1 waiting
+       application", the row should land and the badge should clear.
+       Before reconnecting, run
+       `chrome.storage.local.get('authStatus')` in the service-worker
+       console and record Chrome's real error text in that CLAUDE.md
+       paragraph. Also: a cleared cached token
+       (`chrome.identity.removeCachedAuthToken`) should show no warning,
+       and an application made offline should show the neutral
+       "waiting to be saved" banner, not the warning.
+     - Left here by phase B (the new ID starts with empty storage, so
+       it's a real first install): Settings opens on its own as a
+       window, and the "Not connected" notification's Open Settings
+       opens that window.
   7. **Done 2026-09-11** (`f4ab8c5`): CLAUDE.md's LinkedIn "Known v1
      gap" is resolved. The selector matches LinkedIn's current markup
      (the link variant in any UI language, the button variants in

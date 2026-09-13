@@ -1,5 +1,6 @@
 import { inferRoleType } from './roleType'
 import { LAST_RESUME_VERSION_KEY } from './storageKeys'
+import { withStorageLock } from './storageLock'
 
 type ResumeVersionsByRoleType = Partial<Record<'SWE' | 'DE', string>>
 
@@ -18,10 +19,18 @@ export async function getDefaultResumeVersion(title: string): Promise<string> {
   return versions[roleType] ?? ''
 }
 
+// Locked, like every other chrome.storage read-modify-write (see
+// lib/storageLock.ts): two Edit saves at once (the popup and a
+// notification's Edit window) could otherwise each read the old map and
+// the later write drop the other's role type. Its only caller,
+// handleSaveResumeVersion (background/messageRouter.ts), calls it outside
+// any lock, so this can't wait on itself.
 export async function setLastResumeVersion(title: string, resumeVersion: string): Promise<void> {
   const roleType = inferRoleType(title)
   if (roleType === 'unknown') return
-  const versions = await getStoredVersions()
-  versions[roleType] = resumeVersion
-  await chrome.storage.local.set({ [LAST_RESUME_VERSION_KEY]: versions })
+  await withStorageLock(async () => {
+    const versions = await getStoredVersions()
+    versions[roleType] = resumeVersion
+    await chrome.storage.local.set({ [LAST_RESUME_VERSION_KEY]: versions })
+  })
 }

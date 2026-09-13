@@ -7,6 +7,12 @@ export default defineManifest({
   description:
     'Automatically logs job applications to your spreadsheet when you apply on supported job sites.',
   version: pkg.version,
+  // Added 2026-09-13: chrome.action.setBadgeTextColor, used by the "sign-in
+  // needed" badge (lib/authStatus.ts), needs Chrome 110. On older Chrome it
+  // throws inside reportAuthRequired before the notification is created, so
+  // the whole sign-in warning would fail. The next-newest API in use,
+  // chrome.storage.session, needs 102.
+  minimum_chrome_version: '110',
   // Paths are relative to the built dist/ root, not this source file —
   // files under public/ are copied verbatim to dist/ by Vite, dropping the
   // "public/" prefix, so "icons/icon16.png" here means public/icons/icon16.png.
