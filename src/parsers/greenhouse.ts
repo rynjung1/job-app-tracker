@@ -7,6 +7,13 @@ import type { JobPageParser, JobPostingData } from './types'
 // fails safe with no container check.
 const JOB_PAGE_PATH = /^\/[^/]+\/jobs\/\d+/
 
+// The form page /{board}/jobs/{id} and its confirmation page
+// /{board}/jobs/{id}/confirmation. Greenhouse only sends the browser there
+// (window.location.assign) after the application was accepted; checked
+// 2026-09-12 in Greenhouse's own bundle, byte-identical for PlanetScale,
+// Anthropic and Discord.
+const APPLICATION_PATH = /^\/([^/]+)\/jobs\/(\d+)(\/confirmation)?\/?$/
+
 const TITLE_PREFIX = 'Job Application for '
 const TITLE_COMPANY_SEPARATOR = ' at '
 
@@ -65,5 +72,14 @@ export const greenhouseParser: JobPageParser = {
     // Confirmed unique on both real postings (exactly 1 button[type=submit]
     // each, 0 input[type=submit]) — not just assumed.
     return 'button[type="submit"]'
+  },
+
+  // Two-phase logging (CLAUDE.md, Logging behavior): the key is the same on
+  // the form page and its confirmation page, so the confirmation can find
+  // what the Submit click recorded.
+  applicationState() {
+    const match = window.location.pathname.match(APPLICATION_PATH)
+    if (!match) return null
+    return { key: `${match[1]}/${match[2]}`, onConfirmationPage: Boolean(match[3]) }
   },
 }

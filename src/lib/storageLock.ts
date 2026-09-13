@@ -1,5 +1,6 @@
-// Minimal in-memory promise-chaining mutex serializing chrome.storage.local
-// read-modify-write sequences in the background service worker. Confirmed
+// Minimal in-memory promise-chaining mutex serializing chrome.storage
+// read-modify-write sequences (local, and session for
+// lib/pendingApplications.ts) in the background service worker. Confirmed
 // chrome.storage has no compare-and-swap/transaction primitive of any kind
 // (checked the real API reference — get/set/remove/clear/getBytesInUse/
 // getKeys/setAccessLevel, nothing conditional) before writing this.

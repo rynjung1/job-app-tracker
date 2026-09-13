@@ -13,6 +13,7 @@ import { getDefaultResumeVersion } from '../lib/resumeVersion'
 import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 import { withStorageLock } from '../lib/storageLock'
+import { recordPendingApplication, takePendingApplication } from '../lib/pendingApplications'
 import { handleInternalMessage, isInternalMessage } from './messageRouter'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
@@ -134,6 +135,30 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
     console.warn('[job-app-tracker] appendRow failed, queuing for retry:', err)
     await queueRow(row)
   }
+}
+
+// Two-phase logging (Greenhouse — CLAUDE.md, Logging behavior): the Submit
+// click only records the job as pending, and the row is written when the
+// site's confirmation page loads for the same application, so a Submit that
+// fails validation (no confirmation) never logs. Keys are scoped by the
+// sender's origin so two sites can't collide, and a confirmation with
+// nothing pending (a reload, a revisit, a pasted URL) is ignored.
+const APPLICATION_KEY_FORMAT = /^[\w.~-]+(?:\/[\w.~-]+)*$/
+
+function scopedApplicationKey(origin: string, key: unknown): string | null {
+  if (typeof key !== 'string' || key.length > 200 || !APPLICATION_KEY_FORMAT.test(key)) return null
+  return `${origin}|${key}`
+}
+
+async function handleJobApplicationConfirmed(scopedKey: string) {
+  // Read-and-delete happens inside the storage lock; logging happens after
+  // it's released (see lib/pendingApplications.ts for why).
+  const payload = await takePendingApplication(scopedKey)
+  if (!payload) {
+    console.log('[job-app-tracker] confirmation with no pending application, ignored')
+    return
+  }
+  await handleJobApplicationLogged(payload)
 }
 
 // Retries queued rows in original order, stopping at the first failure this
@@ -290,6 +315,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === 'JOB_APPLICATION_LOGGED') {
     handleJobApplicationLogged(message.payload as JobPostingData)
+  }
+
+  if (message?.type === 'JOB_APPLICATION_PENDING' || message?.type === 'JOB_APPLICATION_CONFIRMED') {
+    const key = scopedApplicationKey(sender.origin, message.key)
+    if (!key) {
+      console.warn('[job-app-tracker] rejected application message with a malformed key')
+      return false
+    }
+    if (message.type === 'JOB_APPLICATION_PENDING') {
+      recordPendingApplication(key, message.payload as JobPostingData)
+    } else {
+      handleJobApplicationConfirmed(key)
+    }
   }
 
   return false

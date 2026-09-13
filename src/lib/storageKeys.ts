@@ -1,6 +1,8 @@
 export const SHEET_REF_KEY = 'sheetRef'
 export const OFFLINE_QUEUE_KEY = 'offlineQueue'
 export const RECENT_APPLICATIONS_KEY = 'recentApplications'
+// chrome.storage.session, not local — see lib/pendingApplications.ts.
+export const PENDING_APPLICATIONS_KEY = 'pendingApplications'
 export const LAST_RESUME_VERSION_KEY = 'lastResumeVersionByRoleType'
 export const MS_TOKEN_KEY = 'msToken'
 // Defaults to 'google' when absent — every sheetRef stored before this

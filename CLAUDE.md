@@ -90,7 +90,10 @@ landed as expected and nothing concurrent got clobbered.
      SPA re-renders need no rebinding. Greenhouse: a
      `MutationObserver` rebinds a listener to its one
      `button[type="submit"]`; delegating that selector could catch
-     unrelated submit buttons on the page.
+     unrelated submit buttons on the page. Since 2026-09-12 the
+     Greenhouse click only records the application as pending; the row
+     is written when its confirmation page loads (see Logging
+     behavior).
    - Sends extracted data to the background service worker via
      `chrome.runtime.sendMessage` — never writes to the spreadsheet
      directly.
@@ -384,6 +387,27 @@ user's flow. The 5-second popup toast is purely a correction window
 (Undo / Edit resume version), not a gate. Resume version defaults to
 whichever version was last used for that role type (SWE vs DE),
 inferred from job title keywords, and is editable from the toast.
+
+**Updated 2026-09-12 (decided by Ryan): Greenhouse logs on a confirmed
+submission, not at the click.** Its Submit click can fail Greenhouse's
+own JavaScript validation ("First Name is required.") and stay on the
+form, and fixing the fields and resubmitting used to log a second row
+(the duplicate Arclight row of 2026-09-11). Now the click records the
+job as pending (`lib/pendingApplications.ts`, `chrome.storage.session`,
+keyed by `{board}/{jobId}` from the URL and scoped by origin), and the
+row is written when Greenhouse's `/confirmation` page loads for the same
+application within 30 minutes. It's still fully automatic with no
+dialog; the row just lands about a second later. See Site parsers,
+Greenhouse, for the evidence.
+
+**LinkedIn reviewed 2026-09-12 and kept at the Easy Apply click.** An
+abandoned application leaves a row, but that row is visible and one
+Undo marks it Cancelled. Logging on the final Submit inside LinkedIn's
+multi-step modal would need a second selector on English labels in
+markup LinkedIn changes often (a label change already broke detection
+silently once), could only be tested with real applications, and a
+missed final Submit would be an invisible lost row, which is worse than
+an extra visible one.
 
 **Updated 2026-09-01 (Phase 4):** the "toast" is a real
 `chrome.notifications` system notification, not the extension's
@@ -1048,6 +1072,55 @@ gap is purely "does a real user click dispatch the same way a
 DevTools-confirmed listener does," which is the same native
 `addEventListener` mechanism already proven working on LinkedIn and
 not expected to behave differently here.
+
+**Fixed 2026-09-12 (double-log):** a Submit click logged even when
+Greenhouse then rejected the form with its own "is required" errors,
+so fixing the fields and resubmitting logged a second row. Evidence,
+read-only, from a blank form with a probe blocking every outgoing
+POST: one trusted click on PlanetScale posting 4107018009 fired no
+`submit` event and no native `invalid` events, sent nothing, showed
+"First Name is required." plus three more, and still logged a row
+through the old click listener (deleted afterwards).
+- The form has no native `required` fields, only `aria-required`, so
+  the browser never blocks it.
+- Greenhouse's bundle attaches one handler to both the form's
+  `onSubmit` and the button's `onClick`, and it calls
+  `preventDefault()` first. So a `submit` event never fires, even on
+  success, and a `submit` listener would miss every real application.
+- On success Greenhouse posts the application itself, then calls
+  `window.location.assign(confirmationPath)`: a full page load of
+  `/{board}/jobs/{id}/confirmation` ("Thank you for applying"), which
+  names the company but not the title or location.
+- Checked on PlanetScale, Anthropic and Discord: all three serve the
+  byte-identical `entry.client-B5kjVA5a.js`.
+
+So Greenhouse now uses two-phase logging (Logging behavior, Updated
+2026-09-12) through the optional `JobPageParser.applicationState()`
+method, added 2026-09-12. Its content script already matched the
+confirmation URL, so the manifest didn't change.
+
+**Verified 2026-09-12** live on the reloaded build
+(`greenhouse.ts-CClCJobb.js`), on PlanetScale posting 4107018009, with
+a probe blocking every outgoing POST during the click:
+1. A blank Submit click: Greenhouse showed its 4 "is required"
+   messages, fired 0 `submit` events and sent nothing. The page console
+   logged `submit clicked, application recorded as pending`, and no row
+   appeared.
+2. Opening that posting's `/confirmation` URL: exactly one row,
+   `2026-09-12 21:22 | PlanetScale | Software Engineer - Insights | San
+   Francisco…`, carrying the data from the click.
+3. Reloading the confirmation page: no second row.
+4. Anthropic posting 5183044008's `/confirmation`, with nothing
+   pending: no row.
+
+The test row was deleted afterwards. Opening the confirmation URL by
+hand stands in for Greenhouse's own `window.location.assign`, which the
+bundle shows; Ryan's next real Greenhouse application is the final
+check of that navigation. Also a Node test of the real
+`pendingApplications.ts` and `applicationState()` against a
+deep-cloning mock storage: 13 of 13 pass, including a pending write and
+a confirmation fired together, and two confirmations at once logging
+exactly once.
 
 ---
 
