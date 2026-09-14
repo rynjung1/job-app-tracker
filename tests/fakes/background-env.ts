@@ -184,18 +184,26 @@ function columnValues(letter: string): string[] {
   while (values.length && values[values.length - 1] === '') values.pop()
   return values
 }
+// The fake's answers are plain objects with the four members the code uses
+// (ok, status, text(), json()), all promise-based. Not a real Response:
+// the first one in a process loads Node's fetch internals, measured at
+// 21-24 ms idle and 28-34 ms under load, which made every test waiting on
+// this fake race wall time (tests/background.test.ts, settle()).
+export const fakeResponse = (status: number, text: string) =>
+  ({ ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text) }) as unknown as Response
+
 ;(globalThis as any).fetch = async (url: string, init?: RequestInit) => {
   const u = decodeURIComponent(url)
   log.fetches.push(u.replace(/^https:\/\/sheets\.googleapis\.com\/v4\/spreadsheets/, ''))
   const step = ctl.fetchPlan.length ? ctl.fetchPlan.shift()! : 200
   if (step === 'abort') throw new DOMException('The operation was aborted.', 'AbortError')
-  if (step !== 200) return new Response(`{"error":{"code":${step}}}`, { status: step })
+  if (step !== 200) return fakeResponse(step, `{"error":{"code":${step}}}`)
   // A range must name the fake tab, quoted ('It''s'!A1) or not; Sheets
   // answers any other name with 400 "Unable to parse range".
   const named = u.match(/(?:\/values\/|ranges=)(?:'((?:[^']|'')*)'|([^!'?&/]+))!/)
   const rangeSheet = named ? (named[1] !== undefined ? named[1].replace(/''/g, "'") : named[2]) : undefined
   if (rangeSheet !== undefined && rangeSheet !== ctl.sheetTitle) {
-    return new Response(`{"error":{"code":400,"message":"Unable to parse range: ${rangeSheet}!A1"}}`, { status: 400 })
+    return fakeResponse(400, `{"error":{"code":400,"message":"Unable to parse range: ${rangeSheet}!A1"}}`)
   }
   if (init?.method === 'PUT') {
     sheet.writes.push({ range: u.match(/\/values\/([^?]+)/)?.[1] ?? '', values: JSON.parse(String(init.body)).values })
@@ -211,6 +219,15 @@ function columnValues(letter: string): string[] {
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
   }
+  // values:batchGet (readCells): one column slice per ranges= parameter,
+  // majorDimension=COLUMNS, trailing blanks dropped like the real API.
+  const batchRanges = u.includes('values:batchGet') ? [...u.matchAll(/ranges=(?:'(?:[^']|'')*'|[^!&]+)!([A-Z])(\d+):\1(\d+)/g)] : []
+  const columnSlice = (letter: string, from: number, to: number) => {
+    const values: string[] = []
+    for (let row = from; row <= to; row++) values.push(sheet.rows[row]?.[letter.charCodeAt(0) - 65] ?? '')
+    while (values.length && values[values.length - 1] === '') values.pop()
+    return values
+  }
   const rowRead = u.match(/!(\d+):(\d+)(?:\?|$)/)
   const columnRead = u.match(/!([A-Z])2:\1(?:\?|$)/)
   const body =
@@ -218,7 +235,9 @@ function columnValues(letter: string): string[] {
       ? { spreadsheetId: 'new1', sheets: [{ properties: { title: 'Sheet1', sheetId: 0 } }] }
       : u.endsWith('?fields=sheets.properties')
         ? { sheets: [{ properties: ctl.tabDeleted ? { title: 'Other', sheetId: 5 } : { title: ctl.sheetTitle, sheetId: 0 } }] }
-        : columnRead
+        : batchRanges.length
+          ? { valueRanges: batchRanges.map((m) => ({ values: [columnSlice(m[1], Number(m[2]), Number(m[3]))] })) }
+          : columnRead
           ? { values: [columnValues(columnRead[1])] }
           : rowRead && rowRead[1] === rowRead[2] && rowRead[1] !== '1'
             ? { values: sheet.rows[Number(rowRead[1])] ? [sheet.rows[Number(rowRead[1])]] : [] }
@@ -227,5 +246,5 @@ function columnValues(letter: string): string[] {
               : u.includes('!1:1')
                 ? { values: [ctl.headers] }
                 : {}
-  return new Response(JSON.stringify(body), { status: 200 })
+  return fakeResponse(200, JSON.stringify(body))
 }

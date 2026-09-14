@@ -63,14 +63,21 @@ function dumpBody(url, windowSize, profile) {
       html += chunk
       if (html.includes('</html>')) chrome.kill('SIGKILL')
     })
-    const timer = setTimeout(() => chrome.kill('SIGKILL'), 30_000)
+    // The backstop is reported, not hidden: a page that "left no result"
+    // because Chrome was stopped here says so in the assertion message.
+    let stoppedByBackstop = false
+    const timer = setTimeout(() => {
+      stoppedByBackstop = true
+      chrome.kill('SIGKILL')
+    }, 30_000)
     chrome.on('exit', () => {
       clearTimeout(timer)
       const attr = (name) => {
         const m = html.match(new RegExp(`<body[^>]*data-${name}="([^"]*)"`))
         return m ? m[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&') : null
       }
-      resolve({ kb: attr('kb'), fit: attr('fit'), content: attr('content') })
+      const why = stoppedByBackstop ? ' (headless Chrome was stopped by the 30s backstop before printing the page)' : ''
+      resolve({ kb: attr('kb'), fit: attr('fit'), content: attr('content'), why })
     })
   })
 }
@@ -91,7 +98,7 @@ test('popup in headless Chrome', { skip: CHROME ? false : 'headless Chrome not f
   const base = `http://127.0.0.1:${server.address().port}/src/popup/index.html`
   try {
     const keyboard = await dumpBody(`${base}?w=368&kbtest=1`, '500,700', path.join(work, 'profile-kb'))
-    assert.ok(keyboard.kb, 'the keyboard test left no results on the page')
+    assert.ok(keyboard.kb, `the keyboard test left no results on the page${keyboard.why}`)
     const steps = JSON.parse(keyboard.kb)
     assert.equal(steps.length, 14, 'expected 14 keyboard and scroll steps')
     for (const step of steps) await t.test(step.step, () => assert.ok(step.ok, `focus: ${step.focus}`))
@@ -104,7 +111,7 @@ test('popup in headless Chrome', { skip: CHROME ? false : 'headless Chrome not f
       const page = await dumpBody(`${base}?${query}`, '500,900', path.join(work, `profile-${fits.indexOf(name)}`))
       const content = Number(page.content)
       await t.test(name, () =>
-        assert.ok(content > 0 && content <= EDIT_WINDOW_INNER_HEIGHT, `content ${content}px, window inner height ${EDIT_WINDOW_INNER_HEIGHT}px`),
+        assert.ok(content > 0 && content <= EDIT_WINDOW_INNER_HEIGHT, `content ${content}px, window inner height ${EDIT_WINDOW_INNER_HEIGHT}px${page.why}`),
       )
     }
   } finally {

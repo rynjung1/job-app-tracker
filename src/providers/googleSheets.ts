@@ -579,13 +579,12 @@ export const googleSheetsProvider: SpreadsheetProvider = {
 // readCells' reads, run through withSheetRef by the method above.
 async function readCellsAt(sheetRef: SheetRef, rowNumbers: number[], columnNames: string[]): Promise<Record<string, string>[]> {
   const headers = await readHeadersAt(sheetRef)
-  const letters = columnNames.map((name) => {
-    const index = headers.indexOf(name)
-    if (index === -1) {
-      throw new Error(`Column "${name}" not found in sheet headers: ${headers.join(', ')}`)
-    }
-    return columnIndexToLetter(index)
-  })
+  // A named column the sheet doesn't have is left out of every record
+  // (2026-09-14; it used to throw): the live chips ask for Log ID, which
+  // sheets made before 2026-09-14 don't have.
+  const present = columnNames.filter((name) => headers.includes(name))
+  if (present.length === 0) return rowNumbers.map(() => ({}))
+  const letters = present.map((name) => columnIndexToLetter(headers.indexOf(name)))
   // One range per column spanning every requested row (e.g. B2:B21), so
   // the read is a single batchGet however many rows are asked for. The
   // recent list is the latest rows, so the span stays close to their
@@ -602,7 +601,7 @@ async function readCellsAt(sheetRef: SheetRef, rowNumbers: number[], columnNames
   )) as { valueRanges?: Array<{ values?: string[][] }> }
   return rowNumbers.map((rowNumber) => {
     const record: Record<string, string> = {}
-    columnNames.forEach((name, i) => {
+    present.forEach((name, i) => {
       record[name] = data.valueRanges?.[i]?.values?.[0]?.[rowNumber - first] ?? ''
     })
     return record

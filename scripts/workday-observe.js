@@ -4,8 +4,8 @@
 // post-submit confirmation look like, so the Workday parser's Submit
 // selector (a placeholder until then, parsers/workday.ts) can be pinned from
 // evidence (CLAUDE.md, Site parsers, Workday). Used once, during one of
-// Ryan's real applications, with the workday branch's build loaded, so the
-// extension's in-tab capture can be checked too.
+// Ryan's real applications. Any build of the extension can be loaded, or
+// none: nothing here depends on it.
 //
 // How to use:
 // 1. On the job's posting page, BEFORE clicking Apply, open DevTools on that
@@ -21,13 +21,19 @@
 // 7. Never commit the output. Any test fixture derived from it must be
 //    scrubbed first.
 //
+// Would the extension's in-memory capture survive to Submit? Its content
+// script keeps the posting (read at the Apply click) in memory, which lasts
+// as long as the document does. So compare documentLoadedAt: the same value
+// in PART 0 and PART A means no full page load between Apply and the Review
+// page, and the capture would still be there at Submit. A different value
+// means a reload (a sign-in, say); the extension then falls back to reading
+// the job's JSON, which needs PART A's path to still contain /job/. PART B's
+// value against PART A's says whether Submit itself reloaded the page.
+//
 // All parts are strictly read-only: no clicks, dispatched events, network
-// requests, storage or DOM changes, and no form field values are read.
-// Each records the page language, every iframe's host and path (never its
-// content), and the extension's capture count: the workday build sets
-// data-job-app-tracker-captures on <html> when you click Apply (a count, no
-// job data). Present on the Review page means the capture survived to it;
-// absent after Apply means a full page load (or the build isn't loaded).
+// requests, storage or DOM changes, and no form field values are read. Each
+// also records the page language and every iframe's host and path (never
+// its content).
 
 // ===== Workday observation, PART 0 =====
 // Run in the DevTools Console on the posting page, BEFORE clicking Apply.
@@ -53,7 +59,6 @@
     documentLoadedAt: new Date(performance.timeOrigin).toISOString(),
     lang: document.documentElement.lang,
     iframes: [...document.querySelectorAll('iframe')].map(frameOf),
-    extensionCaptures: document.documentElement.getAttribute('data-job-app-tracker-captures'),
     // The Apply control(s): the parser expects [data-automation-id="adventureButton"].
     applyControls: [...document.querySelectorAll('[data-automation-id="adventureButton"], a[role="button"], button')]
       .filter((el) => /apply/i.test(el.textContent || '') || el.getAttribute('data-automation-id') === 'adventureButton')
@@ -89,12 +94,14 @@
   const visible = (el) => !!(el.offsetWidth || el.offsetHeight)
   const out = {
     phase: 'A: Review page, before Submit',
+    // Still containing /job/{location}/{slug}_{reqId} means the job JSON
+    // fallback can find the job.
     path: location.pathname,
-    // Same value as PART 0 means no full page load since the posting page.
+    // Same value as PART 0 means no full page load since the posting page:
+    // the in-memory capture would survive to Submit.
     documentLoadedAt: new Date(performance.timeOrigin).toISOString(),
     lang: document.documentElement.lang,
     iframes: [...document.querySelectorAll('iframe')].map(frameOf),
-    extensionCaptures: document.documentElement.getAttribute('data-job-app-tracker-captures'),
     title: document.title,
     headings: [...document.querySelectorAll('h1, h2, h3')].map((h) => short(h.innerText)).filter(Boolean).slice(0, 12),
     // Every visible control: tag, label and attributes (data-automation-id, type, aria-*).
@@ -137,7 +144,6 @@
     documentLoadedAt: new Date(performance.timeOrigin).toISOString(),
     lang: document.documentElement.lang,
     iframes: [...document.querySelectorAll('iframe')].map(frameOf),
-    extensionCaptures: document.documentElement.getAttribute('data-job-app-tracker-captures'),
     title: document.title,
     headings: [...document.querySelectorAll('h1, h2, h3')].map((h) => short(h.innerText, 80)).filter(Boolean).slice(0, 12),
     successTexts: [...document.querySelectorAll('h1, h2, h3, h4, p, span, div, li')]

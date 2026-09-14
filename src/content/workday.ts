@@ -1,5 +1,4 @@
 import {
-  CAPTURE_COUNT_ATTRIBUTE,
   WORKDAY_APPLY_CONTROL_SELECTOR,
   captureFromJobJson,
   captureFromPostingDom,
@@ -23,8 +22,9 @@ import type { JobPostingData } from '../parsers/types'
 // A failed Submit retried is skipped by the background's 24-hour repeat check
 // on the same URL. Until the observation pins the Submit control, the
 // selector matches nothing (parsers/workday.ts).
-// No exports here: with one, crxjs builds this as a loader plus a module
-// (see CAPTURE_COUNT_ATTRIBUTE in parsers/workday.ts).
+// It writes nothing to the page: no attributes, elements or storage.
+// No exports here: a content script that exports anything is built by crxjs
+// as a loader plus a dynamically imported module, not one plain script.
 const JOB_JSON_TIMEOUT_MS = 10_000
 
 const captures = new Map<string, WorkdayCapture>()
@@ -71,7 +71,6 @@ function onApplyControlClick() {
     return
   }
   captures.set(capture.posting.url, capture)
-  document.documentElement.setAttribute(CAPTURE_COUNT_ATTRIBUTE, String(captures.size))
   console.log('[job-app-tracker] Workday Apply clicked, posting kept in this tab until the final Submit')
 }
 

@@ -3,16 +3,22 @@
 // search, a posting, its Apply control, the application routes, the final
 // Submit. Checks the click-time capture (2026-09-14), the job JSON fallback,
 // and that the placeholder Submit selector logs nothing.
-import { FakeElement, clickListeners, fetches, htmlAttributes, navigateInApp, page, sent } from './fakes/workday-page'
+import { FakeElement, clickListeners, fetches, htmlAttributes, navigateInApp, page, pageWrites, sent } from './fakes/workday-page'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { CAPTURE_COUNT_ATTRIBUTE, workdayParser } from '../src/parsers/workday'
+import { workdayParser } from '../src/parsers/workday'
 import '../src/content/workday'
 
 const fixture = (name: string) => JSON.parse(fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/workday', name), 'utf8'))
-const settle = () => new Promise((r) => setTimeout(r, 20))
+// Lets the click handler's async work (the job JSON read) finish. The fake
+// fetch answers with plain promises, so a few event-loop turns cover it on
+// any machine. This used to wait a fixed 20 ms, less than a real Response's
+// first use costs in a fresh process (21-34 ms measured): the flake.
+const settle = async () => {
+  for (let turn = 0; turn < 5; turn++) await new Promise((r) => setImmediate(r))
+}
 const click = async (target: unknown, isTrusted = true) => {
   clickListeners.forEach((listener) => listener({ isTrusted, target }))
   await settle()
@@ -28,17 +34,14 @@ const testSubmit = new FakeElement('testFinalSubmit', 'Submit')
 test('Workday content script', async (t) => {
   await t.test('on the job search page, an Apply-shaped click does nothing (no job in the address)', async () => {
     await click(apply)
-    assert.equal(htmlAttributes[CAPTURE_COUNT_ATTRIBUTE], undefined)
     assert.equal(sent.length + fetches.length, 0)
   })
 
-  await t.test('posting page: a trusted Apply click keeps the posting (count 1 on <html>), sends nothing, reads nothing; an untrusted one is ignored', async () => {
+  await t.test('posting page: a trusted Apply click (the untrusted one ignored) sends nothing and reads nothing; the Submit test below shows it was kept', async () => {
     navigateInApp(`/en-US/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-System-Software-Engineer--Agentic-Kernel-Development_JR2025621`)
     page.posting = NVIDIA_POSTING
     await click(apply, false)
-    assert.equal(htmlAttributes[CAPTURE_COUNT_ATTRIBUTE], undefined)
     await click(apply)
-    assert.equal(htmlAttributes[CAPTURE_COUNT_ATTRIBUTE], '1')
     assert.equal(sent.length + fetches.length, 0)
   })
 
@@ -85,5 +88,10 @@ test('Workday content script', async (t) => {
     await click(testSubmit)
     assert.equal(fetches.length, 3)
     assert.equal(sent.length, 2)
+  })
+
+  await t.test('through all of the above, the script wrote nothing to the page', () => {
+    assert.deepEqual(htmlAttributes, {})
+    assert.deepEqual(pageWrites, [])
   })
 })

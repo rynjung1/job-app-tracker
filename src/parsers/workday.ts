@@ -111,14 +111,6 @@ export function captureFromJobJson(json: unknown, href: string): WorkdayCapture 
   }
 }
 
-// On <html>: how many postings the content script has kept in this tab, a
-// count and nothing else, so scripts/workday-observe.js (which runs in the
-// page, not in the content script) can tell whether the capture survived to
-// the Review page. Here, not in content/workday.ts: a content script that
-// exports anything is built by crxjs as a loader plus a dynamically imported
-// module instead of one plain script.
-export const CAPTURE_COUNT_ATTRIBUTE = 'data-job-app-tracker-captures'
-
 // The posting page's Apply control, on all 7 tenants rendered:
 // <a role="button" data-automation-id="adventureButton" href=".../apply">.
 export const WORKDAY_APPLY_CONTROL_SELECTOR = '[data-automation-id="adventureButton"]'

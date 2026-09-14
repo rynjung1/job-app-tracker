@@ -44,10 +44,15 @@ function dumpDom(url, profile) {
       html += chunk
       if (html.includes('</html>')) chrome.kill('SIGKILL')
     })
-    const timer = setTimeout(() => chrome.kill('SIGKILL'), 30_000)
+    // Reported, not hidden: see popup.test.mjs.
+    let stoppedByBackstop = false
+    const timer = setTimeout(() => {
+      stoppedByBackstop = true
+      chrome.kill('SIGKILL')
+    }, 30_000)
     chrome.on('exit', () => {
       clearTimeout(timer)
-      resolve(html)
+      resolve({ html, why: stoppedByBackstop ? ' (headless Chrome was stopped by the 30s backstop before printing the page)' : '' })
     })
   })
 }
@@ -72,9 +77,9 @@ ${sections}
   document.body.setAttribute('data-result', JSON.stringify(out))
 </script></body></html>`
     fs.writeFileSync(path.join(dir, 'page.html'), page)
-    const html = await dumpDom(pathToFileURL(path.join(dir, 'page.html')).href, path.join(dir, 'profile'))
+    const { html, why } = await dumpDom(pathToFileURL(path.join(dir, 'page.html')).href, path.join(dir, 'profile'))
     const raw = html.match(/<body[^>]*data-result="([^"]*)"/)?.[1]
-    assert.ok(raw, 'the page left no result')
+    assert.ok(raw, `the page left no result${why}`)
     const out = JSON.parse(unescape(raw))
 
     for (const c of CASES) {

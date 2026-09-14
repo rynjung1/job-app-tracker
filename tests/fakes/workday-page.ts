@@ -11,6 +11,9 @@ export const sent: unknown[] = []
 export const fetches: string[] = []
 export const clickListeners: Array<(event: any) => void> = []
 export const htmlAttributes: Record<string, string> = {}
+// Any other use of the page: a document or <html> property the fake doesn't
+// provide (createElement, body, cookie, ...), recorded by the Proxy below.
+export const pageWrites: string[] = []
 export const page = {
   // The posting page's title, first location and requisition id; null off it.
   posting: null as null | { title: string; location: string; reqId: string },
@@ -49,13 +52,22 @@ export class FakeElement {
   },
 }
 
-;(globalThis as any).document = {
-  documentElement: {
+const recordUnknown = <T extends object>(target: T, label: string): T =>
+  new Proxy(target, {
+    get(obj, prop) {
+      if (prop in obj || typeof prop === 'symbol') return (obj as any)[prop]
+      pageWrites.push(`${label}.${String(prop)}`)
+      return undefined
+    },
+  })
+
+;(globalThis as any).document = recordUnknown({
+  documentElement: recordUnknown({
     setAttribute: (name: string, value: string) => {
       htmlAttributes[name] = value
     },
     getAttribute: (name: string) => htmlAttributes[name] ?? null,
-  },
+  }, 'documentElement'),
   addEventListener: (type: string, listener: (event: any) => void, options: { capture?: boolean }) => {
     if (type === 'click' && options?.capture) clickListeners.push(listener)
   },
@@ -67,7 +79,7 @@ export class FakeElement {
     if (selector === '[data-automation-id="requisitionId"] dd') return new FakeElement(null, p.reqId)
     return null
   },
-}
+}, 'document')
 
 ;(globalThis as any).chrome = {
   runtime: {
@@ -82,5 +94,9 @@ export class FakeElement {
   fetches.push(input)
   const answer = page.fetchAnswer
   if (!answer) throw new TypeError('Failed to fetch')
-  return new Response(JSON.stringify(answer.body), { status: answer.status })
+  // A plain object, not a real Response: the first Response in a process
+  // loads Node's fetch internals (21-34 ms measured), which the test's old
+  // fixed 20 ms wait raced. Everything here is promise-based instead.
+  const text = JSON.stringify(answer.body)
+  return { ok: answer.status >= 200 && answer.status < 300, status: answer.status, json: async () => JSON.parse(text) }
 }

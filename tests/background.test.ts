@@ -16,7 +16,13 @@ import { ensureRetryAlarm } from '../src/background/offlineQueue'
 import '../src/background/index'
 
 const REF = { spreadsheetId: 'sheet1', sheetName: 'Sheet1', sheetId: 0 }
-const settle = () => new Promise((r) => setTimeout(r, 60))
+// Lets the listeners' async work finish. The fakes answer with plain
+// promises (no timers, no real Response; see fakeResponse), so all of that
+// work runs as microtasks, and a few event-loop turns cover it however slow
+// the machine is. This used to wait a fixed 60 ms, a race against wall time.
+const settle = async () => {
+  for (let turn = 0; turn < 5; turn++) await new Promise((r) => setImmediate(r))
+}
 const flag = () => local.data.authStatus as { reason: string } | undefined
 const needsReconnect = () => log.notifications.filter((n) => n.id === 'needs-reconnect')
 const queue = () => (local.data.offlineQueue as unknown[] | undefined)?.length ?? 0
@@ -466,4 +472,29 @@ test('background worker', async (t) => {
   await drain()
   const drainedEntry = recent().find((e) => e.company === 'Drained Id Co')
   await check('recent entries carry the row\'s Log ID: a direct log (same id as the sheet cell) and a drained row', directEntry?.company === 'Logged Id Co' && !!directEntry?.logId && directEntry.logId === directRow?.[LOG_ID] && drainedEntry?.logId === 'queued-id-7', { directEntry: directEntry?.logId, cell: directRow?.[LOG_ID], drained: drainedEntry?.logId })
+
+  // ---- Live status chips by Log ID (2026-09-14). ----
+  const live = () => internal({ type: 'GET_LIVE_STATUSES' }) as Promise<any>
+  const batchReads = () => log.fetches.filter((f) => f.includes('values:batchGet'))
+  const liveEntry = (id: string, rowNumber: number, logId?: string) => ({ id, company: 'nvidia', title: 'Engineer', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber, ...(logId ? { logId } : {}) })
+  const liveRow = (company: string, status: string, logId: string) => ['46277.5', company, 'Engineer', '', '', '', status, '', logId]
+  reset()
+  ctl.headers = HEADERS_WITH_LOG_ID
+  await local.set({ sheetRef: REF, recentApplications: [liveEntry('a', 2, 'id-a'), liveEntry('b', 3, 'id-b'), liveEntry('c', 4), liveEntry('d', 5)] })
+  sheet.rows[2] = liveRow('NVIDIA (edited by hand)', 'Interview', 'id-a')
+  sheet.rows[3] = liveRow('nvidia', 'Offer', 'id-moved-here')
+  sheet.rows[4] = liveRow('NVIDIA (edited by hand)', 'Rejected', 'id-c')
+  sheet.rows[5] = liveRow('nvidia', 'Interview', 'id-d')
+  const withIds = await live()
+  const readsWithIds = batchReads()
+  await check('live chips on a Log ID sheet: an edited Company with the same Log ID keeps its live status; another Log ID in the row (moved) is left out; entries without a logId match on Company/Title; one batchGet with 4 ranges, nothing written', withIds.ok && JSON.stringify(withIds.data) === '{"a":"Interview","d":"Interview"}' && readsWithIds.length === 1 && (readsWithIds[0].match(/ranges=/g) ?? []).length === 4 && sheet.writes.length === 0, { data: withIds.data, reads: readsWithIds })
+
+  reset()
+  ctl.headers = HEADERS_8
+  await local.set({ sheetRef: REF, recentApplications: [liveEntry('a', 2, 'id-a'), liveEntry('b', 3, 'id-b')] })
+  sheet.rows[2] = liveRow('nvidia', 'Interview', '').slice(0, 8)
+  sheet.rows[3] = liveRow('NVIDIA (edited by hand)', 'Offer', '').slice(0, 8)
+  const oldSheetLive = await live()
+  const readsOldSheet = batchReads()
+  await check('live chips on a sheet without the Log ID column: no error, 3 ranges read, Company/Title decide (same -> live, edited -> left out)', oldSheetLive.ok && JSON.stringify(oldSheetLive.data) === '{"a":"Interview"}' && readsOldSheet.length === 1 && (readsOldSheet[0].match(/ranges=/g) ?? []).length === 3, { oldSheetLive, reads: readsOldSheet })
 })
