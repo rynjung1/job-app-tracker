@@ -940,9 +940,19 @@ without the column). So a Company edited in the sheet (a cryptic Workday
 tenant id, say) no longer makes the popup refuse, and a row that moved is
 still caught: another Log ID there is `STALE_ROW` even with the same
 Company and Title. `RecentApplication` gained `logId`, set by direct logs
-and by drained rows. The live status chips still match on Company and
-Title (`readCells` can't ask for a column the sheet may not have); a
-hand-edited Company there only keeps the chip on its cached status.
+and by drained rows. The live status chips use the same rule since
+the review of 2026-09-14 (`matchLiveStatuses` calls `rowStillMatches`;
+`LIVE_STATUS_COLUMNS` adds Log ID), so an edited Company doesn't freeze a
+chip either. `readCells` now leaves out a column the sheet doesn't have
+instead of throwing (a flagged change to its contract), so on a sheet
+without Log ID the chips read the other three columns and match on
+Company and Title. **Verified 2026-09-14 in Node only**
+(`tests/background.test.ts`, the fake Sheets API now answering
+`values:batchGet`): on a Log ID sheet, one batchGet of 4 ranges; an
+edited Company with the same Log ID keeps its live status, another Log
+ID in the row is left out, and entries without a `logId` match on
+Company/Title; on a sheet without the column, no error, 3 ranges, and
+Company/Title decide.
 
 **Updated 2026-09-09:** `createSheet` applies visual formatting to
 the new sheet — `createSheet`-only, never touches an
@@ -1444,9 +1454,10 @@ continue on `main`, which stays packageable.
   tab. The final Submit logs that capture. With none (landed on an
   /apply address directly, or a sign-in reloaded the page) it reads that
   one job's same-origin JSON (`/wday/cxs/{tenant}/{site}/job/…`). A
-  Submit on an address naming no job logs nothing. Only the capture
-  count is written to the page (`<html data-job-app-tracker-captures>`),
-  for the observe script.
+  Submit on an address naming no job logs nothing. Nothing is
+  written to the page: a capture count on `<html>` was removed in review
+  (2026-09-14), and the observe script infers whether the capture
+  survives from `documentLoadedAt` instead.
 - **URL** (the row's, and the repeat key): no locale, query, hash or
   anything after `{slug}_{reqId}`; equal to the job JSON's `externalUrl`
   on all 7 tenants whose JSON was read. Not `<link rel=canonical>`, which
@@ -1458,14 +1469,15 @@ continue on `main`, which stays packageable.
   popup's identity check uses the Log ID (Sheet setup).
 - **The Submit selector is a placeholder** (`:not(*)`, matching nothing)
   until the observation (`scripts/workday-observe.js`, PARTs 0, A and B,
-  with the workday build loaded) pins it. That application must also
+  on any build, or none) pins it. That application must also
   show: the job path surviving sign-in and every step, whether Submit
   leads to a full load, the confirmation marker, the page language,
-  iframes, and whether the capture count is still on the Review page. A
+  iframes, and whether PART 0 and PART A share one `documentLoadedAt`
+  (then the in-memory capture survives to Submit). A
   later real application is the live check.
 
 **Verified 2026-09-14 in Node and headless Chrome only** (`npm test`:
-125 of 125, `npm run test:node` 101):
+128 of 128, `npm run test:node` 104, after the review changes):
 - `tests/workday.test.ts`: 9 tenants' real job addresses, each in 9
   variants (with and without a locale, a query, a hash, and the 4
   application routes), all normalize to the job JSON's `externalUrl` (7
@@ -1477,12 +1489,14 @@ continue on `main`, which stays packageable.
   and refuses 11 (lookalikes, `http:`, a port, the employee app).
 - `tests/workdayContent.test.ts`, the real content script on a fake page
   moved through the app: an Apply-shaped click on the search page does
-  nothing; a trusted Apply click on the posting keeps it (count 1 on
-  `<html>`), sending and reading nothing; with the placeholder, Submit-like
+  nothing; a trusted Apply click on the posting keeps it, sending and
+  reading nothing; with the placeholder, Submit-like
   clicks on the application routes log and read nothing; with a test-only
   selector, Submit logs the kept posting with no read, a direct landing
   reads the job JSON once and logs from it, a 404 or network error logs
-  nothing, and an address naming no job reads and logs nothing.
+  nothing, and an address naming no job reads and logs nothing; through
+  all of it the script writes nothing to the page (the fake document, a
+  Proxy, records any use beyond the three reads it expects).
 - `tests/dom/workday.test.mjs`, the real parser on the four fixtures'
   real markup in headless Chrome: title, first location, requisition id,
   normalized URL and tenant for each; the DOM capture equals the job JSON
@@ -1498,13 +1512,34 @@ continue on `main`, which stays packageable.
   the row's Log ID.
 Not run live: nothing on Workday has logged a real row yet.
 
+**Fixed 2026-09-14 (review): a flaky test, found by measurement.** The
+reviewer's first `npm test` in a fresh clone had 2 failures (not named in
+their log), then 125 of 125 three times. Not reproduced here: 12 cold
+runs of `5635ef2` (2 fresh clones with `npm ci`, 5 with `dist`, `.vite`
+and `.tmp` cleared, 5 more with all 10 cores busy) and 10 Node-suite
+runs under that load all passed. The race it most likely was, measured:
+`tests/workdayContent.test.ts` waited a fixed 20 ms after the Submit
+click, and that window held the process's first real `Response`, whose
+first `json()` costs 21-24 ms idle and 28-34 ms under load in a fresh
+Node process (a plain object's, about 2 ms). A failing case plus its
+parent test gives exactly "2 failures" with the count unchanged. The
+background suite waited a fixed 60 ms the same way. Fixed by removing the
+dependence on time, not by lengthening it: the fakes answer with plain
+promise-based objects (`fakeResponse`), so their async work is all
+microtasks, and `settle()` waits five event-loop turns. The two
+headless-Chrome helpers now say in their assertion message when the 30 s
+backstop stopped Chrome, so any failure there names its cause. After the
+fix, on `f4e6bd6` in a fresh clone: 5 cold `npm test` runs 128 of 128,
+10 `npm run test:node` runs 104 of 104, and 3 cold `npm test` runs with
+all cores busy 128 of 128.
+
 Found by `npm run package`'s pinned `web_accessible_resources` check, not
 by the tests: while `content/workday.ts` exported a constant, crxjs built
 it as a loader (`workday.ts-loader-….js`, the manifest's content script)
 that dynamically imported the real module, unlike the other two scripts.
-With the constant moved to `parsers/workday.ts` and no export left, it's
-one plain script again, and the check passes (19 files). Content scripts
-here export nothing.
+With no export left (that constant, a page-write marker, was later
+removed altogether), it's one plain script again, and the check passes
+(19 files). Content scripts here export nothing.
 
 ---
 

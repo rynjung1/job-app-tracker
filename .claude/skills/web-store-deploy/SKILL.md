@@ -125,8 +125,10 @@ description: Steps and status for publishing this extension to the Chrome Web St
        lands at the final Submit with the tenant id as Company and the
        normalized URL, once, and that it appears in the popup. Before the
        merge, Ryan's first real Workday application is the observation
-       instead: load the workday build and run
-       `scripts/workday-observe.js` PARTs 0, A and B.
+       instead, with any build loaded (or none): run
+       `scripts/workday-observe.js` PARTs 0, A and B. The same
+       `documentLoadedAt` in PART 0 and PART A means the extension's
+       in-memory capture would survive to Submit.
      - Left here by phase B (the new ID starts with empty storage, so
        it's a real first install): Settings opens on its own as a
        window, and the "Not connected" notification's Open Settings

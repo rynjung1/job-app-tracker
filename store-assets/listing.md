@@ -164,7 +164,7 @@ Shows a "Logged" notification after each automatic log, with Undo and Edit butto
 Host permission `https://sheets.googleapis.com/*`:
 
 ```text
-Through the Google Sheets API: creates and formats the sheet when you connect; writes each logged application as a row (with a random ID, used only to avoid duplicates) in the Google Sheet this extension created; updates one cell (Status or Resume Version) when you change an application's status or resume version in the popup, or use the Logged notification's Undo or Edit; reads the sheet's header row to find its columns, your recent rows' Company, Title and Status for the popup, a row before a popup change to check it still matches, the hidden ID column when retrying a save, and the spreadsheet's tab names if you renamed the sheet's tab.
+Through the Google Sheets API: creates and formats the sheet when you connect; writes each logged application as a row (with a random ID, used only to avoid duplicates) in the Google Sheet this extension created; updates one cell (Status or Resume Version) when you change an application's status or resume version in the popup, or use the Logged notification's Undo or Edit; reads the sheet's header row to find its columns, your recent rows' Company, Title, Status and hidden ID for the popup, a row before a popup change to check it still matches, the hidden ID column when retrying a save, and the spreadsheet's tab names if you renamed the sheet's tab.
 ```
 
 If the dashboard also asks about the content-script sites (they're
