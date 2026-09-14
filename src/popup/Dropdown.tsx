@@ -78,17 +78,44 @@ export function Dropdown(props: DropdownProps) {
     if (open && pos) itemRefs.current[active]?.focus()
   }, [open, pos, active])
 
+  // Closes on a click outside, and on any scroll or resize: the menu is
+  // fixed, so once the list (or the window) scrolls it would float over a
+  // different row. Scroll events don't bubble, so the listener is on
+  // document in the capture phase, which sees the list's own scroll too.
+  // After a scroll or resize, focus goes back to the button only if it was
+  // inside the menu, and without scrolling: the button may have just
+  // scrolled out of view, and moving the list back would undo the user's
+  // scroll.
   useEffect(() => {
     if (!open) return
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return
+    const dismiss = (returnFocusIfInside: boolean) => {
+      const focusWasInside = Boolean(popRef.current?.contains(document.activeElement))
       setOpen(false)
       setPos(null)
       document.body.style.minHeight = ''
+      if (returnFocusIfInside && focusWasInside) triggerRef.current?.focus({ preventScroll: true })
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return
+      dismiss(false)
+    }
+    const onScroll = () => dismiss(true)
+    // A resize that only makes the popup taller is ignored: that's the
+    // popup growing to fit this menu (the layout effect above).
+    const size = { width: window.innerWidth, height: window.innerHeight }
+    const onResize = () => {
+      if (window.innerWidth === size.width && window.innerHeight >= size.height) return
+      dismiss(true)
     }
     document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
+    document.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
+    }
   }, [open])
 
   function choose(index: number) {
@@ -99,6 +126,7 @@ export function Dropdown(props: DropdownProps) {
   }
 
   function onTriggerKeyDown(event: KeyboardEvent) {
+    if (disabled) return
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       openAt(startIndex())
@@ -156,8 +184,16 @@ export function Dropdown(props: DropdownProps) {
         aria-expanded={open}
         aria-controls={open ? popId : undefined}
         aria-busy={busy || undefined}
-        disabled={disabled}
-        onClick={() => (open ? close(true) : openAt(startIndex()))}
+        // aria-disabled, not disabled: a focused button that becomes
+        // disabled loses focus in Chrome, so a keyboard user would drop
+        // back to the page on every status change (the chip is disabled
+        // while its save runs). The handlers ignore input instead.
+        aria-disabled={disabled || undefined}
+        onClick={() => {
+          if (disabled) return
+          if (open) close(true)
+          else openAt(startIndex())
+        }}
         onKeyDown={onTriggerKeyDown}
       >
         {triggerContent}

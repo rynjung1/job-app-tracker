@@ -18,7 +18,9 @@ interface ResumeVersionEditorProps {
 // "Change resume version" for one application. The same component is the
 // popup's editor view (from the row's ⋯ menu) and the whole notification
 // Edit window (popup/index.html?edit=<id>); App.tsx decides what Save and
-// Cancel do in each. Enter saves, Esc cancels.
+// Cancel do in each. Enter saves, Esc cancels. While saving, nothing is
+// `disabled` (a focused control that becomes disabled loses focus in
+// Chrome): the input is read-only and the buttons ignore clicks.
 export function ResumeVersionEditor({ entry, appliedOn, lastUsed, saving, error, onSave, onCancel }: ResumeVersionEditorProps) {
   const [value, setValue] = useState(entry.resumeVersion)
   const suggestions = (Object.keys(ROLE_LABELS) as Array<keyof ResumeVersionsByRoleType>).flatMap((role) => {
@@ -33,7 +35,7 @@ export function ResumeVersionEditor({ entry, appliedOn, lastUsed, saving, error,
       aria-labelledby="editor-heading"
       onSubmit={(event) => {
         event.preventDefault()
-        onSave(value)
+        if (!saving) onSave(value)
       }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
@@ -57,14 +59,22 @@ export function ResumeVersionEditor({ entry, appliedOn, lastUsed, saving, error,
         type="text"
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        disabled={saving}
+        readOnly={saving}
         autoFocus
       />
       {suggestions.length > 0 && (
         <div className="sugg">
           <span>Last used:</span>
           {suggestions.map(({ role, version }) => (
-            <button key={role} type="button" className="sg" onClick={() => setValue(version)} disabled={saving}>
+            <button
+              key={role}
+              type="button"
+              className="sg"
+              aria-disabled={saving || undefined}
+              onClick={() => {
+                if (!saving) setValue(version)
+              }}
+            >
               {version} · {ROLE_LABELS[role]}
             </button>
           ))}
@@ -78,10 +88,17 @@ export function ResumeVersionEditor({ entry, appliedOn, lastUsed, saving, error,
         </div>
       )}
       <div className="editor-acts">
-        <button type="button" className="btn lg" onClick={onCancel} disabled={saving}>
+        <button
+          type="button"
+          className="btn lg"
+          aria-disabled={saving || undefined}
+          onClick={() => {
+            if (!saving) onCancel()
+          }}
+        >
           Cancel
         </button>
-        <button type="submit" className="btn primary lg" disabled={saving}>
+        <button type="submit" className="btn primary lg" aria-disabled={saving || undefined}>
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>

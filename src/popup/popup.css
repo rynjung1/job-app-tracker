@@ -190,7 +190,7 @@ a.co:hover {
   opacity: 0.8;
 }
 
-.chip-btn:disabled {
+.chip-btn[aria-disabled='true'] {
   cursor: default;
   opacity: 0.7;
 }
@@ -403,6 +403,11 @@ body.in-window .editor {
 
 .sg:hover {
   background: var(--subtle);
+}
+
+.sg[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .hint {

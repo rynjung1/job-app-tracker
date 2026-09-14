@@ -345,7 +345,14 @@ the approved mockups (direction A):
   listbox patterns (`popup/Dropdown.tsx`): arrows, Home/End, Enter/Space,
   and Esc returns focus to the button. They're positioned fixed, above
   the button when there's no room below, or growing the popup when
-  neither fits.
+  neither fits. Fixed after review, 2026-09-14: they close on any scroll
+  (the list's or the window's, caught in the capture phase) or resize,
+  since a fixed menu would otherwise float over a different row after a
+  scroll; focus returns to the button only if it was in the menu, and
+  without scrolling the list back. No control is `disabled` while it may
+  have focus (the chip while its save runs, the editor's input and
+  buttons while saving): Chrome drops focus from a focused control that
+  becomes disabled, so they use `aria-disabled` or read-only instead.
 - **One resume editor** (`popup/ResumeVersionEditor.tsx`): the popup's
   editor view (focus returns to the row's ⋯ afterwards) and the whole
   notification Edit window, now a focused 380×404 dialog instead of the
@@ -375,12 +382,18 @@ the approved mockups (direction A):
   signed out returning `AUTH_REQUIRED`; the notification's Undo writing
   "Cancelled" to `G5` through the shared setter; and `safeJobUrl` keeping
   https/http while refusing `javascript:`, `data:`, empty and junk.
-- A scripted keyboard test on the built popup with stand-in data, 12 of
-  12: the menu opens on its first item, arrows move and wrap, Home/End
+- A scripted keyboard test on the built popup with stand-in data, 14 of
+  14: the menu opens on its first item, arrows move and wrap, Home/End
   jump, Esc closes it with focus back on ⋯; the status list opens on the
   current status, Enter picks one and returns focus to the chip, Esc
   changes nothing; the editor opens with focus in its input, and Esc
-  returns to the list with focus on that row's ⋯.
+  returns to the list with focus on that row's ⋯. Added with the review
+  fix: scrolling the list with the ⋯ menu or the status list open closes
+  it, with focus back on its button and the list still scrolled (80px).
+  Those two steps set `scrollTop` and then dispatch the scroll event
+  themselves: headless `--dump-dom` renders no frames and delivered 0
+  native scroll events. The same test caught the disabled-while-focused
+  chip (focus fell to the page after a status change).
 - The Edit window at its 376px inner height, with and without the error:
   scrollHeight 376 of 376, no scrolling.
 
