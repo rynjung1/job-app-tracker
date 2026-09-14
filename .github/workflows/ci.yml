@@ -1,0 +1,36 @@
+# Checks every push to main and every pull request: a clean install,
+# typecheck, lint, the Node tests (npm run test:node; the headless-Chrome
+# DOM test runs locally with npm test) and the store zip with its checks.
+# Read-only token, no secrets, actions pinned to commit SHAs.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc -b
+      - name: Lint
+        run: npm run lint
+      - name: Node tests
+        run: npm run test:node
+      - name: Package (store zip and its checks)
+        run: npm run package -- --allow-dirty
