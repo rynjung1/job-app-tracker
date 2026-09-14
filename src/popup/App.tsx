@@ -3,31 +3,36 @@ import type { SheetRef } from '../providers/types'
 import { getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
+import { getLastResumeVersions } from '../lib/resumeVersion'
+import type { ResumeVersionsByRoleType } from '../lib/resumeVersion'
+import { safeJobUrl } from '../lib/safeUrl'
+import type { StatusValue } from '../lib/sheetTemplate'
+import { applicationCount } from '../lib/authStatus'
 import type { BackgroundResponse } from '../background/messageRouter'
 import { CheckIcon, ClockIcon, GearIcon, LockIcon, SheetIcon, WarnIcon } from '../ui/icons'
-import { applicationCount } from '../lib/authStatus'
 import { useSyncStatus } from '../ui/useSyncStatus'
+import { StatusSelect } from './StatusSelect'
+import { RowMenu } from './RowMenu'
+import { ResumeVersionEditor } from './ResumeVersionEditor'
 
-// If opened via the notification's Edit button (background/index.ts), this
-// is set to that entry's id and this window was created just for editing
-// (chrome.windows.create, not the normal toolbar-click popup). Opened
-// normally, there's no edit param — editingId starts null and the list is
-// just the list, same as before this feature existed.
+// Opened by the notification's Edit button (background/index.ts), this page
+// is a small window showing only the resume editor for that entry. Opened
+// from the toolbar, there's no edit param and it's the popup.
 const editId = new URLSearchParams(window.location.search).get('edit')
 if (editId) document.body.classList.add('in-window')
 
-interface ActionError {
-  id: string
-  message: string
+const STALE_ROW_STATUS =
+  "This row may have changed since it was logged, so its status wasn't changed. You can still change it in your spreadsheet."
+const STALE_ROW_RESUME =
+  "This row may have changed since it was logged, so it wasn't updated. You can still change it in your spreadsheet."
+const SIGN_IN_NEEDED = 'Google sign-in needed. Reconnect, then try again.'
+const GENERIC_ERROR = 'Something went wrong. Please try again.'
+
+function errorMessage(code: string | undefined, staleMessage: string): string {
+  if (code === 'STALE_ROW') return staleMessage
+  if (code === 'AUTH_REQUIRED') return SIGN_IN_NEEDED
+  return GENERIC_ERROR
 }
-
-const STALE_ROW_MESSAGE_EDIT =
-  "This row may have changed since it was logged, so it wasn't updated. You can still edit it in your spreadsheet."
-const STALE_ROW_MESSAGE_UNDO =
-  "This row may have changed since it was logged, so it wasn't updated. You can still mark it Cancelled in your spreadsheet."
-const GENERIC_ERROR_MESSAGE = 'Something went wrong. Please try again.'
-
-const KNOWN_STATUSES = ['Applied', 'Interview', 'Offer', 'Rejected', 'Cancelled']
 
 function sheetUrl(sheetRef: SheetRef): string {
   return `https://docs.google.com/spreadsheets/d/${sheetRef.spreadsheetId}/edit`
@@ -55,15 +60,7 @@ async function openSettings({ reconnect = false }: { reconnect?: boolean } = {})
   }
 }
 
-function StatusChip({ status }: { status: string }) {
-  if (!status) return null
-  const variant = KNOWN_STATUSES.includes(status) ? ` chip-${status.toLowerCase()}` : ''
-  return <span className={`chip${variant}`}>{status}</span>
-}
-
-function NewTabHint() {
-  return <span className="sr-only"> (opens in a new tab)</span>
-}
+type View = { mode: 'list' } | { mode: 'edit'; id: string }
 
 function App() {
   const [applications, setApplications] = useState<RecentApplication[] | null>(null)
@@ -77,28 +74,34 @@ function App() {
   // (background GET_LIVE_STATUSES). Shown over the cached status; never
   // written back to the cached list.
   const [liveStatuses, setLiveStatuses] = useState<Record<string, string>>({})
-  // Entries this popup changed itself (Undo), so a live read that was
-  // already in flight can't put their old status back.
+  // Entries this popup changed itself (a status change), so a live read
+  // that was already in flight can't put their old status back.
   const changedHere = useRef(new Set<string>())
-  const [editingId, setEditingId] = useState<string | null>(editId)
-  const [resumeInput, setResumeInput] = useState('')
-  const [savingEditId, setSavingEditId] = useState<string | null>(null)
-  const [undoingId, setUndoingId] = useState<string | null>(null)
-  const [actionError, setActionError] = useState<ActionError | null>(null)
+  const [lastUsed, setLastUsed] = useState<ResumeVersionsByRoleType>({})
+  const [view, setView] = useState<View>(editId ? { mode: 'edit', id: editId } : { mode: 'list' })
+  const [statusBusyId, setStatusBusyId] = useState<string | null>(null)
+  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [editorError, setEditorError] = useState<string | null>(null)
   const { authStatus, queued } = useSyncStatus()
+  const signedOut = authStatus !== undefined
+  // After the editor closes, focus goes back to the row's ⋯ it came from.
+  // Done in an effect once the list is back in the DOM, not on a timer.
+  const returnFocusTo = useRef<string | null>(null)
 
   useEffect(() => {
-    getRecentApplications().then((apps) => {
-      setApplications(apps)
-      if (editId) {
-        const editing = apps.find((a) => a.id === editId)
-        if (editing) setResumeInput(editing.resumeVersion)
-      }
-    })
+    if (view.mode !== 'list' || !returnFocusTo.current) return
+    document.getElementById(`more-${returnFocusTo.current}`)?.focus()
+    returnFocusTo.current = null
+  }, [view])
+
+  useEffect(() => {
+    getRecentApplications().then(setApplications)
     chrome.storage.local.get(SHEET_REF_KEY).then((stored) => {
       setSheetRef(stored[SHEET_REF_KEY] as SheetRef | undefined)
       setSheetRefChecked(true)
     })
+    getLastResumeVersions().then(setLastUsed)
     // Cached list first (above), live statuses when they arrive. A failed
     // read (offline, signed out) just leaves the cached statuses showing.
     ;(chrome.runtime.sendMessage({ type: 'GET_LIVE_STATUSES' }) as Promise<BackgroundResponse<Record<string, string>>>)
@@ -115,76 +118,20 @@ function App() {
     setApplications((prev) => prev?.map((a) => (a.id === id ? { ...a, ...patch } : a)) ?? prev)
   }
 
-  // No confirmation — switching to a different row's Edit just discards
-  // whatever was typed in the previous one. Nothing has been written
-  // anywhere yet at this point, it's local input text only.
-  function handleStartEdit(entry: RecentApplication) {
-    setEditingId(entry.id)
-    setResumeInput(entry.resumeVersion)
-    setActionError(null)
-  }
-
-  // Closing the panel removes the focused input, so focus goes back to the
-  // Edit button it came from instead of falling to the page.
-  function closeEditor(id: string) {
-    setEditingId(null)
-    requestAnimationFrame(() => document.getElementById(`edit-${id}`)?.focus())
-  }
-
-  async function handleSaveResumeVersion(entry: RecentApplication) {
-    if (!sheetRef) return
-    setSavingEditId(entry.id)
-    setActionError(null)
-    try {
-      // The one case that skips the identity check and closes the window
-      // on save: this window was opened specifically to edit this exact
-      // entry via the notification's Edit button, and the user hasn't
-      // since switched to editing a different row. Every other save —
-      // including a different row edited from inside this same standalone
-      // window — gets the real check, since a stale rowNumber is exactly
-      // as possible there as from the normal popup. Sent as an explicit
-      // payload field rather than something background has to infer.
-      const isOriginalNotificationEdit = editId !== null && editingId === editId && entry.id === editId
-      const response = (await chrome.runtime.sendMessage({
-        type: 'SAVE_RESUME_VERSION',
-        payload: { entryId: entry.id, resumeVersion: resumeInput, skipIdentityCheck: isOriginalNotificationEdit },
-      })) as BackgroundResponse<RecentApplication>
-      if (!response.ok) {
-        setActionError({
-          id: entry.id,
-          message: response.code === 'STALE_ROW' ? STALE_ROW_MESSAGE_EDIT : GENERIC_ERROR_MESSAGE,
-        })
-        return
-      }
-      patchApplication(entry.id, response.data)
-      closeEditor(entry.id)
-      if (isOriginalNotificationEdit) {
-        window.close()
-      }
-    } catch (err) {
-      console.error('[job-app-tracker] failed to save resume version:', err)
-      setActionError({ id: entry.id, message: GENERIC_ERROR_MESSAGE })
-    } finally {
-      setSavingEditId(null)
-    }
-  }
-
-  async function handleUndo(entry: RecentApplication) {
-    if (!sheetRef) return
-    setUndoingId(entry.id)
-    setActionError(null)
+  async function handleSetStatus(entry: RecentApplication, status: StatusValue) {
+    setStatusBusyId(entry.id)
+    setRowError(null)
     try {
       const response = (await chrome.runtime.sendMessage({
-        type: 'CANCEL_APPLICATION',
-        payload: { entryId: entry.id },
+        type: 'SET_STATUS',
+        payload: { entryId: entry.id, status },
       })) as BackgroundResponse<RecentApplication>
       if (!response.ok) {
-        setActionError({
-          id: entry.id,
-          message: response.code === 'STALE_ROW' ? STALE_ROW_MESSAGE_UNDO : GENERIC_ERROR_MESSAGE,
-        })
+        setRowError({ id: entry.id, message: errorMessage(response.code, STALE_ROW_STATUS) })
         return
       }
+      // The sheet now holds this status: drop any live status for the row
+      // and keep a live read already in flight from putting the old one back.
       changedHere.current.add(entry.id)
       setLiveStatuses((prev) => {
         const next = { ...prev }
@@ -193,14 +140,88 @@ function App() {
       })
       patchApplication(entry.id, response.data)
     } catch (err) {
-      console.error('[job-app-tracker] undo failed:', err)
-      setActionError({ id: entry.id, message: GENERIC_ERROR_MESSAGE })
+      console.error('[job-app-tracker] status change failed:', err)
+      setRowError({ id: entry.id, message: GENERIC_ERROR })
     } finally {
-      setUndoingId(null)
+      setStatusBusyId(null)
+    }
+  }
+
+  function openEditor(entry: RecentApplication) {
+    setEditorError(null)
+    setRowError(null)
+    setView({ mode: 'edit', id: entry.id })
+  }
+
+  function closeEditor(entryId: string) {
+    if (editId) {
+      window.close()
+      return
+    }
+    setEditorError(null)
+    returnFocusTo.current = entryId
+    setView({ mode: 'list' })
+  }
+
+  async function handleSaveResume(entry: RecentApplication, resumeVersion: string) {
+    setSaving(true)
+    setEditorError(null)
+    try {
+      // The notification's Edit window skips the identity check for the
+      // entry it was opened for (its short correction window); the popup's
+      // editor always checks. Sent explicitly rather than inferred.
+      const skipIdentityCheck = editId !== null && entry.id === editId
+      const response = (await chrome.runtime.sendMessage({
+        type: 'SAVE_RESUME_VERSION',
+        payload: { entryId: entry.id, resumeVersion, skipIdentityCheck },
+      })) as BackgroundResponse<RecentApplication>
+      if (!response.ok) {
+        setEditorError(errorMessage(response.code, STALE_ROW_RESUME))
+        return
+      }
+      patchApplication(entry.id, response.data)
+      getLastResumeVersions().then(setLastUsed)
+      closeEditor(entry.id)
+    } catch (err) {
+      console.error('[job-app-tracker] failed to save resume version:', err)
+      setEditorError(GENERIC_ERROR)
+    } finally {
+      setSaving(false)
     }
   }
 
   const loading = !sheetRefChecked || applications === null
+  const editing = view.mode === 'edit' ? applications?.find((a) => a.id === view.id) : undefined
+
+  const editor = editing && (
+    <ResumeVersionEditor
+      key={editing.id}
+      entry={editing}
+      appliedOn={formatDate(editing.date)}
+      lastUsed={lastUsed}
+      saving={saving}
+      error={editorError}
+      onSave={(value) => handleSaveResume(editing, value)}
+      onCancel={() => closeEditor(editing.id)}
+    />
+  )
+
+  // The notification's Edit window: the editor only.
+  if (editId) {
+    if (loading) return <p className="window-note">Loading…</p>
+    if (editor) return editor
+    return (
+      <div className="window-note">
+        <p>
+          This application is no longer in your recent list, so its resume version can't be changed here. You can still
+          change it in your spreadsheet.
+        </p>
+        <button type="button" className="btn lg" onClick={() => window.close()}>
+          Close
+        </button>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -210,15 +231,10 @@ function App() {
         </span>
         <h1>Job Application Tracker</h1>
         {sheetRef && (
-          <a
-            className="icon-btn"
-            href={sheetUrl(sheetRef)}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="Open spreadsheet (opens in a new tab)"
-            title="Open spreadsheet"
-          >
-            <SheetIcon />
+          <a className="tbtn" href={sheetUrl(sheetRef)} target="_blank" rel="noopener noreferrer">
+            <SheetIcon size={15} />
+            Open sheet
+            <span className="sr-only"> (opens in a new tab)</span>
           </a>
         )}
         <button type="button" className="icon-btn" onClick={() => openSettings()} aria-label="Settings" title="Settings">
@@ -226,43 +242,11 @@ function App() {
         </button>
       </header>
 
-      {/* Statuses in the list stay the saved ones while signed out: the live
-          read needs sign-in too, and a failed read shows nothing live. */}
-      {!loading && sheetRef !== undefined && authStatus && (
-        <div className="banner" role="alert">
-          <LockIcon />
-          <div>
-            <b>Google sign-in needed</b>
-            <p>
-              {queued > 0
-                ? `Logging is paused. ${applicationCount(queued)} ${queued === 1 ? 'is' : 'are'} waiting and will be saved to your sheet when you reconnect.`
-                : 'Logging is paused until you reconnect.'}
-            </p>
-            <button type="button" className="btn primary" onClick={() => openSettings({ reconnect: true })}>
-              Reconnect
-            </button>
-          </div>
-        </div>
-      )}
-
-      {!loading && sheetRef !== undefined && !authStatus && queued > 0 && (
-        <div className="banner info" role="status">
-          <ClockIcon />
-          <div>
-            <b>{applicationCount(queued)} waiting to be saved</b>
-            <p>
-              Saving didn't go through (offline?). {queued === 1 ? "It'll" : "They'll"} be retried automatically every 5
-              minutes.
-            </p>
-          </div>
-        </div>
-      )}
-
       {loading && (
         <div className="list" aria-busy="true">
           <span className="sr-only">Loading…</span>
           {[55, 45].map((width) => (
-            <div className="item" key={width} aria-hidden="true">
+            <div className="row" key={width} aria-hidden="true">
               <div className="skel" style={{ width: `${width}%` }} />
               <div className="skel" style={{ width: `${width + 25}%` }} />
             </div>
@@ -283,120 +267,110 @@ function App() {
         </div>
       )}
 
-      {!loading && sheetRef !== undefined && applications.length === 0 && (
-        <div className="empty">
-          <h2>No applications yet</h2>
-          <p>Apply with LinkedIn Easy Apply or on a Greenhouse job page and it will show up here.</p>
-          <a className="link" href={sheetUrl(sheetRef)} target="_blank" rel="noopener noreferrer">
-            Open your sheet <span aria-hidden="true">↗</span>
-            <NewTabHint />
-          </a>
+      {!loading && sheetRef !== undefined && editor}
+
+      {/* Statuses in the list stay the saved ones while signed out: the live
+          read needs sign-in too, and a failed read shows nothing live. */}
+      {!loading && sheetRef !== undefined && !editor && authStatus && (
+        <div className="banner" role="alert">
+          <LockIcon />
+          <div>
+            <b>Google sign-in needed</b>
+            <p>
+              {queued > 0
+                ? `Logging is paused. ${applicationCount(queued)} ${queued === 1 ? 'is' : 'are'} waiting and will be saved to your sheet when you reconnect.`
+                : 'Logging is paused until you reconnect.'}
+            </p>
+            <button type="button" className="btn primary" onClick={() => openSettings({ reconnect: true })}>
+              Reconnect
+            </button>
+          </div>
         </div>
       )}
 
-      {!loading && sheetRef !== undefined && applications.length > 0 && (
-        <>
-          <ul className="list" aria-label="Recent applications">
-            {applications.map((app) => {
-              const status = liveStatuses[app.id] ?? app.status
-              const saving = savingEditId === app.id
-              const undoing = undoingId === app.id
-              const meta = [app.resumeVersion && `Resume ${app.resumeVersion}`, formatDate(app.date)]
-                .filter(Boolean)
-                .join(' · ')
-              return (
-                <li key={app.id} className="item" aria-busy={saving || undoing || undefined}>
-                  <div className="row1">
-                    <div className="who">
-                      <div className="co">{app.company}</div>
-                      <div className="ti">
-                        {app.title}
-                        {app.location && (
-                          <>
-                            {' · '}
-                            <span className="loc" title={app.location}>
-                              {app.location}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <StatusChip status={status} />
-                  </div>
+      {!loading && sheetRef !== undefined && !editor && !authStatus && queued > 0 && (
+        <div className="banner info" role="status">
+          <ClockIcon />
+          <div>
+            <b>{applicationCount(queued)} waiting to be saved</b>
+            <p>
+              Saving didn't go through (offline?). {queued === 1 ? "It'll" : "They'll"} be retried automatically every 5
+              minutes.
+            </p>
+          </div>
+        </div>
+      )}
 
-                  {editingId === app.id ? (
-                    <form
-                      className="edit"
-                      onSubmit={(e) => {
-                        e.preventDefault()
-                        handleSaveResumeVersion(app)
-                      }}
-                    >
-                      <label htmlFor={`rv-${app.id}`}>Resume version</label>
-                      <input
-                        id={`rv-${app.id}`}
-                        className="input"
-                        type="text"
-                        value={resumeInput}
-                        onChange={(e) => setResumeInput(e.target.value)}
-                        disabled={saving}
-                        autoFocus
-                      />
-                      <div className="acts">
-                        <button type="button" className="btn" onClick={() => closeEditor(app.id)} disabled={saving}>
-                          Cancel
-                        </button>
-                        <button type="submit" className="btn primary" disabled={saving}>
-                          {saving ? 'Saving…' : 'Save'}
-                        </button>
-                      </div>
-                    </form>
+      {!loading && sheetRef !== undefined && !editor && applications.length === 0 && (
+        <div className="empty">
+          <h2>No applications yet</h2>
+          <p>Apply with LinkedIn Easy Apply or on a Greenhouse job page and it will show up here.</p>
+        </div>
+      )}
+
+      {!loading && sheetRef !== undefined && !editor && applications.length > 0 && (
+        <ul className="list" aria-label="Recent applications">
+          {applications.map((app) => {
+            const status = liveStatuses[app.id] ?? app.status
+            const url = safeJobUrl(app.url)
+            const busy = statusBusyId === app.id
+            const error = rowError?.id === app.id ? rowError.message : null
+            const place = [app.title, app.location].filter(Boolean).join(' · ')
+            const meta = [app.resumeVersion && `Resume ${app.resumeVersion}`, formatDate(app.date)]
+              .filter(Boolean)
+              .join(' · ')
+            return (
+              <li key={app.id} className={error ? 'row has-error' : 'row'} aria-busy={busy || undefined}>
+                <div className="r1">
+                  {url ? (
+                    <a className="co" href={url} target="_blank" rel="noopener noreferrer" title={`${app.company}: open the job posting`}>
+                      {app.company}
+                      <span className="sr-only"> (opens the job posting in a new tab)</span>
+                    </a>
                   ) : (
-                    <div className="row2">
-                      <span className="meta">{meta}</span>
-                      <button
-                        type="button"
-                        id={`edit-${app.id}`}
-                        className="btn"
-                        onClick={() => handleStartEdit(app)}
-                        aria-label={`Edit resume version, ${app.company}`}
-                      >
-                        Edit
-                      </button>
-                      {status !== 'Cancelled' && (
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => handleUndo(app)}
-                          disabled={undoing}
-                          aria-label={undoing ? undefined : `Undo: mark ${app.company} Cancelled`}
-                        >
-                          {undoing ? 'Undoing…' : 'Undo'}
-                        </button>
-                      )}
-                    </div>
+                    <span className="co">{app.company}</span>
                   )}
-
-                  {actionError?.id === app.id && (
-                    <div className="err" role="alert">
-                      <WarnIcon size={16} />
-                      <span>{actionError.message}</span>
-                    </div>
+                  <StatusSelect
+                    company={app.company}
+                    status={status}
+                    disabled={signedOut || busy}
+                    disabledReason="Reconnect Google Sheets to change the status"
+                    busy={busy}
+                    onChange={(next) => handleSetStatus(app, next)}
+                  />
+                  <RowMenu
+                    entryId={app.id}
+                    company={app.company}
+                    url={url}
+                    signedOut={signedOut}
+                    onChangeResume={() => openEditor(app)}
+                  />
+                </div>
+                {/* One line: the title takes the ellipsis, the location stays
+                    whole. Full text in the tooltip. */}
+                <div className="ti" title={place}>
+                  <span className="t">{app.title}</span>
+                  {app.location && (
+                    <>
+                      <span className="tsep" aria-hidden="true">
+                        ·
+                      </span>
+                      <span className="sr-only">, </span>
+                      <span className="loc">{app.location}</span>
+                    </>
                   )}
-                </li>
-              )
-            })}
-          </ul>
-          <footer className="foot">
-            <span>
-              {applications.length === 1 ? '1 recent application' : `${applications.length} recent applications`}
-            </span>
-            <a className="link" href={sheetUrl(sheetRef)} target="_blank" rel="noopener noreferrer">
-              Open sheet <span aria-hidden="true">↗</span>
-              <NewTabHint />
-            </a>
-          </footer>
-        </>
+                </div>
+                <div className="meta">{meta}</div>
+                {error && (
+                  <div className="err" role="alert">
+                    <WarnIcon size={16} />
+                    <span>{error}</span>
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
       )}
     </>
   )

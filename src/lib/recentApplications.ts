@@ -1,6 +1,7 @@
 import { RECENT_APPLICATIONS_KEY } from './storageKeys'
 import type { SheetRef, SpreadsheetProvider } from '../providers/types'
 import { withStorageLock } from './storageLock'
+import type { StatusValue } from './sheetTemplate'
 
 // Named in CLAUDE.md's Tech Stack section ("chrome.storage.local for ...
 // the cached recent-applications list") but not built until Phase 4, when
@@ -76,6 +77,19 @@ export async function cancelApplication(
   sheetRef: SheetRef,
   entry: RecentApplication,
 ): Promise<void> {
-  await provider.updateCell(sheetRef, entry.rowNumber, 'Status', 'Cancelled')
-  await updateRecentApplication(entry.id, { status: 'Cancelled' })
+  await setApplicationStatus(provider, sheetRef, entry, 'Cancelled')
+}
+
+// The one way a status is written: the Status cell, then the cached entry.
+// Used by the notification's Undo (through cancelApplication) and by
+// SET_STATUS, the popup's status menu, which checks the row's identity
+// first (background/messageRouter.ts).
+export async function setApplicationStatus(
+  provider: SpreadsheetProvider,
+  sheetRef: SheetRef,
+  entry: RecentApplication,
+  status: StatusValue,
+): Promise<RecentApplication | undefined> {
+  await provider.updateCell(sheetRef, entry.rowNumber, 'Status', status)
+  return updateRecentApplication(entry.id, { status })
 }

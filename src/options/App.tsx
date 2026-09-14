@@ -184,10 +184,7 @@ function App() {
                 <span className="pill ok" aria-hidden="true" />
                 Connected to Google Sheets
               </div>
-              <p className="muted">
-                Applications are logged to your Job Applications sheet. If logging stops working, Reconnect signs you in
-                again and keeps the same sheet.
-              </p>
+              <p className="muted">Applications are logged to your Job Applications sheet.</p>
               {queued > 0 && !notice && (
                 <p className="muted">
                   {applicationCount(queued)} waiting to be saved; retried automatically every 5 minutes.
@@ -203,10 +200,15 @@ function App() {
                   Open sheet <span aria-hidden="true">↗</span>
                   <span className="sr-only"> (opens in a new tab)</span>
                 </a>
-                <button type="button" className="btn lg" onClick={() => handleReconnect(state.sheetRef)}>
+              </div>
+              {/* Healthy: Reconnect is a quiet link (still a button). It's the
+                  primary action again in the sign-in-needed card above. */}
+              <p className="quiet">
+                Having trouble?{' '}
+                <button type="button" className="link-btn" onClick={() => handleReconnect(state.sheetRef)}>
                   Reconnect
                 </button>
-              </div>
+              </p>
             </>
           )}
 

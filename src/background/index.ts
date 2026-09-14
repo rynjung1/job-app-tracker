@@ -237,10 +237,13 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
     chrome.windows.create({
       type: 'popup',
       url: chrome.runtime.getURL(`src/popup/index.html?edit=${notificationId}`),
-      // Taller than the original 320: the restyled edit panel (label,
-      // input, Cancel/Save) needs the room.
-      width: 360,
-      height: 480,
+      // The focused "Change resume version" dialog (ResumeVersionEditor).
+      // Sized from the rendered page at 380px wide: 308px of content, 367px
+      // with the longest inline error. The height is the outer window, and
+      // the macOS title bar takes about 28px of it, so 404 leaves 376px
+      // inside: the error case plus a 9px margin, no clipping or scrolling.
+      width: 380,
+      height: 404,
     })
     chrome.notifications.clear(notificationId)
   }

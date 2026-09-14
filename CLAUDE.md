@@ -326,6 +326,68 @@ view), left for Ryan's next real application; the first-install
 auto-open and the "Not connected" notification's Open Settings, left for
 the extension-ID switch (a reinstall wipes storage).
 
+**Updated 2026-09-14 (decided by Ryan): popup and Settings polish**, from
+the approved mockups (direction A):
+- **Rows:** 368px wide, every row 79px (nothing wraps). The company links
+  to the job posting, only for `https:`/`http:` URLs (`lib/safeUrl.ts`:
+  the URL comes from the page and the sanitizer only caps length). The
+  title takes the ellipsis and the location stays whole. One Open sheet,
+  in the header.
+- **Status chip:** a dropdown of the five statuses. `STATUS_VALUES` is now
+  one list in `lib/sheetTemplate.ts`, shared with the sheet's dropdown
+  and colour rules (the new sheet's dropdown now lists them in workflow
+  order). Picking one sends `SET_STATUS`, below.
+- **The row's ⋯ menu:** Change resume version and Open job posting. The
+  popup's Undo button is gone: Cancelled is set from the status dropdown,
+  one place for status. The notification keeps Undo and Edit, its short
+  correction window.
+- **Keyboard:** the menu and the dropdown follow the ARIA menu-button and
+  listbox patterns (`popup/Dropdown.tsx`): arrows, Home/End, Enter/Space,
+  and Esc returns focus to the button. They're positioned fixed, above
+  the button when there's no room below, or growing the popup when
+  neither fits.
+- **One resume editor** (`popup/ResumeVersionEditor.tsx`): the popup's
+  editor view (focus returns to the row's ⋯ afterwards) and the whole
+  notification Edit window, now a focused 380×404 dialog instead of the
+  list. Sized from the rendered page: 308px of content, 367px with the
+  longest error, plus about 28px of macOS title bar and a 9px margin. The
+  phase B "blank band" note above no longer applies.
+- **Settings:** when healthy, Reconnect is a quiet "Having trouble?
+  Reconnect" link; it stays the primary button when sign-in is needed.
+- **`SET_STATUS`** (a flagged addition to the internal messages) checks
+  Company/Title like `SAVE_RESUME_VERSION`, then writes the Status cell
+  and the cached entry through `setApplicationStatus`
+  (`lib/recentApplications.ts`), which the notification's Undo also uses
+  (`cancelApplication` calls it). A mismatch or a failure writes nothing
+  and shows an inline error on the row. While signed out the chip and the
+  resume action are disabled, and a sign-in failure returns the new
+  `AUTH_REQUIRED` code. Status changes are never queued. It replaces
+  `CANCEL_APPLICATION`, whose only sender was the popup's Undo.
+
+**Verified 2026-09-14 in Node and headless renders only:**
+- Node test, 27 of 27: the 18 earlier cases, plus `SET_STATUS` writing
+  exactly "Interview" to `Sheet1!G5` and updating the cache; a
+  hand-edited Company returning `STALE_ROW` with no write; an unknown or
+  non-string status refused before any request, and an unknown entry
+  refused; signed out returning `AUTH_REQUIRED` with the flag set and no
+  write; a failing Status write returning an error with the cache
+  unchanged; `CANCEL_APPLICATION` no longer handled; a resume save while
+  signed out returning `AUTH_REQUIRED`; the notification's Undo writing
+  "Cancelled" to `G5` through the shared setter; and `safeJobUrl` keeping
+  https/http while refusing `javascript:`, `data:`, empty and junk.
+- A scripted keyboard test on the built popup with stand-in data, 12 of
+  12: the menu opens on its first item, arrows move and wrap, Home/End
+  jump, Esc closes it with focus back on ⋯; the status list opens on the
+  current status, Enter picks one and returns focus to the chip, Esc
+  changes nothing; the editor opens with focus in its input, and Esc
+  returns to the list with focus on that row's ⋯.
+- The Edit window at its 376px inner height, with and without the error:
+  scrollHeight 376 of 376, no scrolling.
+
+Not run live; web-store-deploy step 6 has the checks for the new-ID
+build. Not checkable headless: whether Esc inside Chrome's real toolbar
+popup also closes the popup itself.
+
 **Fixed 2026-09-10 (fresh-install UX, found during a test pass):**
 a genuinely fresh install had several real, silent gaps — no
 onboarding, a popup that just said "No recent applications yet"
@@ -506,7 +568,9 @@ entry, the same identity rule Edit and Undo check
 (`lib/liveStatuses.ts`). A mismatched row, an empty Status cell or a
 failed read (offline, signed out) keeps the cached status. Read-only:
 nothing is written to the sheet, and the cached list isn't updated from
-it. Undo hides itself when the displayed status is `Cancelled`.
+it. (Until 2026-09-14 the popup's Undo hid itself when the displayed
+status was `Cancelled`; the popup now sets status through its status
+dropdown, see the popup polish note.)
 
 **Updated 2026-09-13 (decided by Ryan): "needs reconnect".** A lapsed or
 revoked Google sign-in used to be silent: `appendRow` failed, the row
@@ -929,6 +993,10 @@ descoped as a rabbit hole not worth the reliability cost.
 set automatically (the one exception to "manual" above) when the user
 clicks Undo on the toast notification within its ~5-second window.
 
+**Updated 2026-09-14:** the popup's status dropdown can set any of the
+five values (`SET_STATUS`, with the Company/Title check). It's still
+manual: nothing detects a status change on its own.
+
 ---
 
 ## Site parsers (v1 scope)
@@ -1189,7 +1257,7 @@ future provider that has to handle its own tokens.
 literally, not just to content scripts — `popup/App.tsx` and
 `options/App.tsx` never import `providers/*` directly; every provider
 call (`authenticate`, `createSheet`, `readRow`, `readCells`,
-`updateCell`, `cancelApplication`) is a message to the background worker, which is
+`updateCell`, `setApplicationStatus`/`cancelApplication`) is a message to the background worker, which is
 the sole caller of the `SpreadsheetProvider`. This closed a real
 finding: `options/App.tsx` previously called
 `authenticate()`/`createSheet()` directly from the options page's own
@@ -1206,7 +1274,8 @@ popup mid-request killed the in-flight call along with it.
   checked separately from the content-script `TRUSTED_ORIGINS` check
   above — see `background/messageRouter.ts` for the message list
   (`CONNECT_PROVIDER`, `RECONNECT_PROVIDER`, `SAVE_RESUME_VERSION`,
-  `CANCEL_APPLICATION`, `GET_LIVE_STATUSES`, and `OPEN_SETTINGS`, which
+  `SET_STATUS` (which replaced `CANCEL_APPLICATION` on 2026-09-14),
+  `GET_LIVE_STATUSES`, and `OPEN_SETTINGS`, which
   opens the Settings window rather than calling a provider) and envelope shape (`{ ok: true, data } |
   { ok: false, error, code? }`). Two other fields were tried first and
   found not to actually test this, confirmed live against a real

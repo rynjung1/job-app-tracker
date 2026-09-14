@@ -26,7 +26,7 @@ Easy Apply detection is fully supported with LinkedIn set to English.
 
 No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected at a glance.
 
-From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, and edit its resume version or undo it at any time, so you can correct a mismatched resume choice or cancel an accidental log without touching the spreadsheet by hand. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
+From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, change its status or resume version at any time, and open its job posting, without touching the spreadsheet by hand. The notification after each log also offers a quick Undo and Edit. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
 
 Privacy: the extension only reads job-posting pages on the specific sites it supports — it never has access to other tabs or browsing activity. It only ever talks to Google's own API to read and write your spreadsheet; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
 ```
@@ -57,7 +57,7 @@ any Google account, but it points a reviewer at the flow):
 ```text
 1. Settings opens on install (or use the gear in the extension's popup). Click Connect Google Sheets and sign in with any Google account; a formatted "Job Applications" sheet is created in that account's Drive.
 2. With LinkedIn's interface in English, open a job posting that has Easy Apply and click Easy Apply. Closing the dialog without applying is fine. A row is logged to the sheet and a "Logged" notification with Undo and Edit appears.
-3. Open the extension's popup: the application is listed, with Edit and Undo.
+3. Open the extension's popup: the application is listed. Its status chip changes the Status in the sheet, and its ⋯ menu changes the resume version or opens the job posting.
 Greenhouse postings are logged only after a real, confirmed submission, so they're best not tested by a reviewer.
 ```
 
@@ -111,14 +111,14 @@ Automatically logs the job applications you submit on supported job sites (Linke
 `storage`:
 
 ```text
-Stores, only on this device: which Google Sheet you connected; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged, after 30 minutes, or when the browser closes); your 20 most recent logged applications, shown in the popup for Edit and Undo; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and Chrome's error message, until you reconnect; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
+Stores, only on this device: which Google Sheet you connected; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged, after 30 minutes, or when the browser closes); your 20 most recent logged applications, shown in the popup so you can change their status or resume version; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and Chrome's error message, until you reconnect; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
 ```
 
 Shorter fallback, use if the dashboard rejects the long one (no
 documented limit was found for these fields):
 
 ```text
-Stores on this device only: the connected Google Sheet; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (at most 30 minutes); the 20 most recent applications, for Edit and Undo; the last resume version per role type; a sign-in-needed flag with Chrome's error; and the open Settings window's id (session).
+Stores on this device only: the connected Google Sheet; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (at most 30 minutes); the 20 most recent applications, for status and resume changes; the last resume version per role type; a sign-in-needed flag with Chrome's error; and the open Settings window's id (session).
 ```
 
 `identity`:
@@ -142,7 +142,7 @@ Shows a "Logged" notification after each automatic log, with Undo and Edit butto
 Host permission `https://sheets.googleapis.com/*`:
 
 ```text
-Through the Google Sheets API: writes each logged application as a row in the Google Sheet this extension created and updates one cell for Undo or Edit; reads your recent rows' Company, Title and Status for the popup, and a row before a popup Edit or Undo to check it still matches.
+Through the Google Sheets API: writes each logged application as a row in the Google Sheet this extension created; updates one cell (Status or Resume Version) when you change an application's status or resume version in the popup, or use the Logged notification's Undo or Edit; reads your recent rows' Company, Title and Status for the popup, and a row before a popup change to check it still matches.
 ```
 
 If the dashboard also asks about the content-script sites (they're

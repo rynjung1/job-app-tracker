@@ -4,6 +4,8 @@ import { columnIndexToLetter } from '../lib/columnLetter'
 import { isoToLocalDateSerial } from '../lib/dateSerial'
 import { fetchWithTimeout } from '../lib/fetchWithTimeout'
 import { withSheetAppendLock } from '../lib/sheetAppendLock'
+import { STATUS_VALUES } from '../lib/sheetTemplate'
+import type { StatusValue } from '../lib/sheetTemplate'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
 
@@ -131,7 +133,9 @@ const HEADER_ROW_PIXELS = 32
 
 // Cancelled is grey with grey text, distinct from Rejected's red and
 // matching the popup's status chip.
-const STATUS_COLORS: Record<string, { background: Rgb; text?: Rgb }> = {
+// Keyed by StatusValue, so a status added to STATUS_VALUES without a colour
+// here is a type error.
+const STATUS_COLORS: Record<StatusValue, { background: Rgb; text?: Rgb }> = {
   Offer: { background: { red: 0.72, green: 0.88, blue: 0.72 } },
   Interview: { background: { red: 0.78, green: 0.86, blue: 0.98 } },
   Applied: { background: { red: 1, green: 0.94, blue: 0.6 } },
@@ -273,7 +277,7 @@ function buildFormattingRequests(sheetId: number, templateColumns: string[]): un
         rule: {
           condition: {
             type: 'ONE_OF_LIST',
-            values: Object.keys(STATUS_COLORS).map((value) => ({ userEnteredValue: value })),
+            values: STATUS_VALUES.map((value) => ({ userEnteredValue: value })),
           },
           strict: true,
           showCustomUi: true,

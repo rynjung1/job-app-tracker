@@ -91,6 +91,25 @@
   background: var(--warn-dot);
 }
 
+/* "Having trouble? Reconnect" in the healthy card. */
+.quiet {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 /* "Saved 3 waiting applications." after a Reconnect. */
 .notice {
   margin: 10px 0 0;

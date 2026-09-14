@@ -18,7 +18,10 @@ import { getActiveProvider } from '../providers/activeProvider'
 import type { SheetRef } from '../providers/types'
 import { SHEET_TEMPLATE_COLUMNS } from '../lib/sheetTemplate'
 import { getSheetRef, setSheetRef } from '../lib/sheetRef'
-import { cancelApplication, getRecentApplications, updateRecentApplication } from '../lib/recentApplications'
+import { getRecentApplications, setApplicationStatus, updateRecentApplication } from '../lib/recentApplications'
+import { isStatusValue } from '../lib/sheetTemplate'
+import type { StatusValue } from '../lib/sheetTemplate'
+import { AuthRequiredError } from '../providers/types'
 import type { RecentApplication } from '../lib/recentApplications'
 import { setLastResumeVersion } from '../lib/resumeVersion'
 import { LIVE_STATUS_COLUMNS, matchLiveStatuses } from '../lib/liveStatuses'
@@ -32,7 +35,7 @@ export type BackgroundRequest =
       type: 'SAVE_RESUME_VERSION'
       payload: { entryId: string; resumeVersion: string; skipIdentityCheck: boolean }
     }
-  | { type: 'CANCEL_APPLICATION'; payload: { entryId: string } }
+  | { type: 'SET_STATUS'; payload: { entryId: string; status: StatusValue } }
   | { type: 'GET_LIVE_STATUSES' }
   | { type: 'OPEN_SETTINGS'; payload?: { reconnect?: boolean } }
 
@@ -54,13 +57,19 @@ export interface ConnectResult extends ReconnectResult {
 // all render the same generic message. The exact user-facing wording for
 // STALE_ROW stays in popup/App.tsx (it differs between Edit and Undo) —
 // this file only reports which case happened, not how to phrase it.
-export type BackgroundResponse<T> = { ok: true; data: T } | { ok: false; error: string; code?: 'STALE_ROW' }
+//
+// AUTH_REQUIRED (2026-09-13): the call failed because Google sign-in is
+// needed (AuthRequiredError); the popup says so instead of the generic
+// message, and the "needs reconnect" flag is already set by then.
+export type BackgroundResponse<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; code?: 'STALE_ROW' | 'AUTH_REQUIRED' }
 
 const INTERNAL_MESSAGE_TYPES = [
   'CONNECT_PROVIDER',
   'RECONNECT_PROVIDER',
   'SAVE_RESUME_VERSION',
-  'CANCEL_APPLICATION',
+  'SET_STATUS',
   'GET_LIVE_STATUSES',
   'OPEN_SETTINGS',
 ] as const
@@ -94,8 +103,8 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
         return await handleReconnectProvider()
       case 'SAVE_RESUME_VERSION':
         return await handleSaveResumeVersion(message.payload)
-      case 'CANCEL_APPLICATION':
-        return await handleCancelApplication(message.payload)
+      case 'SET_STATUS':
+        return await handleSetStatus(message.payload)
       case 'GET_LIVE_STATUSES':
         return await handleGetLiveStatuses()
       case 'OPEN_SETTINGS':
@@ -103,7 +112,9 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
         return { ok: true, data: undefined }
     }
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    const error = err instanceof Error ? err.message : String(err)
+    if (err instanceof AuthRequiredError) return { ok: false, error, code: 'AUTH_REQUIRED' }
+    return { ok: false, error }
   }
 }
 
@@ -205,13 +216,17 @@ async function handleSaveResumeVersion({
   return { ok: true, data: updated }
 }
 
-async function handleCancelApplication({
-  entryId,
-}: {
-  entryId: string
-}): Promise<BackgroundResponse<RecentApplication>> {
+// The popup's status menu (added 2026-09-13, a flagged addition to the
+// internal messages; it replaces CANCEL_APPLICATION, whose only sender was
+// the popup's old Undo button). Same Company/Title identity check as
+// SAVE_RESUME_VERSION before writing: a mismatch writes nothing (STALE_ROW).
+// The status is checked before anything is read, so an unknown value never
+// reaches the sheet.
+async function handleSetStatus(payload: { entryId: unknown; status: unknown }): Promise<BackgroundResponse<RecentApplication>> {
+  if (!isStatusValue(payload?.status)) return { ok: false, error: `Unknown status: ${String(payload?.status)}` }
+  if (typeof payload.entryId !== 'string') return { ok: false, error: 'Missing entry id' }
   const sheetRef = await requireSheetRefOrThrow()
-  const entry = await findEntryOrThrow(entryId)
+  const entry = await findEntryOrThrow(payload.entryId)
   const provider = await getActiveProvider()
 
   const row = await provider.readRow(sheetRef, entry.rowNumber)
@@ -219,8 +234,9 @@ async function handleCancelApplication({
     return { ok: false, code: 'STALE_ROW', error: 'Row Company/Title no longer match the cached entry' }
   }
 
-  await cancelApplication(provider, sheetRef, entry)
-  return { ok: true, data: { ...entry, status: 'Cancelled' } }
+  const updated = await setApplicationStatus(provider, sheetRef, entry, payload.status)
+  if (!updated) throw new Error('Recent application entry disappeared mid-update')
+  return { ok: true, data: updated }
 }
 
 // The popup's live status chips: entry id -> the sheet's current Status,

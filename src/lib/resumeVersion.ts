@@ -2,11 +2,16 @@ import { inferRoleType } from './roleType'
 import { LAST_RESUME_VERSION_KEY } from './storageKeys'
 import { withStorageLock } from './storageLock'
 
-type ResumeVersionsByRoleType = Partial<Record<'SWE' | 'DE', string>>
+export type ResumeVersionsByRoleType = Partial<Record<'SWE' | 'DE', string>>
 
 async function getStoredVersions(): Promise<ResumeVersionsByRoleType> {
   const stored = await chrome.storage.local.get(LAST_RESUME_VERSION_KEY)
   return (stored[LAST_RESUME_VERSION_KEY] as ResumeVersionsByRoleType | undefined) ?? {}
+}
+
+// Read-only, for the resume editor's "Last used" suggestions (popup).
+export async function getLastResumeVersions(): Promise<ResumeVersionsByRoleType> {
+  return getStoredVersions()
 }
 
 // "defaults to whichever version was last used for that role type" per

@@ -55,6 +55,48 @@ export function SheetIcon(props: IconProps) {
   )
 }
 
+export function CaretIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+}
+
+export function DotsIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="5.5" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="18.5" cy="12" r="1.8" fill="currentColor" />
+    </Svg>
+  )
+}
+
+export function PencilIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 20h4L19 9l-4-4L4 16v4Z" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinejoin="round" />
+      <path d="M13.5 6.5l4 4" stroke="currentColor" strokeWidth={1.9} />
+    </Svg>
+  )
+}
+
+export function ExternalIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path
+        d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  )
+}
+
 export function LockIcon(props: IconProps) {
   return (
     <Svg {...props}>

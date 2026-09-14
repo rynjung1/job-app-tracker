@@ -94,6 +94,13 @@ description: Steps and status for publishing this extension to the Chrome Web St
        waiting application" and the popup lists it); and a notification
        Undo that fails (for example with the network off) shows the
        "Undo didn't go through" notice.
+     - The polished popup, verified in Node and in headless renders
+       only: changing a status from a row's chip writes that row's
+       Status cell in the sheet; after the row's Company is edited by
+       hand in the sheet, a status change is refused with the inline
+       "This row may have changed" error and nothing is written; and the
+       "Logged" notification's Edit opens the new focused "Change resume
+       version" window (not the list), with nothing clipped.
      - Left here by phase B (the new ID starts with empty storage, so
        it's a real first install): Settings opens on its own as a
        window, and the "Not connected" notification's Open Settings
