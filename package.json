@@ -9,6 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "package": "node scripts/package.mjs",
+    "test": "node tests/run.mjs",
+    "test:node": "node tests/run.mjs --node-only",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

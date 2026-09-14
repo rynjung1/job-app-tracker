@@ -1405,6 +1405,15 @@ delegated entirely to Google OAuth by design.
   service this talks to. (Not a Python project — no `venv`
   involved; isolation is the standard Node `package.json` /
   `node_modules` boundary.)
+- Tests (added 2026-09-14), with no extra dependencies: `npm test`
+  bundles `tests/*.test.ts` with the esbuild that comes with Vite and runs
+  them with `node:test` (the background worker against faked chrome,
+  fetch and navigator; Greenhouse pending applications), then
+  `tests/dom/popup.test.mjs`, which builds the extension and drives the
+  built popup in headless Chrome through a stand-in chrome API (keyboard,
+  scroll and Edit-window fit). It skips itself when Chrome isn't found.
+  `npm run test:node` runs only the Node parts. The storage fakes
+  deep-clone on every get and set, per the 2026-09-09 lesson.
 
 ---
 
