@@ -65,22 +65,23 @@ Greenhouse postings are logged only after a real, confirmed submission, so they'
 
 Chrome requires full-bleed screenshots (square corners, no padding). All
 data shown is placeholder: fake companies and `jobs.example.com` URLs.
-Rebuilt 2026-09-13 for the new popup and the Settings window; the older
+Rebuilt 2026-09-14 for the polished popup and Settings; the older
 popup-over-sheet and sheet screenshots were removed (old UI, old sheet
 formatting). Upload in this order:
 
 1. `screenshots/1-popup.png`: the popup's recent-applications list, with
-   its status chips and Edit/Undo.
+   each row's status dropdown and ⋯ menu.
 2. `screenshots/2-settings.png`: the Settings window's page, connected to
-   Google Sheets and listing the supported sites.
+   Google Sheets, with the quiet Reconnect link and the supported sites.
 
 How both were made: each is the real built page (the popup and the
-options page) from the `npm run package` build of commit `11f95ef`,
+options page) from the production build (`npm run build`) of commit
+`574cfdf`,
 rendered in headless Chrome at 2x with a stand-in for the extension's
 storage and background messages that supplies the placeholder data. The
 code and styles are the shipped ones; only the data source is
 substituted. Each render was cropped to the page, scaled down from the
-2x render to 1.5× its true size (480×759 and 660×687; the store shows
+2x render to 1.5× its true size (552×672 and 660×672; the store shows
 screenshots at about half size, so true-size text would be too small to
 read) and centred on a plain `#F5F7FB` 1280×800 background with a 1px
 border and a soft shadow. No browser chrome or
