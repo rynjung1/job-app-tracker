@@ -1151,6 +1151,21 @@ board stay manual, same as LinkedIn's off-site-redirect boundary —
 this is a real, likely significant coverage gap for this parser, not
 a hidden one, and not something to fix by widening permissions.
 
+**Checked 2026-09-14:** `boards.greenhouse.io` only 301s to the same
+path on `job-boards.greenhouse.io`, which is what the manifest matches,
+so both hosts above are covered; Figma's board then forwards to its own
+careers site, the custom-domain case that's already out of scope. Status
+codes from real requests, following redirects:
+
+| `boards.greenhouse.io` URL | Result |
+|---|---|
+| `/planetscale/jobs/4107018009` | 301 to `job-boards.greenhouse.io`, same path; 200 |
+| `/planetscale/jobs/4107018009/confirmation` | 301 to `job-boards.greenhouse.io`, same path; 200 |
+| `/anthropic/jobs/5183044008` | 301 to `job-boards.greenhouse.io`, same path; 200 |
+| `/anthropic/jobs/5183044008/confirmation` | 301 to `job-boards.greenhouse.io`, same path; 200 |
+| `/discord` (board) | 301 to `job-boards.greenhouse.io/discord`; 200 |
+| `/figma` (board) | 301 to `job-boards.greenhouse.io/figma`, then 302 to `www.figma.com/careers/` |
+
 **Verified 2026-09-07 (Phase 5):** `document.title` parsing,
 `og:description`-as-location, and the `button[type="submit"]`
 selector were all confirmed against real, live, independently
