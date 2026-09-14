@@ -29,6 +29,7 @@ function recentEntryFor(row: Record<string, string>, appended: AppendedRow): Rec
     status: row.Status || 'Applied',
     sheetName: appended.sheetName,
     rowNumber: appended.rowNumber,
+    logId: row[LOG_ID_COLUMN] || undefined,
   }
 }
 

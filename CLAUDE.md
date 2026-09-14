@@ -907,7 +907,7 @@ counting it as saved so it leaves the queue, with its recent-list entry
 taken from the row found. The normal log path makes no extra calls.
 `createSheet` hides the column (60px) and leaves it out of the banding;
 no other formatting targets it. It's never shown in the popup
-(`RecentApplication` has no Log ID). Only new sheets get it: on a sheet
+(`RecentApplication` keeps it only for the identity check below). Only new sheets get it: on a sheet
 without the column `readLogIds` returns null and the drain appends as
 before. Ryan gets a new sheet at the extension-ID switch.
 
@@ -929,6 +929,20 @@ succeed and then time out), 6 cases, plus the existing 60 still passing
 
 Not run live; the new sheet at the extension-ID switch is the first real
 one with the column.
+
+**Updated 2026-09-14 (decided by Ryan, a behaviour change; on the
+`workday` branch): the popup's identity check uses the Log ID.**
+`SAVE_RESUME_VERSION` and `SET_STATUS` now check `rowStillMatches`
+(`lib/recentApplications.ts`): when the entry has a `logId` and the sheet
+has the Log ID column, the row's Log ID must equal it; otherwise Company
+and Title must both match, as before (entries logged before this, sheets
+without the column). So a Company edited in the sheet (a cryptic Workday
+tenant id, say) no longer makes the popup refuse, and a row that moved is
+still caught: another Log ID there is `STALE_ROW` even with the same
+Company and Title. `RecentApplication` gained `logId`, set by direct logs
+and by drained rows. The live status chips still match on Company and
+Title (`readCells` can't ask for a column the sheet may not have); a
+hand-edited Company there only keeps the chip on its cached status.
 
 **Updated 2026-09-09:** `createSheet` applies visual formatting to
 the new sheet — `createSheet`-only, never touches an
@@ -1383,6 +1397,115 @@ deep-cloning mock storage: 13 of 13 pass, including a pending write and
 a confirmation fired together, and two confirmations at once logging
 exactly once.
 
+**Workday (2026-09-14, decided by Ryan; built on the `workday` branch
+and merged only after Ryan's observed application pins the final Submit
+control).** The store submission waits for it; the extension-ID steps
+continue on `main`, which stays packageable.
+- **What was checked**, read-only, never starting an application: public
+  postings of 12 tenants through the public job JSON endpoint and
+  headless renders: nvidia.wd5, adobe.wd5, workday.wd5, salesforce.wd12,
+  capitalone.wd12, mastercard.wd1, intel.wd1, sonyglobal.wd1, bmo.wd3,
+  cibc.wd3 and td.wd3 on `*.myworkdayjobs.com`, and Wells Fargo on
+  `wd1.myworkdaysite.com/recruiting/wf/…`. No custom-domain variant was
+  found. The posting and every application route (`/apply`,
+  `/apply/applyManually`, `/apply/autofillWithResume`,
+  `/apply/useMyLastApplication`) get the same single-page-app shell;
+  only `og:url` and a token differ.
+- **Flagged: a permission change, a new set of install-warning hosts.**
+  The content script matches `https://*.myworkdayjobs.com/*` and
+  `https://*.myworkdaysite.com/*`: tenants are arbitrary subdomains, and
+  the app moves from search to posting to application without page
+  loads, so nothing narrower works. Never `*.myworkday.com`, Workday's
+  employee HR app. That makes 5 warning hosts, and Chromium turns more
+  than 3 into "Read and change your data on a number of websites" with a
+  sub-list including "All myworkdayjobs.com sites" and "All
+  myworkdaysite.com sites" (`HostListFormatter`,
+  `chrome_permission_message_rules.cc`). Shipping them in the first
+  submission avoids the update prompt: Chrome disables an extension only
+  when an update adds a warning permission. `package.mjs` pins the new
+  matches; crxjs's `web_accessible_resources` follow.
+- **Trust boundary:** content-script messages are accepted from
+  `lib/trustedOrigins.ts`: the two exact LinkedIn and Greenhouse origins,
+  plus any https tenant origin under those two Workday domains, with no
+  port. Lookalikes (`evil-myworkdayjobs.com`,
+  `myworkdayjobs.com.evil.example`, `http:`, `*.myworkday.com`, a port)
+  are refused.
+- **Trigger: the final Submit click.** A failed Submit retried is
+  skipped by the 24-hour repeat check on the normalized URL; an
+  abandoned attempt leaves a visible row that Undo fixes, as on LinkedIn.
+  Not a confirmation-state trigger: in a single-page app it would hang on
+  an unknown, changeable marker, and a miss is an invisible lost row.
+- **Capture timing (privacy):** nothing is read while browsing jobs. A
+  click on the posting's Apply control (`[data-automation-id=
+  "adventureButton"]`) reads the title (`jobPostingHeader`), the first
+  location (`locations` `dd`, the JSON's primary location; a
+  multi-location posting lists more), the requisition id and the
+  normalized URL, and keeps them in the content script's memory for that
+  tab. The final Submit logs that capture. With none (landed on an
+  /apply address directly, or a sign-in reloaded the page) it reads that
+  one job's same-origin JSON (`/wday/cxs/{tenant}/{site}/job/…`). A
+  Submit on an address naming no job logs nothing. Only the capture
+  count is written to the page (`<html data-job-app-tracker-captures>`),
+  for the observe script.
+- **URL** (the row's, and the repeat key): no locale, query, hash or
+  anything after `{slug}_{reqId}`; equal to the job JSON's `externalUrl`
+  on all 7 tenants whose JSON was read. Not `<link rel=canonical>`, which
+  drops `/recruiting/wf` on myworkdaysite.
+- **Company: the tenant id, as is** ("nvidia", "bmo", "wf"); Ryan may
+  veto. No element or field names the company reliably: the logo alt is
+  generic, and the JSON's `hiringOrganization` is a legal entity ("2100
+  NVIDIA USA") or empty. Editing it in the sheet is safe since the
+  popup's identity check uses the Log ID (Sheet setup).
+- **The Submit selector is a placeholder** (`:not(*)`, matching nothing)
+  until the observation (`scripts/workday-observe.js`, PARTs 0, A and B,
+  with the workday build loaded) pins it. That application must also
+  show: the job path surviving sign-in and every step, whether Submit
+  leads to a full load, the confirmation marker, the page language,
+  iframes, and whether the capture count is still on the Review page. A
+  later real application is the live check.
+
+**Verified 2026-09-14 in Node and headless Chrome only** (`npm test`:
+125 of 125, `npm run test:node` 101):
+- `tests/workday.test.ts`: 9 tenants' real job addresses, each in 9
+  variants (with and without a locale, a query, a hash, and the 4
+  application routes), all normalize to the job JSON's `externalUrl` (7
+  tenants) or the search listing's path (TD's `_R_1468577-1`, CIBC), with
+  the tenant id as Company; the job JSON URL is the one that answered for
+  nvidia and Wells Fargo; search pages, `*.myworkday.com`, `http:`,
+  lookalike hosts and addresses without a job segment are not jobs; the
+  JSON fallback reads the three JSON fixtures; the origin check accepts 5
+  and refuses 11 (lookalikes, `http:`, a port, the employee app).
+- `tests/workdayContent.test.ts`, the real content script on a fake page
+  moved through the app: an Apply-shaped click on the search page does
+  nothing; a trusted Apply click on the posting keeps it (count 1 on
+  `<html>`), sending and reading nothing; with the placeholder, Submit-like
+  clicks on the application routes log and read nothing; with a test-only
+  selector, Submit logs the kept posting with no read, a direct landing
+  reads the job JSON once and logs from it, a 404 or network error logs
+  nothing, and an address naming no job reads and logs nothing.
+- `tests/dom/workday.test.mjs`, the real parser on the four fixtures'
+  real markup in headless Chrome: title, first location, requisition id,
+  normalized URL and tenant for each; the DOM capture equals the job JSON
+  for the three with JSON; the Apply selector finds each posting's one
+  Apply link, and the placeholder matches none of three plausible Submit
+  controls.
+- `tests/background.test.ts`: messages from a myworkdayjobs.com tenant
+  and from myworkdaysite.com log, 5 lookalike origins log nothing, the
+  same normalized URL twice logs once; the Log ID identity cases (Company
+  edited with the same Log ID writes for both messages; another Log ID is
+  `STALE_ROW` for both; an entry without a `logId` or a sheet without the
+  column falls back to Company/Title); direct and drained entries carry
+  the row's Log ID.
+Not run live: nothing on Workday has logged a real row yet.
+
+Found by `npm run package`'s pinned `web_accessible_resources` check, not
+by the tests: while `content/workday.ts` exported a constant, crxjs built
+it as a loader (`workday.ts-loader-….js`, the manifest's content script)
+that dynamically imported the real module, unlike the other two scripts.
+With the constant moved to `parsers/workday.ts` and no export left, it's
+one plain script again, and the check passes (19 files). Content scripts
+here export nothing.
+
 ---
 
 ## Security (required, not optional — this is going on the Web
@@ -1665,6 +1788,10 @@ published 2026-09-09).
    rendered ones of the popup and Settings (`078e7cf`, `9273876`), with
    a sheet screenshot optional. What's left is the extension-ID
    sequence in the `web-store-deploy` skill.
+   Status 2026-09-14: Ryan wants Workday in v1, so the submission (step
+   8) waits for the `workday` branch to be merged, after his observed
+   application pins its Submit selector (Site parsers, Workday). The
+   extension-ID steps continue on `main`.
 
 **Deferred, not abandoned:**
 - **Indeed parser (2026-09-01):** every fetch attempt (curl and

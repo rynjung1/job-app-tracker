@@ -29,6 +29,6 @@ await build({
 })
 
 const files = fs.readdirSync(OUT).filter((f) => f.endsWith('.mjs')).map((f) => path.join(OUT, f))
-if (!nodeOnly) files.push(path.join(TESTS, 'dom', 'popup.test.mjs'))
+if (!nodeOnly) files.push(path.join(TESTS, 'dom', 'popup.test.mjs'), path.join(TESTS, 'dom', 'workday.test.mjs'))
 const run = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ...files], { cwd: ROOT, stdio: 'inherit' })
 process.exit(run.status ?? 1)
