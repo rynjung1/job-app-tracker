@@ -39,7 +39,11 @@ export const log = {
   fetches: [] as string[],
   windows: [] as string[],
   batchUpdates: [] as unknown[][],
+  alarms: [] as Array<{ name: string; info: Record<string, number> }>,
+  timers: [] as Array<{ ms: number; fn: () => void }>,
 }
+// The fake chrome.alarms' current alarms, by name.
+export const alarms = new Map<string, Record<string, number>>()
 // The fake sheet's header row: a sheet made before 2026-09-14 (8 columns)
 // or one with the hidden Log ID column.
 export const HEADERS_8 = ['Date', 'Company', 'Title', 'Location', 'URL', 'Resume Version', 'Status', 'Notes']
@@ -70,6 +74,9 @@ export function reset() {
   log.fetches.length = 0
   log.windows.length = 0
   log.batchUpdates.length = 0
+  log.alarms.length = 0
+  log.timers.length = 0
+  alarms.clear()
   log.tokenCalls = 0
   ctl.tokenReject = false
   ctl.online = true
@@ -79,13 +86,18 @@ export function reset() {
   ctl.appendThenAbort = false
 }
 
-// fetchWithTimeout's 30s timer is left running when a request is aborted
-// (the timeout case below). Long timers are unref'd so they can't keep the
-// test process alive; short ones (the code's own awaits) are untouched.
+// fetchWithTimeout's 20s timer is left running when a request is aborted
+// (the timeout case below), and the "Logged" notification's 5s clear timer
+// outlives a test. Timers of 5s or more are unref'd so they can't keep the
+// test process alive, and recorded in log.timers so a test can run one
+// itself; short ones (the code's own awaits) are untouched.
 const realSetTimeout = globalThis.setTimeout
 ;(globalThis as any).setTimeout = (fn: (...a: any[]) => void, ms?: number, ...args: any[]) => {
   const timer = realSetTimeout(fn, ms, ...args) as any
-  if ((ms ?? 0) >= 10_000) timer.unref?.()
+  if ((ms ?? 0) >= 5_000) {
+    timer.unref?.()
+    log.timers.push({ ms: ms ?? 0, fn: () => fn(...args) })
+  }
   return timer
 }
 
@@ -129,7 +141,16 @@ Object.defineProperty(globalThis, 'navigator', { configurable: true, get: () => 
     setBadgeTextColor: async () => {},
     setTitle: async () => {},
   },
-  alarms: { create: () => {}, clear: async () => true, onAlarm: on('onAlarm') },
+  alarms: {
+    // No return value, like Chrome 110 (create returns a promise only from 111).
+    create: (name: string, info: Record<string, number>) => {
+      alarms.set(name, info)
+      log.alarms.push({ name, info })
+    },
+    get: async (name: string) => (alarms.has(name) ? { name, ...alarms.get(name) } : undefined),
+    clear: async (name: string) => alarms.delete(name),
+    onAlarm: on('onAlarm'),
+  },
   windows: {
     create: async (o: { url: string }) => {
       log.windows.push(o.url)

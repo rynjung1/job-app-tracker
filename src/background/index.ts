@@ -17,7 +17,7 @@ import { recordPendingApplication, takePendingApplication } from '../lib/pending
 import { NEEDS_RECONNECT_NOTIFICATION_ID, showNeedsReconnectNotification, syncBadge } from '../lib/authStatus'
 import { handleInternalMessage, isInternalMessage } from './messageRouter'
 import { openSettingsWindow } from './settingsWindow'
-import { drainOfflineQueue, queueRow } from './offlineQueue'
+import { drainOfflineQueue, ensureRetryAlarm, queueRow, RETRY_ALARM_NAME } from './offlineQueue'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 // This extension's own pages (popup, options) — used to distinguish an
@@ -25,13 +25,16 @@ const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenho
 // listener below for why this is sender.origin, not sender.tab or
 // sender.id.
 const OWN_ORIGIN = `chrome-extension://${chrome.runtime.id}`
-const RETRY_ALARM_NAME = 'retryOfflineQueue'
 const NOTIFICATION_CLEAR_ALARM_PREFIX = 'clearNotification:'
-// Chrome's own alarms API has a practical minimum around a few seconds in
-// MV3; this is a best-effort "~5 seconds" per CLAUDE.md, not a guarantee —
-// the native OS notification banner's own on-screen duration is partly
-// outside the extension's control (see CLAUDE.md Logging behavior note).
-const NOTIFICATION_CLEAR_DELAY_MINUTES = 5 / 60
+// The "Logged" notification's correction window (2026-09-14). A timer clears
+// it after 5 seconds while the worker is alive, which it normally still is
+// (the apply's own work just ran). The alarm is only the fallback for a
+// worker stopped before then: a packed extension's alarms can't fire sooner
+// than 30 seconds, so a 5-second alarm (this file used 5/60 minutes before)
+// never cleared it at 5 seconds outside an unpacked build. The OS still owns
+// the banner's on-screen time (CLAUDE.md, Logging behavior).
+const NOTIFICATION_CLEAR_MS = 5_000
+const NOTIFICATION_CLEAR_FALLBACK_MINUTES = 0.5
 // Fixed, not per-call random — a second queued-while-disconnected
 // application replaces this notification in place (Chrome's own
 // documented create() behavior: reusing an id clears the existing one
@@ -46,7 +49,6 @@ const UNDO_FAILED_NOTIFICATION_ID = 'undo-failed'
 // auto-update, a real, documented pitfall of this API.
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[job-app-tracker] background service worker installed')
-  chrome.alarms.create(RETRY_ALARM_NAME, { periodInMinutes: 5 })
   syncBadge()
   if (details.reason === 'install') {
     openSettingsWindow()
@@ -64,6 +66,10 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onStartup.addListener(() => {
   syncBadge()
 })
+
+// Every time the worker starts (install, update, browser start, any wake-up),
+// not in onInstalled: see ensureRetryAlarm in ./offlineQueue.ts.
+ensureRetryAlarm()
 
 // Fires the proactive "Logged: Company — Title" toast (a real
 // chrome.notifications system notification — see CLAUDE.md Logging
@@ -98,9 +104,12 @@ async function notifyApplicationLogged(payload: JobPostingData, row: Record<stri
     buttons: [{ title: 'Undo' }, { title: 'Edit' }],
   })
 
-  chrome.alarms.create(`${NOTIFICATION_CLEAR_ALARM_PREFIX}${id}`, {
-    delayInMinutes: NOTIFICATION_CLEAR_DELAY_MINUTES,
-  })
+  const clearAlarmName = `${NOTIFICATION_CLEAR_ALARM_PREFIX}${id}`
+  chrome.alarms.create(clearAlarmName, { delayInMinutes: NOTIFICATION_CLEAR_FALLBACK_MINUTES })
+  setTimeout(() => {
+    chrome.notifications.clear(id)
+    chrome.alarms.clear(clearAlarmName)
+  }, NOTIFICATION_CLEAR_MS)
 }
 
 async function handleJobApplicationLogged(payload: JobPostingData) {

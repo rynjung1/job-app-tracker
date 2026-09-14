@@ -4,7 +4,7 @@
 // fetch and navigator (fakes/background-env.ts, imported first). Each case
 // is one subtest; they share the listeners and run in order.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { ctl, HEADERS_WITH_LOG_ID, listeners, local, log, reset, sheet } from './fakes/background-env'
+import { alarms, ctl, HEADERS_WITH_LOG_ID, listeners, local, log, reset, sheet } from './fakes/background-env'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildRow } from '../src/lib/buildRow'
@@ -12,6 +12,7 @@ import { sanitizeRow } from '../src/lib/sanitize'
 import { safeJobUrl } from '../src/lib/safeUrl'
 import { getActiveProvider } from '../src/providers/activeProvider'
 import { AuthRequiredError } from '../src/providers/types'
+import { ensureRetryAlarm } from '../src/background/offlineQueue'
 import '../src/background/index'
 
 const REF = { spreadsheetId: 'sheet1', sheetName: 'Sheet1', sheetId: 0 }
@@ -44,6 +45,17 @@ function apply(company: string) {
 
 test('background worker', async (t) => {
   const check = (name: string, ok: boolean, detail: unknown) => t.test(name, () => assert.ok(ok, JSON.stringify(detail)))
+
+  // ---- Worker start: the retry alarm (2026-09-14). Importing index.ts is
+  // the worker starting, with no onInstalled event. ----
+  await settle()
+  const startAlarms = log.alarms.map((a) => `${a.name} ${JSON.stringify(a.info)}`)
+  await check('worker start with no retry alarm -> creates it (every 5 minutes), without onInstalled', startAlarms.length === 1 && startAlarms[0] === 'retryOfflineQueue {"periodInMinutes":5}', startAlarms)
+
+  reset()
+  alarms.set('retryOfflineQueue', { periodInMinutes: 5 })
+  await ensureRetryAlarm()
+  await check('worker start with the retry alarm already there -> none created', log.alarms.length === 0 && alarms.has('retryOfflineQueue'), log.alarms)
 
   // ---- Needs reconnect: detection, the flag, notifications. ----
   reset()
@@ -281,4 +293,22 @@ test('background worker', async (t) => {
   const hide = requests.find((r) => r.updateDimensionProperties?.range?.dimension === 'COLUMNS' && r.updateDimensionProperties.properties?.hiddenByUser)?.updateDimensionProperties
   const banding = requests.find((r) => r.addBanding)?.addBanding.bandedRange.range
   await check('createSheet: Log ID is the 9th header, hidden and 60px wide, and outside the banding', connected.ok && headerWrite?.length === 9 && headerWrite[8] === 'Log ID' && hide?.range.startIndex === 8 && hide.range.endIndex === 9 && hide.properties.pixelSize === 60 && banding?.endColumnIndex === 8, { headerWrite, hide, banding })
+
+  // ---- The "Logged" notification's clear (2026-09-14): a 5s timer, and a
+  // 0.5-minute alarm as the fallback. ----
+  reset()
+  await local.set({ sheetRef: REF })
+  apply('Clear Co')
+  await settle()
+  const logged = log.notifications.find((n) => n.title === 'Logged')
+  const clearName = `clearNotification:${logged?.id}`
+  const clearAlarm = log.alarms.find((a) => a.name === clearName)
+  const clearTimer = log.timers.find((timer) => timer.ms === 5000)
+  const clearedEarly = log.cleared.includes(logged?.id ?? '')
+  clearTimer?.fn()
+  await settle()
+  const byTimer = { cleared: log.cleared.includes(logged?.id ?? ''), alarmCancelled: !alarms.has(clearName) }
+  log.cleared.length = 0
+  listeners.onAlarm[0]({ name: clearName })
+  await check('"Logged" notification: cleared by a 5s timer, which also cancels its 0.5-minute fallback alarm; the alarm alone clears it too', !!logged && clearAlarm?.info.delayInMinutes === 0.5 && !!clearTimer && !clearedEarly && byTimer.cleared && byTimer.alarmCancelled && log.cleared.includes(logged!.id), { logged, clearAlarm, timers: log.timers.map((x) => x.ms), clearedEarly, byTimer, byAlarm: log.cleared })
 })

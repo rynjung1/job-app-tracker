@@ -32,6 +32,26 @@ function recentEntryFor(row: Record<string, string>, appended: AppendedRow): Rec
   }
 }
 
+// The alarm that runs drainOfflineQueue every 5 minutes (background/index.ts).
+export const RETRY_ALARM_NAME = 'retryOfflineQueue'
+
+// Called at the top level of the background worker, so it runs every time
+// the worker starts, not only on install (2026-09-14): the alarms doc says
+// alarms may not persist across browser restarts before Chrome 150 and to
+// check for them on startup, and minimum_chrome_version is 110. Without the
+// alarm, queued rows would wait for the next Connect or Reconnect. Creates
+// it only when it's missing, so a wake-up doesn't push back its next run.
+// chrome.alarms.create is not awaited: it returns a promise only from
+// Chrome 111.
+export async function ensureRetryAlarm(): Promise<void> {
+  try {
+    if (await chrome.alarms.get(RETRY_ALARM_NAME)) return
+    chrome.alarms.create(RETRY_ALARM_NAME, { periodInMinutes: 5 })
+  } catch (err) {
+    console.warn('[job-app-tracker] could not check the retry alarm:', err)
+  }
+}
+
 export async function getOfflineQueue(): Promise<Record<string, string>[]> {
   const stored = await chrome.storage.local.get(OFFLINE_QUEUE_KEY)
   return (stored[OFFLINE_QUEUE_KEY] as Record<string, string>[] | undefined) ?? []
@@ -79,7 +99,7 @@ export async function queueRow(row: Record<string, string>): Promise<void> {
 // plain module-scope flag here specifically because this function only
 // ever runs inside the background worker's own realm. Paired with
 // FETCH_TIMEOUT_MS (lib/fetchWithTimeout.ts) so a stuck request now fails
-// within 30s instead of indefinitely, shrinking the window this guard
+// within 20s instead of indefinitely, shrinking the window this guard
 // needs to cover in the first place.
 //
 // Returns the number of rows saved this pass: 0 when nothing was queued,

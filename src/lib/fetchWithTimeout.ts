@@ -6,16 +6,19 @@
 // concurrently and double-append queued rows (real repro, see CLAUDE.md's
 // offline-queue notes).
 //
-// 30s: comfortably above any real API call this project has actually
-// observed (normal calls complete in low single digits of seconds,
-// including createSheet's multi-request setup), and comfortably below both
-// ceilings that matter for the drain re-entrancy bug specifically —
-// chrome.alarms' 5-minute RETRY_ALARM_NAME period (so a stuck request
-// always fails and unblocks a drain well before a second alarm could ever
-// fire concurrently) and Chrome's own documented 5-minute single-request
-// service-worker kill threshold. A deliberate safety margin under both,
-// not a number picked to exactly match either.
-export const FETCH_TIMEOUT_MS = 30_000
+// 20s (was 30s until 2026-09-14): still well above any real API call this
+// project has observed (normal calls complete in low single digits of
+// seconds, including createSheet's multi-request setup), and below the
+// tightest limit that applies. Chrome's service-worker lifecycle doc says
+// the worker is terminated "When a fetch() response takes more than 30
+// seconds to arrive". At 30s our own abort raced that kill, and if the kill
+// won, the caller's catch never ran: handleJobApplicationLogged's queueRow
+// was skipped and the application was lost. At 20s the abort fires first,
+// with 10s left for the catch to queue the row. The same deadline covers
+// the body read (below), so a response whose body stalls is cut off at 20s
+// too. Also well under chrome.alarms' 5-minute RETRY_ALARM_NAME period, so
+// a stuck request unblocks a drain long before a second alarm fires.
+export const FETCH_TIMEOUT_MS = 20_000
 
 // Real, reviewer-caught gap in an earlier version of this file: a plain
 // `finally { clearTimeout(timer) }` right after `await fetch(...)` only
@@ -43,7 +46,7 @@ export const FETCH_TIMEOUT_MS = 30_000
 // ...) passes through unchanged via Reflect.get. Aborting mid-body-read
 // correctly rejects a pending text()/json() call with a real AbortError —
 // confirmed against Node's real fetch, not assumed from the spec — so the
-// same single 30s deadline now covers the full request lifecycle,
+// same single deadline now covers the full request lifecycle,
 // connection through body, not just until headers arrive.
 //
 // Real, reviewer-caught bug in an earlier version of this trap: the

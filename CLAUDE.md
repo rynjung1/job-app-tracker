@@ -204,15 +204,42 @@ background worker's own realm; no popup/options caller exists for it.
 
 Paired with a real fetch timeout, added because it didn't exist at
 all — confirmed via grep of every provider file before writing
-`lib/fetchWithTimeout.ts`. 30 seconds: comfortably above any real
-API call this project has actually observed, and comfortably below both `RETRY_ALARM_NAME`'s
-5-minute period and Chrome's own documented 5-minute single-request
-service-worker kill threshold — a deliberate margin under both
-ceilings, not a number picked to match either one. This shrinks the
+`lib/fetchWithTimeout.ts`. 20 seconds: comfortably above any real
+API call this project has actually observed, and below the tightest
+limit on the worker. This shrinks the
 window the `isDraining` guard needs to cover, it doesn't replace it —
-a stalled request now fails within 30s instead of indefinitely, but
+a stalled request now fails within 20s instead of indefinitely, but
 the guard is still what actually prevents the double-append during
 that window.
+
+**Corrected 2026-09-14 (30s to 20s):** the timeout was 30 seconds,
+chosen against only `RETRY_ALARM_NAME`'s 5-minute period and Chrome's
+5-minute single-request limit. Chrome's service-worker lifecycle doc
+lists a third limit: the worker is terminated "When a fetch() response
+takes more than 30 seconds to arrive". At 30s our own abort raced that
+kill, and if the kill won, `handleJobApplicationLogged`'s catch never
+ran its `queueRow`, so the application was lost. At 20s the abort fires
+first, leaving 10s for the catch. The same single deadline still covers
+the body read. **Verified 2026-09-14 in Node only**
+(`tests/fetchWithTimeout.test.ts`, the real file against Node's fetch
+and a local HTTP server, with the deadline timer fired by the test):
+the deadline is 20000 ms; no headers rejects with `AbortError`; headers
+followed by a stalled body leaves the timer running after headers, and
+the body read rejects with `AbortError` when it fires; a normal
+response clears the timer once its body is read.
+
+**Fixed 2026-09-14 (retry alarm on every start):** `RETRY_ALARM_NAME`
+was created only in `onInstalled`. The alarms doc says persistence
+across restarts is unpredictable before Chrome 150 ("it is best to make
+sure important alarms exists each time your service worker starts up"),
+and `minimum_chrome_version` is 110. Without the alarm, queued rows
+would wait for the next Connect or Reconnect. Now `ensureRetryAlarm`
+(`background/offlineQueue.ts`) runs at the worker's top level, so on
+every start: `alarms.get`, then `create` only if it's missing, so a
+wake-up never pushes back the next run. **Verified 2026-09-14 in Node
+only** (`tests/background.test.ts`): importing the worker with no
+`onInstalled` creates it (`periodInMinutes: 5`); with the alarm already
+there, nothing is created.
 
 Two more real, reviewer-caught bugs surfaced building
 `fetchWithTimeout.ts` itself, both instructive enough to record here
@@ -504,6 +531,21 @@ notification is routed through native Notification Center, so exact
 5-second timing isn't fully controllable by the extension — Chrome
 force-clears it around then, but the OS ultimately owns the banner's
 on-screen duration.
+
+**Corrected 2026-09-14:** "Chrome force-clears it around then" held
+only for the unpacked build. The clear was a `chrome.alarms` alarm of
+5/60 minutes, and the alarms doc says a `delayInMinutes` under 0.5
+"will not be honored and will cause a warning"; only an unpacked
+extension has no limit. So in the store build the "Logged" notification
+would have stayed up to 30 seconds or more. Now a `setTimeout` clears it
+after 5 seconds while the worker is alive, which it normally is (the
+apply's own work has just run), and cancels the alarm; a 0.5-minute
+alarm stays as the fallback for a worker stopped first. **Verified
+2026-09-14 in Node only** (`tests/background.test.ts`): a logged apply
+creates the 0.5-minute alarm and a 5000 ms timer, and doesn't clear the
+notification before the timer runs; the timer clears it and cancels the
+alarm; the alarm on its own clears it too. Not checked live yet
+(web-store-deploy step 6).
 
 Undo marks the row `Status: Cancelled` rather than deleting it —
 safer against the row having shifted if the user has since
@@ -1551,7 +1593,7 @@ published 2026-09-09).
   browser inspection with no pre-verification step at all.
 - **appendRow isn't idempotent (logged 2026-09-11):** if `appendRow`
   succeeds on Google's side but the client times out
-  (`lib/fetchWithTimeout.ts`, 30s), `handleJobApplicationLogged`'s catch
+  (`lib/fetchWithTimeout.ts`, 30s then, 20s since 2026-09-14), `handleJobApplicationLogged`'s catch
   queues the same row and the next `drainOfflineQueue` appends it again.
   Not observed in practice, but the path is real. A queue retry reuses
   the row, so the duplicate has the same Date. Since 2026-09-11 Sheets

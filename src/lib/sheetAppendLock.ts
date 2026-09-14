@@ -1,6 +1,6 @@
 // Dedicated mutex serializing GoogleSheetsProvider.appendRow — deliberately
 // not a reuse of lib/storageLock.ts (fast storage-only operations). An
-// append is a real network round trip, up to FETCH_TIMEOUT_MS (30s) in a
+// append is a real network round trip, up to FETCH_TIMEOUT_MS (20s) in a
 // slow case, and sharing that lock would stall an unrelated storage write
 // behind it.
 //
