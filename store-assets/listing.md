@@ -49,17 +49,20 @@ options page) from the `npm run package` build of commit `11f95ef`,
 rendered in headless Chrome at 2x with a stand-in for the extension's
 storage and background messages that supplies the placeholder data. The
 code and styles are the shipped ones; only the data source is
-substituted. Each render was cropped to the page, scaled to its true
-size (320×506 and 440×458) and centred on a plain `#F5F7FB` 1280×800
-background with a 1px border and a soft shadow. No browser chrome or
+substituted. Each render was cropped to the page, scaled down from the
+2x render to 1.5× its true size (480×759 and 660×687; the store shows
+screenshots at about half size, so true-size text would be too small to
+read) and centred on a plain `#F5F7FB` 1280×800 background with a 1px
+border and a soft shadow. No browser chrome or
 text was added, and nothing was retouched. The popup's chips show the
 placeholder applications' statuses as its live statuses would.
 
-Optional, to add later: a screenshot of the auto-created sheet. The
-service-worker script `screenshot-sheet-sw.js` builds one on a throwaway
-sheet through the real `createSheet`, `appendRow` and `updateCell` (8
-placeholder rows over two weeks, all five statuses). It isn't in the
-repo; it would need to be saved under `scripts/` before use.
+Optional, to add later: a screenshot of the auto-created sheet.
+`scripts/screenshot-sheet.ts` builds one on a throwaway sheet through the
+real `createSheet`, `appendRow` and `updateCell` (8 placeholder rows over
+two weeks, all five statuses, the same rows the popup screenshot shows);
+its header says how to bundle it and run it in the extension's service
+worker.
 
 ## Privacy practices tab
 
