@@ -120,6 +120,13 @@ description: Steps and status for publishing this extension to the Chrome Web St
        30-second fallback alarm can't be seen here. After the store
        install (step 8), check the notification still clears after
        about 5 seconds.
+     - Workday (the `workday` branch, CLAUDE.md, Site parsers, Workday),
+       after it's merged: on one real Workday application, check a row
+       lands at the final Submit with the tenant id as Company and the
+       normalized URL, once, and that it appears in the popup. Before the
+       merge, Ryan's first real Workday application is the observation
+       instead: load the workday build and run
+       `scripts/workday-observe.js` PARTs 0, A and B.
      - Left here by phase B (the new ID starts with empty storage, so
        it's a real first install): Settings opens on its own as a
        window, and the "Not connected" notification's Open Settings
@@ -130,7 +137,8 @@ description: Steps and status for publishing this extension to the Chrome Web St
      English), and the listing says Easy Apply detection is fully
      supported with LinkedIn set to English. `f3cb30a` also fixed
      split-pane applications not being logged.
-  8. Upload the final build as a new version of the same item, fill in
+  8. Held until the `workday` branch is merged (Ryan wants Workday in
+     v1; decided 2026-09-14). Upload the final build as a new version of the same item, fill in
      the listing (`store-assets/listing.md`, `store-assets/screenshots/`)
      and the privacy-practices tab; R submits, but only after step 6 has
      passed. The new popup UI, the status dropdown and "needs reconnect"

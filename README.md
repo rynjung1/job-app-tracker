@@ -12,6 +12,9 @@ application twice.
   you to the company's own website aren't logged.
 - **Greenhouse job boards** on `job-boards.greenhouse.io`. Career sites
   that show Greenhouse jobs on the company's own domain aren't covered.
+- **Workday career sites** on `myworkdayjobs.com` and `myworkdaysite.com`.
+  The Company column is the site's name from its address (for example
+  "nvidia"), which you can change in your sheet.
 
 ## How it works
 
@@ -19,7 +22,7 @@ application twice.
    formatted "Job Applications" sheet in your Google Drive.
 2. Apply as usual. On LinkedIn the row is logged when you click Easy
    Apply; on Greenhouse, once the site confirms your application was
-   submitted.
+   submitted; on Workday, when you click the application's final Submit.
 3. A "Logged" notification appears, with Undo and Edit for a quick fix.
 4. The extension's popup lists your 20 most recent applications. From
    there you can change an application's status (Applied, Interview,
@@ -56,10 +59,11 @@ https://rynjung1.github.io/job-app-tracker/privacy.html
   "Undo didn't go through" notices.
 - `https://sheets.googleapis.com/*`: reads and writes your sheet through
   the Google Sheets API.
-- It runs on LinkedIn and on Greenhouse job boards. LinkedIn moves between
-  pages without reloading them, so its code is loaded on every LinkedIn
-  page, but it acts only on job pages, reading the job details when you
-  click Easy Apply or Submit.
+- It runs on LinkedIn, Greenhouse job boards and Workday career sites.
+  LinkedIn and Workday move between pages without reloading them, so its
+  code is loaded on every page of those sites, but it acts only on job
+  pages: it reads the job details when you click Easy Apply or Submit (on
+  Workday, when you click Apply, then logs them at the final Submit).
 
 ## Build from source
 
