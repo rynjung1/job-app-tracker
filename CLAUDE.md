@@ -1066,7 +1066,7 @@ with a percent-encoded target, and off-site labels never start with
 "Easy Apply to".
 
 **Verified 2026-09-11** by Ryan with real Easy Apply clicks, closing
-the modal without applying. In English, on `/jobs/view/4460524353/`
+the modal without applying. In English, on a `/jobs/view/` posting
 (the button variant), the content script's "apply logged" line fired
 with the correct company, title and location. The split-pane id check
 above is his console output. That English click landed as a real row
@@ -1098,10 +1098,10 @@ wrong row. `/jobs/view/` extraction is unchanged.
 browser, with two real clicks through the browser tool. These are
 trusted events, so they pass the `isTrusted` filter. Each Easy Apply
 window was closed without applying and the draft discarded:
-- `/jobs/view/4460524353/`, one Easy Apply click: one row,
+- A `/jobs/view/` posting (button variant), one Easy Apply click: one row,
   `2026-09-11 22:35`, with the company, title and location of that real
   LinkedIn Easy Apply posting, all correct.
-- Split pane, `/jobs/search/?currentJobId=4449233015&f_AL=true`, one
+- A split-pane search posting (`/jobs/search/?currentJobId=…`), one
   click on the visible Easy Apply button: one row, `2026-09-11 22:40`,
   with that real posting's company, title and location, all correct.
 
