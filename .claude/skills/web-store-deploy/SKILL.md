@@ -113,7 +113,15 @@ description: Steps and status for publishing this extension to the Chrome Web St
      split-pane applications not being logged.
   8. Upload the final build as a new version of the same item, fill in
      the listing (`store-assets/listing.md`, `store-assets/screenshots/`)
-     and the privacy-practices tab; R submits.
+     and the privacy-practices tab; R submits, but only after step 6 has
+     passed. The new popup UI, the status dropdown and "needs reconnect"
+     have never run live, and the step 2 draft build can't sign in (its
+     new ID isn't the OAuth client's Item ID until step 5). In the
+     dashboard, R also:
+     - chooses to publish manually after approval, not automatically;
+     - picks the publisher display name;
+     - confirms the OAuth consent screen's app name doesn't contain
+       "Google".
 - Optional housekeeping (R): Excel/OneDrive support was removed
   2026-09-13, so the Azure app registration from that era is unused.
   Delete it in the Azure portal and revoke the extension's access in the

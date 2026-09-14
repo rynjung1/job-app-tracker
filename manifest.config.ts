@@ -4,8 +4,11 @@ import pkg from './package.json'
 export default defineManifest({
   manifest_version: 3,
   name: 'Job Application Tracker',
+  // The Chrome Web Store's summary comes from this field (plain text, 132
+  // characters max), so it's the approved short description from
+  // store-assets/listing.md, word for word.
   description:
-    'Automatically logs job applications to your spreadsheet when you apply on supported job sites.',
+    'Automatically logs job applications to Google Sheets when you apply on LinkedIn or Greenhouse — no manual data entry.',
   version: pkg.version,
   // Added 2026-09-13: chrome.action.setBadgeTextColor, used by the "sign-in
   // needed" badge (lib/authStatus.ts), needs Chrome 110. On older Chrome it

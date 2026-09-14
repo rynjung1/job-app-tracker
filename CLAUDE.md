@@ -515,8 +515,8 @@ below.
 **Verified 2026-09-01 (Phase 4):** all of the above confirmed against
 real applications, not just a clean build — real screenshot of the
 `chrome.notifications` toast appearing after a real Apply click
-("Logged / Kepler Communications Inc. — Embedded Software Engineering
-Intern...", Undo/Edit buttons present); Undo confirmed setting
+(the "Logged" title with a real application's company and job title,
+Undo/Edit buttons present); Undo confirmed setting
 `Status: Cancelled` in the real sheet; Edit confirmed opening the
 standalone popup window, saving a new Resume Version to the real
 sheet cell, and closing itself; the last-used-per-role-type default
@@ -1099,16 +1099,16 @@ browser, with two real clicks through the browser tool. These are
 trusted events, so they pass the `isTrusted` filter. Each Easy Apply
 window was closed without applying and the draft discarded:
 - `/jobs/view/4460524353/`, one Easy Apply click: one row,
-  `2026-09-11 22:35`, Jabroni Capital / Forward Deployed Engineer /
-  Greater Toronto Area, Canada.
+  `2026-09-11 22:35`, with the company, title and location of that real
+  LinkedIn Easy Apply posting, all correct.
 - Split pane, `/jobs/search/?currentJobId=4449233015&f_AL=true`, one
   click on the visible Easy Apply button: one row, `2026-09-11 22:40`,
-  VAZA / Mobile Application Developer / Toronto, ON.
+  with that real posting's company, title and location, all correct.
 
 Exactly one row per click, with no duplicates; both rows were deleted
 afterwards. An earlier split-pane click on the build before the reload
 logged nothing, while the new extraction, run as a copy in the page,
-read VAZA correctly, so that miss was the old build. Ryan's own 7-step
+read that posting correctly, so that miss was the old build. Ryan's own 7-step
 sitting produced no rows and isn't counted. Not separately evidenced:
 a click on the second Easy Apply copy (in this layout it sat offscreen,
 at y = -859, and a click on it did nothing), keyboard activation, the

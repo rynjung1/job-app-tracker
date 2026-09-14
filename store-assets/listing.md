@@ -11,6 +11,13 @@ needed" warning, and the new locally stored items.
 
 ## Short description (117 of 132 characters)
 
+The store's summary comes from the manifest's `description`
+(`manifest.config.ts`), not from a dashboard field: the dashboard's
+listing fields have no separate summary, and Chrome's manifest docs
+limit `description` to 132 characters of plain text meant for both
+chrome://extensions and the Web Store. Since 2026-09-14 the manifest
+holds this exact text; keep the two identical.
+
 ```text
 Automatically logs job applications to Google Sheets when you apply on LinkedIn or Greenhouse — no manual data entry.
 ```
