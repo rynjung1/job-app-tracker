@@ -10,7 +10,14 @@ export const SHEET_TEMPLATE_COLUMNS = [
   'Resume Version',
   'Status',
   'Notes',
+  // Added 2026-09-14 (CLAUDE.md, Sheet setup): a hidden column holding each
+  // logged application's random id, so the offline-queue drain can tell an
+  // append whose response timed out after it had succeeded from one that
+  // really failed. Keep it last: createSheet's banding stops before it.
+  'Log ID',
 ] as const
+
+export const LOG_ID_COLUMN = 'Log ID'
 
 // The five Status values (CLAUDE.md, Status field), in workflow order. One
 // list for the sheet's dropdown and colour rules (googleSheets.ts), the

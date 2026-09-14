@@ -42,6 +42,7 @@ const trackedProvider: SpreadsheetProvider = {
     tracked(() => provider.updateCell(sheetRef, rowNumber, columnName, value)),
   readRow: (sheetRef, rowNumber) => tracked(() => provider.readRow(sheetRef, rowNumber)),
   readCells: (sheetRef, rowNumbers, columnNames) => tracked(() => provider.readCells(sheetRef, rowNumbers, columnNames)),
+  readLogIds: (sheetRef) => tracked(() => provider.readLogIds(sheetRef)),
 }
 
 export async function getActiveProvider(): Promise<SpreadsheetProvider> {

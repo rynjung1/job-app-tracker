@@ -4,9 +4,11 @@
 // fetch and navigator (fakes/background-env.ts, imported first). Each case
 // is one subtest; they share the listeners and run in order.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { ctl, listeners, local, log, reset, sheet } from './fakes/background-env'
+import { ctl, HEADERS_WITH_LOG_ID, listeners, local, log, reset, sheet } from './fakes/background-env'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { buildRow } from '../src/lib/buildRow'
+import { sanitizeRow } from '../src/lib/sanitize'
 import { safeJobUrl } from '../src/lib/safeUrl'
 import { getActiveProvider } from '../src/providers/activeProvider'
 import { AuthRequiredError } from '../src/providers/types'
@@ -217,4 +219,66 @@ test('background worker', async (t) => {
 
   const urls = { https: safeJobUrl('https://www.linkedin.com/jobs/view/1/'), http: safeJobUrl('http://example.com/x'), javascript: safeJobUrl('javascript:alert(1)'), data: safeJobUrl('data:text/html,hi'), empty: safeJobUrl(''), junk: safeJobUrl('not a url') }
   await check('safeJobUrl: https and http kept; javascript:, data:, empty and junk refused', urls.https === 'https://www.linkedin.com/jobs/view/1/' && urls.http === 'http://example.com/x' && urls.javascript === null && urls.data === null && urls.empty === null && urls.junk === null, urls)
+
+  // ---- Log ID: the drain's duplicate check (2026-09-14). ----
+  const LOG_ID = HEADERS_WITH_LOG_ID.indexOf('Log ID')
+  const rowsOf = (company: string) => Object.entries(sheet.rows).filter(([, values]) => values[1] === company)
+  const appendsSince = (n: number) => log.fetches.slice(n).filter((f) => f.includes(':append')).length
+  const drain = async () => {
+    listeners.onAlarm[0]({ name: 'retryOfflineQueue' })
+    await settle()
+  }
+  const withLogIdSheet = async () => {
+    reset()
+    ctl.headers = HEADERS_WITH_LOG_ID
+    await local.set({ sheetRef: REF })
+  }
+
+  const posting = { title: 'Engineer', company: 'Id Co', location: null, url: 'https://jobs.example.com/id' }
+  const first = sanitizeRow(buildRow(posting, 'SWE v1'))
+  const second = sanitizeRow(buildRow(posting, 'SWE v1'))
+  await check('buildRow gives every row a random Log ID, and sanitizeRow keeps it', /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(first['Log ID']) && first['Log ID'] !== second['Log ID'], { first: first['Log ID'], second: second['Log ID'] })
+
+  await withLogIdSheet()
+  ctl.appendThenAbort = true
+  apply('Timeout Co')
+  await settle()
+  const queuedId = (local.data.offlineQueue as any[] | undefined)?.[0]?.['Log ID']
+  const afterApply = { queue: queue(), copies: rowsOf('Timeout Co').length }
+  const fetchesBeforeDrain = log.fetches.length
+  await drain()
+  const copies = rowsOf('Timeout Co')
+  await check('an append that succeeded but timed out: queued, then the drain finds its Log ID -> 1 copy, no second append, queue empty, recent entry at that row', afterApply.queue === 1 && afterApply.copies === 1 && queue() === 0 && copies.length === 1 && copies[0][1][LOG_ID] === queuedId && appendsSince(fetchesBeforeDrain) === 0 && recent()[0]?.company === 'Timeout Co' && recent()[0]?.rowNumber === Number(copies[0][0]), { afterApply, copies: copies.length, appendsInDrain: appendsSince(fetchesBeforeDrain), recent: recent()[0] })
+
+  await withLogIdSheet()
+  ctl.fetchPlan = [200, 500]
+  apply('Fail Co')
+  await settle()
+  const failedFirst = { queue: queue(), copies: rowsOf('Fail Co').length }
+  await drain()
+  await check('an append that really failed (500) is still retried by the drain -> 1 copy, queue empty', failedFirst.queue === 1 && failedFirst.copies === 0 && queue() === 0 && rowsOf('Fail Co').length === 1, { failedFirst, copies: rowsOf('Fail Co').length })
+
+  await withLogIdSheet()
+  const sameDate = '2026-09-14T15:00:00.000Z'
+  const twinRow = (logId: string) => ({ Date: sameDate, Company: 'Twin Co', Title: 'Engineer', Location: 'Remote', URL: 'https://jobs.example.com/twin', 'Resume Version': 'SWE v1', Status: '', Notes: '', 'Log ID': logId })
+  sheet.rows[2] = ['46279.625', 'Twin Co', 'Engineer', 'Remote', 'https://jobs.example.com/twin', 'SWE v1', '', '', 'id-A']
+  await local.set({ offlineQueue: [twinRow('id-B')] })
+  await drain()
+  const twins = rowsOf('Twin Co')
+  await check('two applications with the same Date and Company but different Log IDs stay separate -> 2 rows', queue() === 0 && twins.length === 2 && twins.map(([, values]) => values[LOG_ID]).sort().join() === 'id-A,id-B', { twins: twins.map(([row, values]) => [row, values[LOG_ID]]) })
+
+  reset()
+  await local.set({ sheetRef: REF, offlineQueue: [{ ...twinRow('id-C'), Company: 'Old Sheet Co' }] })
+  await drain()
+  const columnReads = log.fetches.filter((f) => f.includes('majorDimension=COLUMNS')).length
+  const oldCopies = rowsOf('Old Sheet Co')
+  await check('a sheet without the Log ID column: no column read, the row is appended as before (8 columns, no id)', queue() === 0 && oldCopies.length === 1 && columnReads === 0 && oldCopies[0][1].length === 8, { columnReads, copies: oldCopies.length, width: oldCopies[0]?.[1].length })
+
+  reset()
+  const connected = (await internal({ type: 'CONNECT_PROVIDER' })) as any
+  const headerWrite = (sheet.writes.find((w) => w.range === 'Sheet1!A1')?.values as string[][] | undefined)?.[0]
+  const requests = (log.batchUpdates[0] ?? []) as any[]
+  const hide = requests.find((r) => r.updateDimensionProperties?.range?.dimension === 'COLUMNS' && r.updateDimensionProperties.properties?.hiddenByUser)?.updateDimensionProperties
+  const banding = requests.find((r) => r.addBanding)?.addBanding.bandedRange.range
+  await check('createSheet: Log ID is the 9th header, hidden and 60px wide, and outside the banding', connected.ok && headerWrite?.length === 9 && headerWrite[8] === 'Log ID' && hide?.range.startIndex === 8 && hide.range.endIndex === 9 && hide.properties.pixelSize === 60 && banding?.endColumnIndex === 8, { headerWrite, hide, banding })
 })

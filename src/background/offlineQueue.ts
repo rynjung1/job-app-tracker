@@ -8,6 +8,7 @@
 import { getActiveProvider } from '../providers/activeProvider'
 import type { AppendedRow } from '../providers/types'
 import { OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
+import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { getSheetRef } from '../lib/sheetRef'
 import { withStorageLock } from '../lib/storageLock'
 import { addRecentApplications } from '../lib/recentApplications'
@@ -100,14 +101,39 @@ export async function drainOfflineQueue(): Promise<number> {
     if (queue.length === 0) return 0
 
     const provider = await getActiveProvider()
+
+    // Duplicate check (2026-09-14, CLAUDE.md Sheet setup, "Log ID"): an
+    // append can succeed at Google while its response times out, which
+    // queues the row anyway. One read of the sheet's Log IDs per pass tells
+    // those rows apart; they're counted as saved (so they leave the queue)
+    // and get their recent-list entry from the row found. A sheet without
+    // the column returns null and every row is appended as before. If the
+    // read fails, nothing is drained this pass.
+    let loggedIds: Map<string, number> | null
+    try {
+      loggedIds = await provider.readLogIds(sheetRef)
+    } catch (err) {
+      console.warn('[job-app-tracker] could not read logged ids, stopping this pass:', err)
+      return 0
+    }
+
     let drainedCount = 0
     const saved: RecentApplication[] = []
     for (const row of queue) {
+      const logId = row[LOG_ID_COLUMN]
+      const loggedAt = logId ? loggedIds?.get(logId) : undefined
+      if (loggedAt !== undefined) {
+        console.log('[job-app-tracker] queued row already in the sheet at row', loggedAt, '- not appended again')
+        drainedCount++
+        saved.push(recentEntryFor(row, { sheetName: sheetRef.sheetName, rowNumber: loggedAt }))
+        continue
+      }
       try {
         const appended = await provider.appendRow(sheetRef, row)
         console.log('[job-app-tracker] queued row written to sheet')
         drainedCount++
         saved.push(recentEntryFor(row, appended))
+        if (logId) loggedIds?.set(logId, appended.rowNumber)
       } catch (err) {
         console.warn('[job-app-tracker] retry failed, stopping this pass:', err)
         break

@@ -754,6 +754,12 @@ signing in again, and `getActiveProvider()`'s wrapper turns it into the
 every `SpreadsheetProvider` method, so a new method is a type error there
 until it's tracked too.
 
+**Updated 2026-09-14:** `readLogIds(sheetRef)` added, a flagged addition
+to the provider contract: each logged application's Log ID and the row
+it's on, for the offline-queue drain's duplicate check, or null when the
+sheet has no Log ID column (Sheet setup, below). Google implements it as
+the header read plus one `values:get` of that column from row 2 down.
+
 **Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`, the
 numeric grid id (not the string `sheetName`),
 captured at `createSheet` time. Needed because `batchUpdate`'s
@@ -804,6 +810,43 @@ parser built in Phase 2 extracts it, and the original 7-column list
 above had no column for it, so it was being silently discarded at
 write time. Column order: Date, Company, Title, Location, URL, Resume
 Version, Status, Notes.
+
+**Updated 2026-09-14 (decided by Ryan), a change to this locked
+template:** a 9th, hidden "Log ID" column after Notes. `buildRow` gives
+each logged application a random id (`crypto.randomUUID()`), kept
+through `sanitizeRow`, the offline queue and the drain, and `appendRow`
+writes it like any other column. Why: an append can succeed at Google
+while its response times out (`lib/fetchWithTimeout.ts`), which queues
+the row anyway, and the next drain used to append it a second time (the
+"appendRow isn't idempotent" note under Deferred). Now the drain reads
+the sheet's Log IDs once per pass (`readLogIds`: the header read plus one
+read of that column) and skips a queued row whose id is already there,
+counting it as saved so it leaves the queue, with its recent-list entry
+taken from the row found. The normal log path makes no extra calls.
+`createSheet` hides the column (60px) and leaves it out of the banding;
+no other formatting targets it. It's never shown in the popup
+(`RecentApplication` has no Log ID). Only new sheets get it: on a sheet
+without the column `readLogIds` returns null and the drain appends as
+before. Ryan gets a new sheet at the extension-ID switch.
+
+**Verified 2026-09-14 in Node only** (`tests/background.test.ts`, with
+the fake Sheets API storing appended rows and able to let an append
+succeed and then time out), 6 cases, plus the existing 60 still passing
+(`npm test`: 66 of 66):
+- `buildRow` gives each row a random Log ID, and `sanitizeRow` keeps it.
+- An append that succeeded but timed out is queued, and the next drain
+  finds its Log ID: 1 copy in the sheet, no second append, the queue
+  empty, and the recent-list entry at the row found.
+- An append that really failed (a 500) is still appended by the drain.
+- Two applications with the same Date and Company but different Log IDs
+  stay 2 rows.
+- On a sheet without the column there's no column read, and the row is
+  appended as before (8 columns, no id).
+- `createSheet` writes Log ID as the 9th header, hides that column at
+  60px, and bands only the first 8 columns.
+
+Not run live; the new sheet at the extension-ID switch is the first real
+one with the column.
 
 **Updated 2026-09-09:** `createSheet` applies visual formatting to
 the new sheet — `createSheet`-only, never touches an
@@ -1515,4 +1558,6 @@ published 2026-09-09).
   stores Date floored to the minute, so an identical Date no longer
   proves a retry: two clicks in the same minute look the same. Needs a
   design decision before any fix (e.g. a per-message id checked before
-  re-appending). Pick up after Phase 9.
+  re-appending). Pick up after Phase 9. Fixed 2026-09-14 for new sheets
+  by the hidden Log ID column (Sheet setup); a sheet without it keeps
+  this behaviour.

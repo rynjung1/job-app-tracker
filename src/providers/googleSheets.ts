@@ -4,7 +4,7 @@ import { columnIndexToLetter } from '../lib/columnLetter'
 import { isoToLocalDateSerial } from '../lib/dateSerial'
 import { fetchWithTimeout } from '../lib/fetchWithTimeout'
 import { withSheetAppendLock } from '../lib/sheetAppendLock'
-import { STATUS_VALUES } from '../lib/sheetTemplate'
+import { LOG_ID_COLUMN, STATUS_VALUES } from '../lib/sheetTemplate'
 import type { StatusValue } from '../lib/sheetTemplate'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -178,6 +178,10 @@ function toDateCellValue(value: string | undefined): string | number {
 // column order already is elsewhere in this file, in case the template
 // ever changes shape.
 function buildFormattingRequests(sheetId: number, templateColumns: string[]): unknown[] {
+  // The hidden Log ID column (kept last in the template) gets no banding;
+  // it's hidden at the end of this function.
+  const logIdColumnIndex = templateColumns.indexOf(LOG_ID_COLUMN)
+  const visibleColumnCount = logIdColumnIndex === -1 ? templateColumns.length : logIdColumnIndex
   const requests: unknown[] = [
     // Frozen header row, no gridlines (the banding separates rows), and a
     // brand-coloured sheet tab.
@@ -229,7 +233,7 @@ function buildFormattingRequests(sheetId: number, templateColumns: string[]): un
     {
       addBanding: {
         bandedRange: {
-          range: { sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: templateColumns.length },
+          range: { sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: visibleColumnCount },
           rowProperties: { firstBandColor: WHITE, secondBandColor: BAND_COLOR },
         },
       },
@@ -324,6 +328,18 @@ function buildFormattingRequests(sheetId: number, templateColumns: string[]): un
       },
     })
   })
+
+  // Log ID: hidden and narrow. It's only for the drain's duplicate check,
+  // never shown in the popup (CLAUDE.md, Sheet setup).
+  if (logIdColumnIndex !== -1) {
+    requests.push({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: logIdColumnIndex, endIndex: logIdColumnIndex + 1 },
+        properties: { hiddenByUser: true, pixelSize: 60 },
+        fields: 'hiddenByUser,pixelSize',
+      },
+    })
+  }
 
   return requests
 }
@@ -504,5 +520,25 @@ export const googleSheetsProvider: SpreadsheetProvider = {
       })
       return record
     })
+  },
+
+  // Where each logged application's Log ID sits (id -> row number), for the
+  // offline-queue drain's duplicate check: the headers, then one read of
+  // that column from row 2 down. null when the sheet has no Log ID column
+  // (created before 2026-09-14); the drain then appends as before.
+  async readLogIds(sheetRef: SheetRef): Promise<Map<string, number> | null> {
+    const headers = await this.readHeaders(sheetRef)
+    const columnIndex = headers.indexOf(LOG_ID_COLUMN)
+    if (columnIndex === -1) return null
+    const letter = columnIndexToLetter(columnIndex)
+    const range = `${sheetRef.sheetName}!${letter}2:${letter}`
+    const data = (await withAuth((token) =>
+      apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}?majorDimension=COLUMNS`, token),
+    )) as { values?: string[][] }
+    const ids = new Map<string, number>()
+    ;(data.values?.[0] ?? []).forEach((id, i) => {
+      if (id) ids.set(id, i + 2)
+    })
+    return ids
   },
 }

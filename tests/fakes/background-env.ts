@@ -38,13 +38,23 @@ export const log = {
   tokenCalls: 0,
   fetches: [] as string[],
   windows: [] as string[],
+  batchUpdates: [] as unknown[][],
 }
+// The fake sheet's header row: a sheet made before 2026-09-14 (8 columns)
+// or one with the hidden Log ID column.
+export const HEADERS_8 = ['Date', 'Company', 'Title', 'Location', 'URL', 'Resume Version', 'Status', 'Notes']
+export const HEADERS_WITH_LOG_ID = [...HEADERS_8, 'Log ID']
+
 export const ctl = {
   tokenReject: false,
   tokenError: 'OAuth2 not granted or revoked.',
   online: true,
   fetchPlan: [] as Array<number | 'abort'>,
   failQueueWrite: false,
+  headers: HEADERS_8,
+  // The next append succeeds at "Google" (the row is stored) but its
+  // response times out, as in the idempotency bug.
+  appendThenAbort: false,
 }
 // The fake sheet: row values for readRow, and every successful cell write.
 export const sheet = { rows: {} as Record<number, string[]>, writes: [] as Array<{ range: string; values: unknown }> }
@@ -59,11 +69,14 @@ export function reset() {
   log.badge.length = 0
   log.fetches.length = 0
   log.windows.length = 0
+  log.batchUpdates.length = 0
   log.tokenCalls = 0
   ctl.tokenReject = false
   ctl.online = true
   ctl.fetchPlan = []
   ctl.failQueueWrite = false
+  ctl.headers = HEADERS_8
+  ctl.appendThenAbort = false
 }
 
 // fetchWithTimeout's 30s timer is left running when a request is aborted
@@ -128,11 +141,20 @@ Object.defineProperty(globalThis, 'navigator', { configurable: true, get: () => 
   tabs: { query: async () => [{ id: 1 }], update: async () => ({}), create: async () => ({}) },
 }
 
-// The fake Sheets API: headers for 1:1, the fake sheet's rows for N:N, an
-// appended range for :append, a new spreadsheet for the create call; every
-// successful PUT is recorded. ctl.fetchPlan scripts statuses call by call.
-const HEADERS = ['Date', 'Company', 'Title', 'Location', 'URL', 'Resume Version', 'Status', 'Notes']
+// The fake Sheets API: ctl.headers for 1:1, the fake sheet's rows for N:N,
+// one column from row 2 down for X2:X (majorDimension=COLUMNS, trailing
+// blanks dropped like the real API), appends stored after the last row, a
+// new spreadsheet for the create call; every successful PUT and batchUpdate
+// is recorded. ctl.fetchPlan scripts statuses call by call.
 let appendedRow = 1
+function columnValues(letter: string): string[] {
+  const index = letter.charCodeAt(0) - 65
+  const last = Math.max(1, ...Object.keys(sheet.rows).map(Number))
+  const values: string[] = []
+  for (let row = 2; row <= last; row++) values.push(sheet.rows[row]?.[index] ?? '')
+  while (values.length && values[values.length - 1] === '') values.pop()
+  return values
+}
 ;(globalThis as any).fetch = async (url: string, init?: RequestInit) => {
   const u = decodeURIComponent(url)
   log.fetches.push(u.replace(/^https:\/\/sheets\.googleapis\.com\/v4\/spreadsheets/, ''))
@@ -142,16 +164,30 @@ let appendedRow = 1
   if (init?.method === 'PUT') {
     sheet.writes.push({ range: u.match(/\/values\/([^?]+)/)?.[1] ?? '', values: JSON.parse(String(init.body)).values })
   }
+  if (u.includes(':batchUpdate') && init?.body) log.batchUpdates.push(JSON.parse(String(init.body)).requests)
+  let appended: number | undefined
+  if (u.includes(':append') && init?.body) {
+    appendedRow = Math.max(appendedRow, ...Object.keys(sheet.rows).map(Number)) + 1
+    appended = appendedRow
+    sheet.rows[appended] = (JSON.parse(String(init.body)).values[0] as unknown[]).map((v) => String(v))
+    if (ctl.appendThenAbort) {
+      ctl.appendThenAbort = false
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+  }
   const rowRead = u.match(/!(\d+):(\d+)(?:\?|$)/)
+  const columnRead = u.match(/!([A-Z])2:\1(?:\?|$)/)
   const body =
     u === 'https://sheets.googleapis.com/v4/spreadsheets'
       ? { spreadsheetId: 'new1', sheets: [{ properties: { title: 'Sheet1', sheetId: 0 } }] }
-      : rowRead && rowRead[1] === rowRead[2] && rowRead[1] !== '1'
-        ? { values: sheet.rows[Number(rowRead[1])] ? [sheet.rows[Number(rowRead[1])]] : [] }
-        : u.includes(':append')
-          ? { updates: { updatedRange: `Sheet1!A${++appendedRow}:H${appendedRow}` } }
-          : u.includes('!1:1')
-            ? { values: [HEADERS] }
-            : {}
+      : columnRead
+        ? { values: [columnValues(columnRead[1])] }
+        : rowRead && rowRead[1] === rowRead[2] && rowRead[1] !== '1'
+          ? { values: sheet.rows[Number(rowRead[1])] ? [sheet.rows[Number(rowRead[1])]] : [] }
+          : appended !== undefined
+            ? { updates: { updatedRange: `Sheet1!A${appended}:I${appended}` } }
+            : u.includes('!1:1')
+              ? { values: [ctl.headers] }
+              : {}
   return new Response(JSON.stringify(body), { status: 200 })
 }

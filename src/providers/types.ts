@@ -61,4 +61,8 @@ export interface SpreadsheetProvider {
   // of several rows in one read, returned in rowNumbers' order, each keyed
   // by column name. Read-only (CLAUDE.md, Logging behavior).
   readCells(sheetRef: SheetRef, rowNumbers: number[], columnNames: string[]): Promise<Record<string, string>[]>
+  // Added 2026-09-14, a flagged addition: each logged application's Log
+  // ID and the row it's on, for the offline-queue drain's duplicate check;
+  // null when the sheet has no Log ID column (CLAUDE.md, Sheet setup).
+  readLogIds(sheetRef: SheetRef): Promise<Map<string, number> | null>
 }

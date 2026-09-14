@@ -2,7 +2,9 @@
 
 A Chrome extension that logs the jobs you apply to in a Google Sheet,
 automatically. No copying and pasting: when you apply, the company, job
-title, location, date and a link to the posting are added as a new row.
+title, location, date and a link to the posting are added as a new row,
+with a hidden ID the extension uses only to avoid saving the same
+application twice.
 
 ## Supported sites
 
