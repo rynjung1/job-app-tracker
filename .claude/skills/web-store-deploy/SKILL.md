@@ -48,7 +48,9 @@ description: Steps and status for publishing this extension to the Chrome Web St
      and [x_NBS6_-NKs](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/x_NBS6_-NKs)).
      R copies the Item ID and Package > View public key.
   3. R: confirm the old ID's offline queue is empty before switching;
-     rows still queued there would be stranded. Decided 2026-09-11: the
+     rows still queued there would be stranded. Paste
+     `scripts/health-check.js` into the old ID's service-worker console
+     (read-only): its verdict must read "safe to switch". Decided 2026-09-11: the
      new ID starts fresh. Its Connect (step 6, once step 5 is done)
      creates a new sheet, and the old sheet stays in Drive untouched.
   4. Add the public key as `key` in `manifest.config.ts`; R loads the
@@ -70,6 +72,10 @@ description: Steps and status for publishing this extension to the Chrome Web St
      - **After step 4:** set the OAuth client's Item ID to the new ID.
   6. Re-verify Google sign-in and a real logged row on the new-ID
      build. Also check live:
+     - `scripts/health-check.js` in the new ID's service-worker console,
+       after Connect: the new extension ID and version, a spreadsheet
+       id, an empty queue, no sign-in flag, no badge, and the retry
+       alarm present.
      - Edit from the popup's recent list (never run since provider
        calls moved into the background worker), and Reconnect.
      - Undo and Edit from the "Logged" notification.
