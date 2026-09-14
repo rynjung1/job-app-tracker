@@ -32,23 +32,34 @@ applications waiting until you reconnect.
 ## Privacy
 
 The extension talks only to Google's Sheets API, and can only access
-files it created. There's no other server and no analytics. Full policy:
+files it created. There's no other server and no analytics. Its use of
+information received from Google APIs adheres to the Google API Services
+User Data Policy, and will adhere to the Chrome Web Store User Data
+Policy, including the Limited Use requirements. Full policy:
 https://rynjung1.github.io/job-app-tracker/privacy.html
 
 ## Permissions
 
-- `storage`: remembers your connected sheet, recent applications and any
-  applications waiting to be saved, on your device only.
+- `storage`: on your device only: your connected sheet; applications
+  waiting to be saved; briefly, a Greenhouse job's details between your
+  Submit click and Greenhouse's confirmation (session storage, cleared
+  when the browser closes, unused after 30 minutes); your 20 most recent
+  applications; the last resume version you used for each type of role;
+  while Google sign-in is needed, when that happened and the error message
+  from Chrome or Google; and, while Settings is open, its window's number
+  (session storage). No sign-in credential: Chrome keeps the Google token.
 - `identity`: signs you in to Google, with access limited to files the
   extension creates.
 - `alarms`: retries saving applications after a network or sign-in
   problem.
-- `notifications`: the "Logged", "Not connected" and "Sign-in needed"
-  notices.
+- `notifications`: the "Logged", "Not connected", "Sign-in needed" and
+  "Undo didn't go through" notices.
 - `https://sheets.googleapis.com/*`: reads and writes your sheet through
   the Google Sheets API.
-- It runs only on LinkedIn job pages and Greenhouse job boards, to read
-  the job details when you apply.
+- It runs on LinkedIn and on Greenhouse job boards. LinkedIn moves between
+  pages without reloading them, so its code is loaded on every LinkedIn
+  page, but it acts only on job pages, reading the job details when you
+  click Easy Apply or Submit.
 
 ## Build from source
 

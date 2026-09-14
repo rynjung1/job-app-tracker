@@ -107,6 +107,19 @@ description: Steps and status for publishing this extension to the Chrome Web St
        "This row may have changed" error and nothing is written; and the
        "Logged" notification's Edit opens the new focused "Change resume
        version" window (not the list), with nothing clipped.
+     - Added 2026-09-14 by the pre-submission audit (verified in Node
+       only so far): open LinkedIn at `/feed/`, click Jobs in LinkedIn's
+       own navigation (no page reload), open a posting with Easy Apply
+       and click Easy Apply (close the dialog): one row is logged.
+       Opening Easy Apply again on the same job logs nothing more (the
+       24-hour repeat check); Undo that row from the popup's status
+       chip, click Easy Apply again, and it logs.
+     - The "Logged" notification clears after about 5 seconds (its
+       timer; macOS may still list it in Notification Center). This
+       step runs an unpacked build, where alarms have no minimum, so the
+       30-second fallback alarm can't be seen here. After the store
+       install (step 8), check the notification still clears after
+       about 5 seconds.
      - Left here by phase B (the new ID starts with empty storage, so
        it's a real first install): Settings opens on its own as a
        window, and the "Not connected" notification's Open Settings
