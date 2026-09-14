@@ -33,23 +33,33 @@ Privacy: the extension only reads job-posting pages on the specific sites it sup
 
 ## Screenshots (1280×800, 24-bit PNG, no alpha, full bleed)
 
-Chrome requires full-bleed screenshots (square corners, no padding), so
-the earlier padded options screenshot was dropped. All data shown is
-placeholder: fake companies and `jobs.example.com` URLs. Upload in this
-order:
+Chrome requires full-bleed screenshots (square corners, no padding). All
+data shown is placeholder: fake companies and `jobs.example.com` URLs.
+Rebuilt 2026-09-13 for the new popup and the Settings window; the older
+popup-over-sheet and sheet screenshots were removed (old UI, old sheet
+formatting). Upload in this order:
 
-1. `screenshots/1-popup.png`: the popup's recent-applications list with
-   Edit/Undo, open over the auto-created sheet. It's a composite of two
-   unedited product captures: the popup, cropped to its card, placed
-   top-right where it opens from the toolbar, with a drop shadow and a
-   1px border, over screenshot 3. Neither capture is retouched. To be
-   rebuilt for the 2026-09-13 popup: the current image shows Arclight
-   and Northwind as Applied while the sheet shows Offer and Interview,
-   which was the old behaviour. The popup now shows statuses changed in
-   the sheet, so in the rebuilt capture its chips match the sheet.
-2. `screenshots/3-spreadsheet.png`: the auto-created sheet, with the
-   formatted header, real dates, and the Status dropdown and colours.
-   To be rebuilt for the 2026-09-13 sheet formatting.
+1. `screenshots/1-popup.png`: the popup's recent-applications list, with
+   its status chips and Edit/Undo.
+2. `screenshots/2-settings.png`: the Settings window's page, connected to
+   Google Sheets and listing the supported sites.
+
+How both were made: each is the real built page (the popup and the
+options page) from the `npm run package` build of commit `11f95ef`,
+rendered in headless Chrome at 2x with a stand-in for the extension's
+storage and background messages that supplies the placeholder data. The
+code and styles are the shipped ones; only the data source is
+substituted. Each render was cropped to the page, scaled to its true
+size (320×506 and 440×458) and centred on a plain `#F5F7FB` 1280×800
+background with a 1px border and a soft shadow. No browser chrome or
+text was added, and nothing was retouched. The popup's chips show the
+placeholder applications' statuses as its live statuses would.
+
+Optional, to add later: a screenshot of the auto-created sheet. The
+service-worker script `screenshot-sheet-sw.js` builds one on a throwaway
+sheet through the real `createSheet`, `appendRow` and `updateCell` (8
+placeholder rows over two weeks, all five statuses). It isn't in the
+repo; it would need to be saved under `scripts/` before use.
 
 ## Privacy practices tab
 
