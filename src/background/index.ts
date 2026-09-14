@@ -8,6 +8,7 @@ import type { AppendedRow } from '../providers/types'
 import type { JobPostingData } from '../parsers/types'
 import { buildRow } from '../lib/buildRow'
 import { sanitizeRow } from '../lib/sanitize'
+import { parseJobPostingData } from '../lib/jobPayload'
 import { REMOVED_EXCEL_KEYS } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
 import { getDefaultResumeVersion } from '../lib/resumeVersion'
@@ -287,8 +288,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false
   }
 
+  // The origin is trusted, the payload isn't: it's checked before use and a
+  // malformed one is dropped (lib/jobPayload.ts).
   if (message?.type === 'JOB_APPLICATION_LOGGED') {
-    handleJobApplicationLogged(message.payload as JobPostingData)
+    const payload = parseJobPostingData(message.payload)
+    if (!payload) {
+      console.warn('[job-app-tracker] rejected an application message with an invalid payload')
+      return false
+    }
+    handleJobApplicationLogged(payload)
   }
 
   if (message?.type === 'JOB_APPLICATION_PENDING' || message?.type === 'JOB_APPLICATION_CONFIRMED') {
@@ -298,7 +306,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false
     }
     if (message.type === 'JOB_APPLICATION_PENDING') {
-      recordPendingApplication(key, message.payload as JobPostingData)
+      const payload = parseJobPostingData(message.payload)
+      if (!payload) {
+        console.warn('[job-app-tracker] rejected a pending application with an invalid payload')
+        return false
+      }
+      recordPendingApplication(key, payload)
     } else {
       handleJobApplicationConfirmed(key)
     }

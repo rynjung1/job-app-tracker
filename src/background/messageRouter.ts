@@ -184,15 +184,22 @@ async function requireSheetRefOrThrow(): Promise<SheetRef> {
   return sheetRef
 }
 
-async function handleSaveResumeVersion({
-  entryId,
-  resumeVersion,
-  skipIdentityCheck,
-}: {
-  entryId: string
-  resumeVersion: string
-  skipIdentityCheck: boolean
+// The same cap the sheet's scraped fields get (lib/sanitize.ts); the popup's
+// input stops at it too.
+export const MAX_RESUME_VERSION_LENGTH = 500
+
+async function handleSaveResumeVersion(payload: {
+  entryId: unknown
+  resumeVersion: unknown
+  skipIdentityCheck: unknown
 }): Promise<BackgroundResponse<RecentApplication>> {
+  // Checked before anything is read or written (2026-09-14), like SET_STATUS.
+  if (typeof payload?.resumeVersion !== 'string' || payload.resumeVersion.length > MAX_RESUME_VERSION_LENGTH) {
+    return { ok: false, error: `Resume version must be text of at most ${MAX_RESUME_VERSION_LENGTH} characters` }
+  }
+  if (typeof payload.entryId !== 'string') return { ok: false, error: 'Missing entry id' }
+  const { entryId, resumeVersion } = payload
+  const skipIdentityCheck = payload.skipIdentityCheck === true
   const sheetRef = await requireSheetRefOrThrow()
   const entry = await findEntryOrThrow(entryId)
   const provider = await getActiveProvider()

@@ -4,7 +4,7 @@
 // fetch and navigator (fakes/background-env.ts, imported first). Each case
 // is one subtest; they share the listeners and run in order.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { alarms, ctl, HEADERS_WITH_LOG_ID, listeners, local, log, reset, sheet } from './fakes/background-env'
+import { alarms, ctl, HEADERS_WITH_LOG_ID, listeners, local, log, reset, session, sheet } from './fakes/background-env'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildRow } from '../src/lib/buildRow'
@@ -311,4 +311,40 @@ test('background worker', async (t) => {
   log.cleared.length = 0
   listeners.onAlarm[0]({ name: clearName })
   await check('"Logged" notification: cleared by a 5s timer, which also cancels its 0.5-minute fallback alarm; the alarm alone clears it too', !!logged && clearAlarm?.info.delayInMinutes === 0.5 && !!clearTimer && !clearedEarly && byTimer.cleared && byTimer.alarmCancelled && log.cleared.includes(logged!.id), { logged, clearAlarm, timers: log.timers.map((x) => x.ms), clearedEarly, byTimer, byAlarm: log.cleared })
+
+  // ---- Content-script payloads are checked (2026-09-14). ----
+  reset()
+  await local.set({ sheetRef: REF })
+  const send = (type: string, payload: unknown, origin = 'https://www.linkedin.com', extra: Record<string, unknown> = {}) =>
+    listeners.onMessage[0]({ type, payload, ...extra }, { origin }, () => {})
+  const ok = { title: 'Engineer', company: 'Valid Co', location: null, url: 'https://www.linkedin.com/jobs/view/9/' }
+  const badPayloads = [
+    null,
+    'a string',
+    { ...ok, title: 42 },
+    { ...ok, company: '   ' },
+    { ...ok, location: 5 },
+    { title: ok.title, company: ok.company, url: ok.url },
+    { ...ok, url: 'http://www.linkedin.com/jobs/view/9/' },
+    { ...ok, url: 'javascript:alert(1)' },
+    { ...ok, title: 'T'.repeat(501) },
+    { ...ok, location: 'L'.repeat(501) },
+    { ...ok, url: `https://x.example/${'u'.repeat(2048)}` },
+  ]
+  for (const payload of badPayloads) send('JOB_APPLICATION_LOGGED', payload)
+  send('JOB_APPLICATION_PENDING', { ...ok, company: 7 }, 'https://job-boards.greenhouse.io', { key: 'acme/1' })
+  await settle()
+  const rejected = { fetches: log.fetches.length, queue: queue(), pending: session.data.pendingApplications, notes: log.notifications.length }
+  send('JOB_APPLICATION_LOGGED', { ...ok, extra: 'dropped' })
+  await settle()
+  await check('content-script payloads: 11 malformed LOGGED and 1 malformed PENDING rejected before any request, queue or pending write; a valid one still logs', rejected.fetches === 0 && rejected.queue === 0 && rejected.pending === undefined && rejected.notes === 0 && rowsOf('Valid Co').length === 1 && recent()[0]?.company === 'Valid Co', { rejected, rows: rowsOf('Valid Co').length })
+
+  await withAcme()
+  const saveResume = (resumeVersion: unknown) =>
+    internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 's1', resumeVersion, skipIdentityCheck: true } }) as Promise<any>
+  const notString = await saveResume(42)
+  const tooLong = await saveResume('v'.repeat(501))
+  const fetchesAfterRejects = log.fetches.length
+  const saved = await saveResume('SWE v5')
+  await check('SAVE_RESUME_VERSION: a non-string or over-500-character resumeVersion is refused before any request; a string is saved', !notString.ok && !tooLong.ok && fetchesAfterRejects === 0 && saved.ok && sheet.writes.length === 1 && JSON.stringify(sheet.writes[0].values) === '[["SWE v5"]]', { notString: notString.error, tooLong: tooLong.error, fetchesAfterRejects, saved: saved.ok, writes: sheet.writes })
 })

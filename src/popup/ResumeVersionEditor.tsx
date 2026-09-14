@@ -57,6 +57,7 @@ export function ResumeVersionEditor({ entry, appliedOn, lastUsed, saving, error,
         id="resume-version"
         className="input"
         type="text"
+        maxLength={500}
         value={value}
         onChange={(event) => setValue(event.target.value)}
         readOnly={saving}

@@ -1125,6 +1125,28 @@ by design, and this extension cannot and will not follow the user
 off-site to catch it. Those applications stay manual. This is a
 scope boundary, not a bug to eventually fix by widening permissions.
 
+**Updated 2026-09-14 (flagged: a content-script scope change):** the
+LinkedIn content script matches `https://www.linkedin.com/*`, not
+`*://www.linkedin.com/jobs/*`. LinkedIn is a single-page app: going from
+`/feed/` to `/jobs/` in the app is a pushState, not a page load, so a
+script matched only to `/jobs/*` was never injected and the Easy Apply
+click wasn't logged. The script still acts only on job pages: it does
+nothing until a click matches the Easy Apply selector, and `detect()`
+checks the path is `/jobs/` at that moment. `host_permissions` is
+unchanged, and the install warning names the same host
+(www.linkedin.com). Both content-script matches are https only (the
+Greenhouse one was `*://` too); `TRUSTED_ORIGINS` was already https
+only. crxjs's `web_accessible_resources` origins follow (Permissions,
+below). **Verified 2026-09-14 in Node only**
+(`tests/contentScripts.test.ts`, the real `content/linkedin.ts` on a
+fake page): loaded on `/feed/`, an Easy Apply-shaped click sends
+nothing; after an in-app move to `/jobs/view/4460524353/` the same
+instance sends one `JOB_APPLICATION_LOGGED` with the right title,
+company and URL; an untrusted click, a click elsewhere, and a click back
+on `/feed/` send nothing; the manifest's two matches are exactly the
+https patterns. The real check, from `/feed/` click Jobs and then Easy
+Apply, is in web-store-deploy step 6.
+
 **Known v1 gap (updated 2026-09-11):** Easy Apply detection is only
 fully supported with LinkedIn set to English, and the store listing
 says so (`store-assets/listing.md`). The original selector,
@@ -1423,6 +1445,26 @@ popup mid-request killed the in-flight call along with it.
   passed to the provider's structured API request format — never
   string-concatenate raw scraped text into a request body.
 
+**Fixed 2026-09-14 (payload validation):** the background trusted a
+content script's payload shape once its origin passed; `sanitizeRow`
+only trimmed and capped strings, and a non-string would have thrown
+there. Now `parseJobPostingData` (`lib/jobPayload.ts`) checks
+`JOB_APPLICATION_LOGGED` and `JOB_APPLICATION_PENDING` payloads before
+anything is queued, recorded or written: title and company non-empty
+strings of at most 500 characters, location a string of at most 500 or
+null, url an `https://` string of at most 2048; anything else is
+rejected with a console line, and only those four fields are kept.
+`SAVE_RESUME_VERSION` refuses a `resumeVersion` that isn't a string of
+at most 500 characters (the popup's input stops at 500) before reading
+or writing. **Verified 2026-09-14 in Node only**
+(`tests/background.test.ts`): 11 malformed `JOB_APPLICATION_LOGGED`
+payloads (null, a string, a numeric title, a blank company, a numeric
+or 501-character location, a missing location, `http:` and `javascript:`
+URLs, a 501-character title, a 2066-character URL) and a malformed
+pending one made no request and no queue, pending or notification
+write, and a valid payload then logged; a numeric and a 501-character
+`resumeVersion` were refused with no request, and a string was saved.
+
 **Verified 2026-08-28 (Phase 3):** `GoogleSheetsProvider.appendRow`'s
 `RAW`-input-mode-only formula-injection defense (no character-
 prefixing) was confirmed against a real write, checked via the
@@ -1457,8 +1499,10 @@ actually needs it, not speculatively ahead of time.
 **Updated 2026-09-13:** the build plugin (crxjs 2.7.1) adds
 `web_accessible_resources` to the production manifest: one entry per
 content script, exposing only that script's own bundled file to its
-site's origin (`*://www.linkedin.com/*`,
-`*://job-boards.greenhouse.io/*`, `use_dynamic_url: false`). No plugin
+site's origin (`https://www.linkedin.com/*`,
+`https://job-boards.greenhouse.io/*` since the https-only matches of
+2026-09-14, checked in the built manifest; `*://` before),
+`use_dynamic_url: false`). No plugin
 option turns it off, and it's accepted: a page on those two sites can
 detect the extension is installed if it knows the hashed file path, and
 nothing else is exposed. A Vite dev-server build instead exposes every

@@ -69,7 +69,16 @@ export default defineManifest({
       // doesn't use per-locale subdomains for the main product, everything is
       // www.linkedin.com/<locale-path>. This is deliberate narrowing, not an
       // oversight — don't "fix" it into a wildcard without re-checking that.
-      matches: ['*://www.linkedin.com/jobs/*'],
+      //
+      // Every www.linkedin.com page, not just /jobs/* (2026-09-14, flagged in
+      // CLAUDE.md, Site parsers): LinkedIn is a single-page app, and going from
+      // /feed/ to /jobs/ in the app is a pushState, not a page load, so a
+      // script matched only to /jobs/* was never injected there. The script
+      // acts only on job pages: it does nothing until an Easy Apply click, and
+      // the parser's detect() checks the path is /jobs/ at that moment. The
+      // install warning names the same host as before (www.linkedin.com), and
+      // host_permissions is unchanged. https only, like the Greenhouse match.
+      matches: ['https://www.linkedin.com/*'],
       js: ['src/content/linkedin.ts'],
       run_at: 'document_idle',
     },
@@ -80,7 +89,9 @@ export default defineManifest({
       // against it would never get a chance to run. See CLAUDE.md Site
       // parsers, Greenhouse scoping decision, for the coverage gap this
       // leaves (custom-domain-embedded boards aren't reachable at all).
-      matches: ['*://job-boards.greenhouse.io/*/jobs/*'],
+      // https only (2026-09-14): the background accepts messages only from
+      // https origins anyway (TRUSTED_ORIGINS).
+      matches: ['https://job-boards.greenhouse.io/*/jobs/*'],
       js: ['src/content/greenhouse.ts'],
       run_at: 'document_idle',
     },

@@ -35,7 +35,10 @@ const EXPECTED = {
   hostPermissions: ['https://sheets.googleapis.com/*'],
   scopes: ['https://www.googleapis.com/auth/drive.file'],
   minimumChromeVersion: '110',
-  contentScriptMatches: ['*://www.linkedin.com/jobs/*', '*://job-boards.greenhouse.io/*/jobs/*'],
+  // https only (2026-09-14). LinkedIn is every page, not /jobs/*: moving
+  // from /feed/ to /jobs/ is an in-app pushState, so a /jobs/*-only script
+  // was never injected (CLAUDE.md, Site parsers).
+  contentScriptMatches: ['https://www.linkedin.com/*', 'https://job-boards.greenhouse.io/*/jobs/*'],
 }
 
 // Every file allowed in the package. Anything else (source maps, .ts
