@@ -113,7 +113,27 @@ async function notifyApplicationLogged(payload: JobPostingData, row: Record<stri
   }, NOTIFICATION_CLEAR_MS)
 }
 
+// Easy Apply reopened (2026-09-14, CLAUDE.md, Logging behavior): LinkedIn
+// logs at the Easy Apply click, so closing the dialog and opening it again
+// for the same job logged a second row. A payload whose URL matches a recent
+// entry from the last 24 hours that isn't Cancelled is skipped. This also
+// covers a second Greenhouse confirmation of the same posting. Undo marks the
+// entry Cancelled, so after an Undo the job can be logged again.
+const REPEAT_WINDOW_MS = 24 * 60 * 60 * 1000
+
+async function loggedInLastDay(url: string): Promise<boolean> {
+  const now = Date.now()
+  return (await getRecentApplications()).some(
+    (entry) =>
+      entry.url.trim() === url.trim() && entry.status !== 'Cancelled' && now - Date.parse(entry.date) <= REPEAT_WINDOW_MS,
+  )
+}
+
 async function handleJobApplicationLogged(payload: JobPostingData) {
+  if (await loggedInLastDay(payload.url)) {
+    console.log('[job-app-tracker] this job was logged in the last 24 hours and not cancelled; not logging it again')
+    return
+  }
   const resumeVersion = await getDefaultResumeVersion(payload.title)
   const row = sanitizeRow(buildRow(payload, resumeVersion))
   const sheetRef = await getSheetRef()

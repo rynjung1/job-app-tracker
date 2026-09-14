@@ -515,6 +515,23 @@ silently once), could only be tested with real applications, and a
 missed final Submit would be an invisible lost row, which is worse than
 an extra visible one.
 
+**Updated 2026-09-14 (the reviewer's audit; Ryan hasn't vetoed it, and
+the reviewer relays it if he does): a reopened Easy Apply isn't logged
+twice.** Closing the Easy Apply dialog and opening it again for the
+same job logged a second row. `handleJobApplicationLogged`
+(`background/index.ts`) now skips a payload whose URL matches a
+recent-list entry from the last 24 hours whose status isn't
+`Cancelled`, with a console line. After an Undo (Cancelled) the job
+can be logged again. It runs for every logged payload, so a second
+Greenhouse confirmation of the same posting within 24 hours is skipped
+too. Known gap: it checks the recent list only, which holds rows
+already saved, so two clicks on one job while offline or signed out
+still queue two rows (with different Log IDs). **Verified 2026-09-14 in
+Node only** (`tests/background.test.ts`): the same job twice gave 1
+append, 1 row and 1 "Logged" notification with nothing queued; a
+different job still logged; after the entry was set to Cancelled the
+job logged again; an entry 25 hours old didn't block it.
+
 **Updated 2026-09-01 (Phase 4):** the "toast" is a real
 `chrome.notifications` system notification, not the extension's
 toolbar popup rendering something proactively — a popup can't open

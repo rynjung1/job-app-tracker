@@ -35,9 +35,11 @@ async function call() {
 function internal(message: unknown) {
   return new Promise((resolve) => listeners.onMessage[0](message, { origin: 'chrome-extension://testid' }, resolve))
 }
+// One job URL per company: the same URL twice within 24 hours is a reopened
+// Easy Apply and isn't logged again (index.ts, since 2026-09-14).
 function apply(company: string) {
   listeners.onMessage[0](
-    { type: 'JOB_APPLICATION_LOGGED', payload: { title: 'Software Engineer Intern', company, location: 'Remote', url: 'https://www.linkedin.com/jobs/view/1/' } },
+    { type: 'JOB_APPLICATION_LOGGED', payload: { title: 'Software Engineer Intern', company, location: 'Remote', url: `https://www.linkedin.com/jobs/view/${encodeURIComponent(company)}/` } },
     { origin: 'https://www.linkedin.com' },
     () => {},
   )
@@ -378,4 +380,29 @@ test('background worker', async (t) => {
   apply('Deleted Tab Co')
   await settle()
   await check('tab deleted (no tab with the stored sheetId): one lookup, no retry loop, the row is queued, the stored sheetRef unchanged', tabLookups() === 1 && queue() === 1 && (local.data.sheetRef as any)?.sheetName === 'Sheet1' && rowsOf('Deleted Tab Co').length === 0, { lookups: tabLookups(), queue: queue(), stored: local.data.sheetRef })
+
+  // ---- Easy Apply reopened (2026-09-14): the same job URL within 24 hours
+  // isn't logged twice, unless its entry is Cancelled. ----
+  const REPEAT_URL = 'https://www.linkedin.com/jobs/view/777/'
+  const sendJob = async (company: string, url: string) => {
+    listeners.onMessage[0]({ type: 'JOB_APPLICATION_LOGGED', payload: { title: 'Engineer', company, location: null, url } }, { origin: 'https://www.linkedin.com' }, () => {})
+    await settle()
+  }
+  const appends = () => log.fetches.filter((f) => f.includes(':append')).length
+  reset()
+  await local.set({ sheetRef: REF })
+  await sendJob('Repeat Co', REPEAT_URL)
+  await sendJob('Repeat Co', REPEAT_URL)
+  const reopened = { appends: appends(), rows: rowsOf('Repeat Co').length, logged: log.notifications.filter((n) => n.title === 'Logged').length, queue: queue() }
+  await sendJob('Other Co', 'https://www.linkedin.com/jobs/view/778/')
+  const afterOtherJob = appends()
+  await local.set({ recentApplications: recent().map((e) => (e.url === REPEAT_URL ? { ...e, status: 'Cancelled' } : e)) })
+  await sendJob('Repeat Co', REPEAT_URL)
+  const afterCancel = appends()
+  reset()
+  const dayOld = { id: 'old', company: 'Repeat Co', title: 'Engineer', location: null, url: REPEAT_URL, date: new Date(Date.now() - 25 * 3600 * 1000).toISOString(), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 2 }
+  await local.set({ sheetRef: REF, recentApplications: [dayOld] })
+  await sendJob('Repeat Co', REPEAT_URL)
+  const afterDayOld = appends()
+  await check('Easy Apply reopened: the same job twice -> 1 row, 1 "Logged", nothing queued; a different job logs; after the entry is Cancelled it logs again; an entry 25 hours old doesn\'t block', reopened.appends === 1 && reopened.rows === 1 && reopened.logged === 1 && reopened.queue === 0 && afterOtherJob === 2 && afterCancel === 3 && afterDayOld === 1, { reopened, afterOtherJob, afterCancel, afterDayOld })
 })
