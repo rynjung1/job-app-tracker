@@ -4,6 +4,7 @@ import { columnIndexToLetter } from '../lib/columnLetter'
 import { isoToLocalDateSerial } from '../lib/dateSerial'
 import { fetchWithTimeout } from '../lib/fetchWithTimeout'
 import { withSheetAppendLock } from '../lib/sheetAppendLock'
+import { updateStoredSheetName } from '../lib/sheetRef'
 import { LOG_ID_COLUMN, STATUS_VALUES } from '../lib/sheetTemplate'
 import type { StatusValue } from '../lib/sheetTemplate'
 
@@ -99,13 +100,67 @@ async function getTokenForCall(): Promise<string> {
 // Sheets API range format is "SheetName!A5:H5" (or "'Sheet Name'!A5:H5" if
 // the sheet name needs quoting) — pulls out the sheet name and the row
 // number of the first cell in the range.
+// A quoted name has any ' doubled ('Bob''s Jobs'!A2:I2).
 function parseAppendedRange(updatedRange: string): AppendedRow {
-  const match = updatedRange.match(/^(?:'([^']+)'|([^!]+))!([A-Z]+)(\d+)/)
+  const match = updatedRange.match(/^(?:'((?:[^']|'')+)'|([^!]+))!([A-Z]+)(\d+)/)
   if (!match) {
     throw new Error(`Could not parse appended range: ${updatedRange}`)
   }
-  const sheetName = match[1] ?? match[2]
+  const sheetName = match[1] !== undefined ? match[1].replace(/''/g, "'") : match[2]
   return { sheetName, rowNumber: Number(match[4]) }
+}
+
+// Every A1 range quotes the tab name (2026-09-14): 'Name'!A1, with any '
+// doubled. Unquoted, a tab the user renamed to something with a space, an
+// apostrophe or a cell-like name ("A1") doesn't parse. Quoting is always
+// valid, Sheet1 included.
+function quoteSheetName(sheetName: string): string {
+  return `'${sheetName.replace(/'/g, "''")}'`
+}
+
+function rangeIn(sheetName: string, cells: string): string {
+  return `${quoteSheetName(sheetName)}!${cells}`
+}
+
+// A renamed tab (2026-09-14): the ranges name the tab stored at Connect, so
+// after the user renames it Sheets answers 400 "Unable to parse range". The
+// tab's numeric sheetId survives a rename, so withSheetRef looks its current
+// title up by that id, stores it (lib/sheetRef.ts) and retries once. A
+// deleted tab (no tab with that id), an unchanged title, or a sheetRef
+// without a sheetId keeps the original error. Retrying is safe: a range that
+// didn't parse wrote nothing.
+function isUnparsableRange(err: unknown): boolean {
+  return err instanceof SheetsApiError && err.status === 400 && err.message.includes('Unable to parse range')
+}
+
+async function currentSheetName(sheetRef: SheetRef): Promise<string | null> {
+  const data = (await withAuth((token) =>
+    apiFetch(`/${sheetRef.spreadsheetId}?fields=sheets.properties`, token),
+  )) as { sheets?: Array<{ properties?: { sheetId?: number; title?: string } }> }
+  const tab = data.sheets?.find((sheet) => sheet.properties?.sheetId === sheetRef.sheetId)
+  return tab?.properties?.title ?? null
+}
+
+async function withSheetRef<T>(sheetRef: SheetRef, fn: (ref: SheetRef) => Promise<T>): Promise<T> {
+  try {
+    return await fn(sheetRef)
+  } catch (err) {
+    if (!isUnparsableRange(err) || sheetRef.sheetId === undefined) throw err
+    const sheetName = await currentSheetName(sheetRef)
+    if (!sheetName || sheetName === sheetRef.sheetName) throw err
+    await updateStoredSheetName(sheetRef.spreadsheetId, sheetName)
+    console.log('[job-app-tracker] the sheet tab was renamed; using its current name')
+    return fn({ ...sheetRef, sheetName })
+  }
+}
+
+// The header row, which fixes the column order for every other call.
+async function readHeadersAt(sheetRef: SheetRef): Promise<string[]> {
+  const range = rangeIn(sheetRef.sheetName, '1:1')
+  const data = (await withAuth((token) =>
+    apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}`, token),
+  )) as { values?: string[][] }
+  return data.values?.[0] ?? []
 }
 
 // New-sheet visual formatting (createSheet only — never applied to an
@@ -379,7 +434,7 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     // address ranges by this, not by sheetName.
     const sheetId = created.sheets?.[0]?.properties?.sheetId ?? 0
 
-    const range = `${sheetName}!A1`
+    const range = rangeIn(sheetName, 'A1')
     await withAuth((token) =>
       apiFetch(`/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, token, {
         method: 'PUT',
@@ -398,11 +453,7 @@ export const googleSheetsProvider: SpreadsheetProvider = {
   },
 
   async readHeaders(sheetRef: SheetRef): Promise<string[]> {
-    const range = `${sheetRef.sheetName}!1:1`
-    const data = (await withAuth((token) =>
-      apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}`, token),
-    )) as { values?: string[][] }
-    return data.values?.[0] ?? []
+    return withSheetRef(sheetRef, readHeadersAt)
   },
 
   async appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow> {
@@ -422,34 +473,38 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     // the append run inside the same lock so each append sees the previous
     // one's committed row. See lib/sheetAppendLock.ts for why an in-memory
     // lock is sufficient here.
-    return withSheetAppendLock(async () => {
-      // Reads the sheet's actual current headers to determine column order,
-      // rather than trusting Object.values(row) insertion order — self-
-      // correcting if the user ever reorders columns by hand, and the only
-      // correct behavior once existing-sheet linking (Phase 7) is in play.
-      const headers = await this.readHeaders(sheetRef)
-      const values = headers.map((header) =>
-        header === DATE_COLUMN ? toDateCellValue(row[header]) : (row[header] ?? ''),
-      )
+    // A renamed tab is resolved inside the lock too (withSheetRef), so the
+    // retry is still serialized with every other append.
+    return withSheetAppendLock(() =>
+      withSheetRef(sheetRef, async (ref) => {
+        // Reads the sheet's actual current headers to determine column order,
+        // rather than trusting Object.values(row) insertion order — self-
+        // correcting if the user ever reorders columns by hand, and the only
+        // correct behavior once existing-sheet linking (Phase 7) is in play.
+        const headers = await readHeadersAt(ref)
+        const values = headers.map((header) =>
+          header === DATE_COLUMN ? toDateCellValue(row[header]) : (row[header] ?? ''),
+        )
 
-      const range = `${sheetRef.sheetName}!A1`
-      const result = (await withAuth((token) =>
-        apiFetch(
-          `/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=OVERWRITE`,
-          token,
-          {
-            method: 'POST',
-            body: JSON.stringify({ values: [values] }),
-          },
-        ),
-      )) as { updates?: { updatedRange?: string } }
+        const range = rangeIn(ref.sheetName, 'A1')
+        const result = (await withAuth((token) =>
+          apiFetch(
+            `/${ref.spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=OVERWRITE`,
+            token,
+            {
+              method: 'POST',
+              body: JSON.stringify({ values: [values] }),
+            },
+          ),
+        )) as { updates?: { updatedRange?: string } }
 
-      const updatedRange = result.updates?.updatedRange
-      if (!updatedRange) {
-        throw new Error('Sheets API append response missing updates.updatedRange')
-      }
-      return parseAppendedRange(updatedRange)
-    })
+        const updatedRange = result.updates?.updatedRange
+        if (!updatedRange) {
+          throw new Error('Sheets API append response missing updates.updatedRange')
+        }
+        return parseAppendedRange(updatedRange)
+      }),
+    )
   },
 
   async updateCell(
@@ -458,32 +513,36 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     columnName: string,
     value: string,
   ): Promise<void> {
-    const headers = await this.readHeaders(sheetRef)
-    const columnIndex = headers.indexOf(columnName)
-    if (columnIndex === -1) {
-      throw new Error(`Column "${columnName}" not found in sheet headers: ${headers.join(', ')}`)
-    }
-    const range = `${sheetRef.sheetName}!${columnIndexToLetter(columnIndex)}${rowNumber}`
-    await withAuth((token) =>
-      apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, token, {
-        method: 'PUT',
-        body: JSON.stringify({ values: [[value]] }),
-      }),
-    )
+    await withSheetRef(sheetRef, async (ref) => {
+      const headers = await readHeadersAt(ref)
+      const columnIndex = headers.indexOf(columnName)
+      if (columnIndex === -1) {
+        throw new Error(`Column "${columnName}" not found in sheet headers: ${headers.join(', ')}`)
+      }
+      const range = rangeIn(ref.sheetName, `${columnIndexToLetter(columnIndex)}${rowNumber}`)
+      await withAuth((token) =>
+        apiFetch(`/${ref.spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`, token, {
+          method: 'PUT',
+          body: JSON.stringify({ values: [[value]] }),
+        }),
+      )
+    })
   },
 
   async readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>> {
-    const headers = await this.readHeaders(sheetRef)
-    const range = `${sheetRef.sheetName}!${rowNumber}:${rowNumber}`
-    const data = (await withAuth((token) =>
-      apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}`, token),
-    )) as { values?: string[][] }
-    const rowValues = data.values?.[0] ?? []
-    const row: Record<string, string> = {}
-    headers.forEach((header, i) => {
-      row[header] = rowValues[i] ?? ''
+    return withSheetRef(sheetRef, async (ref) => {
+      const headers = await readHeadersAt(ref)
+      const range = rangeIn(ref.sheetName, `${rowNumber}:${rowNumber}`)
+      const data = (await withAuth((token) =>
+        apiFetch(`/${ref.spreadsheetId}/values/${encodeURIComponent(range)}`, token),
+      )) as { values?: string[][] }
+      const rowValues = data.values?.[0] ?? []
+      const row: Record<string, string> = {}
+      headers.forEach((header, i) => {
+        row[header] = rowValues[i] ?? ''
+      })
+      return row
     })
-    return row
   },
 
   async readCells(sheetRef: SheetRef, rowNumbers: number[], columnNames: string[]): Promise<Record<string, string>[]> {
@@ -491,35 +550,7 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     if (!rowNumbers.every((n) => Number.isInteger(n) && n >= 1)) {
       throw new Error(`Invalid row numbers: ${rowNumbers.join(', ')}`)
     }
-    const headers = await this.readHeaders(sheetRef)
-    const letters = columnNames.map((name) => {
-      const index = headers.indexOf(name)
-      if (index === -1) {
-        throw new Error(`Column "${name}" not found in sheet headers: ${headers.join(', ')}`)
-      }
-      return columnIndexToLetter(index)
-    })
-    // One range per column spanning every requested row (e.g. B2:B21), so
-    // the read is a single batchGet however many rows are asked for. The
-    // recent list is the latest rows, so the span stays close to their
-    // count. With majorDimension=COLUMNS each range comes back as one array
-    // starting at row `first`; the API leaves out trailing empty cells,
-    // hence the ?? ''. valueRanges come back in the order requested.
-    const first = Math.min(...rowNumbers)
-    const last = Math.max(...rowNumbers)
-    const ranges = letters
-      .map((letter) => `ranges=${encodeURIComponent(`${sheetRef.sheetName}!${letter}${first}:${letter}${last}`)}`)
-      .join('&')
-    const data = (await withAuth((token) =>
-      apiFetch(`/${sheetRef.spreadsheetId}/values:batchGet?${ranges}&majorDimension=COLUMNS`, token),
-    )) as { valueRanges?: Array<{ values?: string[][] }> }
-    return rowNumbers.map((rowNumber) => {
-      const record: Record<string, string> = {}
-      columnNames.forEach((name, i) => {
-        record[name] = data.valueRanges?.[i]?.values?.[0]?.[rowNumber - first] ?? ''
-      })
-      return record
-    })
+    return withSheetRef(sheetRef, (ref) => readCellsAt(ref, rowNumbers, columnNames))
   },
 
   // Where each logged application's Log ID sits (id -> row number), for the
@@ -527,18 +558,53 @@ export const googleSheetsProvider: SpreadsheetProvider = {
   // that column from row 2 down. null when the sheet has no Log ID column
   // (created before 2026-09-14); the drain then appends as before.
   async readLogIds(sheetRef: SheetRef): Promise<Map<string, number> | null> {
-    const headers = await this.readHeaders(sheetRef)
-    const columnIndex = headers.indexOf(LOG_ID_COLUMN)
-    if (columnIndex === -1) return null
-    const letter = columnIndexToLetter(columnIndex)
-    const range = `${sheetRef.sheetName}!${letter}2:${letter}`
-    const data = (await withAuth((token) =>
-      apiFetch(`/${sheetRef.spreadsheetId}/values/${encodeURIComponent(range)}?majorDimension=COLUMNS`, token),
-    )) as { values?: string[][] }
-    const ids = new Map<string, number>()
-    ;(data.values?.[0] ?? []).forEach((id, i) => {
-      if (id) ids.set(id, i + 2)
+    return withSheetRef(sheetRef, async (ref) => {
+      const headers = await readHeadersAt(ref)
+      const columnIndex = headers.indexOf(LOG_ID_COLUMN)
+      if (columnIndex === -1) return null
+      const letter = columnIndexToLetter(columnIndex)
+      const range = rangeIn(ref.sheetName, `${letter}2:${letter}`)
+      const data = (await withAuth((token) =>
+        apiFetch(`/${ref.spreadsheetId}/values/${encodeURIComponent(range)}?majorDimension=COLUMNS`, token),
+      )) as { values?: string[][] }
+      const ids = new Map<string, number>()
+      ;(data.values?.[0] ?? []).forEach((id, i) => {
+        if (id) ids.set(id, i + 2)
+      })
+      return ids
     })
-    return ids
   },
+}
+
+// readCells' reads, run through withSheetRef by the method above.
+async function readCellsAt(sheetRef: SheetRef, rowNumbers: number[], columnNames: string[]): Promise<Record<string, string>[]> {
+  const headers = await readHeadersAt(sheetRef)
+  const letters = columnNames.map((name) => {
+    const index = headers.indexOf(name)
+    if (index === -1) {
+      throw new Error(`Column "${name}" not found in sheet headers: ${headers.join(', ')}`)
+    }
+    return columnIndexToLetter(index)
+  })
+  // One range per column spanning every requested row (e.g. B2:B21), so
+  // the read is a single batchGet however many rows are asked for. The
+  // recent list is the latest rows, so the span stays close to their
+  // count. With majorDimension=COLUMNS each range comes back as one array
+  // starting at row `first`; the API leaves out trailing empty cells,
+  // hence the ?? ''. valueRanges come back in the order requested.
+  const first = Math.min(...rowNumbers)
+  const last = Math.max(...rowNumbers)
+  const ranges = letters
+    .map((letter) => `ranges=${encodeURIComponent(rangeIn(sheetRef.sheetName, `${letter}${first}:${letter}${last}`))}`)
+    .join('&')
+  const data = (await withAuth((token) =>
+    apiFetch(`/${sheetRef.spreadsheetId}/values:batchGet?${ranges}&majorDimension=COLUMNS`, token),
+  )) as { valueRanges?: Array<{ values?: string[][] }> }
+  return rowNumbers.map((rowNumber) => {
+    const record: Record<string, string> = {}
+    columnNames.forEach((name, i) => {
+      record[name] = data.valueRanges?.[i]?.values?.[0]?.[rowNumber - first] ?? ''
+    })
+    return record
+  })
 }

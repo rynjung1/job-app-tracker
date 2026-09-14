@@ -59,6 +59,10 @@ export const ctl = {
   // The next append succeeds at "Google" (the row is stored) but its
   // response times out, as in the idempotency bug.
   appendThenAbort: false,
+  // The fake tab's current name (a rename changes it; its sheetId stays 0),
+  // or the tab deleted (the spreadsheet then has only a different tab).
+  sheetTitle: 'Sheet1',
+  tabDeleted: false,
 }
 // The fake sheet: row values for readRow, and every successful cell write.
 export const sheet = { rows: {} as Record<number, string[]>, writes: [] as Array<{ range: string; values: unknown }> }
@@ -84,6 +88,8 @@ export function reset() {
   ctl.failQueueWrite = false
   ctl.headers = HEADERS_8
   ctl.appendThenAbort = false
+  ctl.sheetTitle = 'Sheet1'
+  ctl.tabDeleted = false
 }
 
 // fetchWithTimeout's 20s timer is left running when a request is aborted
@@ -168,6 +174,8 @@ Object.defineProperty(globalThis, 'navigator', { configurable: true, get: () => 
 // new spreadsheet for the create call; every successful PUT and batchUpdate
 // is recorded. ctl.fetchPlan scripts statuses call by call.
 let appendedRow = 1
+// Google quotes a tab name in a returned range only when it has to.
+const googleQuoted = (name: string) => (/^[A-Za-z0-9_]+$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`)
 function columnValues(letter: string): string[] {
   const index = letter.charCodeAt(0) - 65
   const last = Math.max(1, ...Object.keys(sheet.rows).map(Number))
@@ -182,6 +190,13 @@ function columnValues(letter: string): string[] {
   const step = ctl.fetchPlan.length ? ctl.fetchPlan.shift()! : 200
   if (step === 'abort') throw new DOMException('The operation was aborted.', 'AbortError')
   if (step !== 200) return new Response(`{"error":{"code":${step}}}`, { status: step })
+  // A range must name the fake tab, quoted ('It''s'!A1) or not; Sheets
+  // answers any other name with 400 "Unable to parse range".
+  const named = u.match(/(?:\/values\/|ranges=)(?:'((?:[^']|'')*)'|([^!'?&/]+))!/)
+  const rangeSheet = named ? (named[1] !== undefined ? named[1].replace(/''/g, "'") : named[2]) : undefined
+  if (rangeSheet !== undefined && rangeSheet !== ctl.sheetTitle) {
+    return new Response(`{"error":{"code":400,"message":"Unable to parse range: ${rangeSheet}!A1"}}`, { status: 400 })
+  }
   if (init?.method === 'PUT') {
     sheet.writes.push({ range: u.match(/\/values\/([^?]+)/)?.[1] ?? '', values: JSON.parse(String(init.body)).values })
   }
@@ -201,14 +216,16 @@ function columnValues(letter: string): string[] {
   const body =
     u === 'https://sheets.googleapis.com/v4/spreadsheets'
       ? { spreadsheetId: 'new1', sheets: [{ properties: { title: 'Sheet1', sheetId: 0 } }] }
-      : columnRead
-        ? { values: [columnValues(columnRead[1])] }
-        : rowRead && rowRead[1] === rowRead[2] && rowRead[1] !== '1'
-          ? { values: sheet.rows[Number(rowRead[1])] ? [sheet.rows[Number(rowRead[1])]] : [] }
-          : appended !== undefined
-            ? { updates: { updatedRange: `Sheet1!A${appended}:I${appended}` } }
-            : u.includes('!1:1')
-              ? { values: [ctl.headers] }
-              : {}
+      : u.endsWith('?fields=sheets.properties')
+        ? { sheets: [{ properties: ctl.tabDeleted ? { title: 'Other', sheetId: 5 } : { title: ctl.sheetTitle, sheetId: 0 } }] }
+        : columnRead
+          ? { values: [columnValues(columnRead[1])] }
+          : rowRead && rowRead[1] === rowRead[2] && rowRead[1] !== '1'
+            ? { values: sheet.rows[Number(rowRead[1])] ? [sheet.rows[Number(rowRead[1])]] : [] }
+            : appended !== undefined
+              ? { updates: { updatedRange: `${googleQuoted(ctl.sheetTitle)}!A${appended}:I${appended}` } }
+              : u.includes('!1:1')
+                ? { values: [ctl.headers] }
+                : {}
   return new Response(JSON.stringify(body), { status: 200 })
 }

@@ -188,7 +188,7 @@ test('background worker', async (t) => {
 
   await withAcme()
   let st = await setStatus('Interview')
-  await check('SET_STATUS: row still matches -> exactly one write, "Interview" to Sheet1!G5; cached entry updated', st.ok && st.data.status === 'Interview' && sheet.writes.length === 1 && sheet.writes[0].range === 'Sheet1!G5' && JSON.stringify(sheet.writes[0].values) === '[["Interview"]]' && recent()[0].status === 'Interview', { resp: st, writes: sheet.writes })
+  await check('SET_STATUS: row still matches -> exactly one write, "Interview" to Sheet1!G5; cached entry updated', st.ok && st.data.status === 'Interview' && sheet.writes.length === 1 && sheet.writes[0].range === "'Sheet1'!G5" && JSON.stringify(sheet.writes[0].values) === '[["Interview"]]' && recent()[0].status === 'Interview', { resp: st, writes: sheet.writes })
 
   await withAcme()
   sheet.rows[5][1] = 'Acme (renamed)'
@@ -227,7 +227,7 @@ test('background worker', async (t) => {
 
   await withAcme()
   await listeners.onButtonClicked[0]('s1', 0)
-  await check('notification Undo, through the shared status setter -> "Cancelled" written to Sheet1!G5, cache Cancelled', recent()[0].status === 'Cancelled' && sheet.writes.length === 1 && sheet.writes[0].range === 'Sheet1!G5' && JSON.stringify(sheet.writes[0].values) === '[["Cancelled"]]', sheet.writes)
+  await check('notification Undo, through the shared status setter -> "Cancelled" written to Sheet1!G5, cache Cancelled', recent()[0].status === 'Cancelled' && sheet.writes.length === 1 && sheet.writes[0].range === "'Sheet1'!G5" && JSON.stringify(sheet.writes[0].values) === '[["Cancelled"]]', sheet.writes)
 
   const urls = { https: safeJobUrl('https://www.linkedin.com/jobs/view/1/'), http: safeJobUrl('http://example.com/x'), javascript: safeJobUrl('javascript:alert(1)'), data: safeJobUrl('data:text/html,hi'), empty: safeJobUrl(''), junk: safeJobUrl('not a url') }
   await check('safeJobUrl: https and http kept; javascript:, data:, empty and junk refused', urls.https === 'https://www.linkedin.com/jobs/view/1/' && urls.http === 'http://example.com/x' && urls.javascript === null && urls.data === null && urls.empty === null && urls.junk === null, urls)
@@ -288,7 +288,7 @@ test('background worker', async (t) => {
 
   reset()
   const connected = (await internal({ type: 'CONNECT_PROVIDER' })) as any
-  const headerWrite = (sheet.writes.find((w) => w.range === 'Sheet1!A1')?.values as string[][] | undefined)?.[0]
+  const headerWrite = (sheet.writes.find((w) => w.range === "'Sheet1'!A1")?.values as string[][] | undefined)?.[0]
   const requests = (log.batchUpdates[0] ?? []) as any[]
   const hide = requests.find((r) => r.updateDimensionProperties?.range?.dimension === 'COLUMNS' && r.updateDimensionProperties.properties?.hiddenByUser)?.updateDimensionProperties
   const banding = requests.find((r) => r.addBanding)?.addBanding.bandedRange.range
@@ -347,4 +347,35 @@ test('background worker', async (t) => {
   const fetchesAfterRejects = log.fetches.length
   const saved = await saveResume('SWE v5')
   await check('SAVE_RESUME_VERSION: a non-string or over-500-character resumeVersion is refused before any request; a string is saved', !notString.ok && !tooLong.ok && fetchesAfterRejects === 0 && saved.ok && sheet.writes.length === 1 && JSON.stringify(sheet.writes[0].values) === '[["SWE v5"]]', { notString: notString.error, tooLong: tooLong.error, fetchesAfterRejects, saved: saved.ok, writes: sheet.writes })
+
+  // ---- Sheet tab renamed (2026-09-14): quoted ranges, re-resolved by sheetId. ----
+  const tabLookups = () => log.fetches.filter((f) => f.endsWith('?fields=sheets.properties')).length
+  const rangeFetches = () => log.fetches.filter((f) => f.includes('/values/') || f.includes('ranges='))
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.sheetTitle = "Bob's Jobs"
+  apply('Renamed Co')
+  await settle()
+  const afterRename = {
+    stored: (local.data.sheetRef as any)?.sheetName,
+    lookups: tabLookups(),
+    appendUrl: log.fetches.find((f) => f.includes(':append')),
+    rows: rowsOf('Renamed Co').length,
+    entrySheet: recent()[0]?.sheetName,
+    logged: log.notifications.some((n) => n.title === 'Logged'),
+    queue: queue(),
+  }
+  apply('Second Co')
+  await settle()
+  const lookupsAfterSecond = tabLookups()
+  const unquoted = rangeFetches().filter((f) => !/(\/values\/|ranges=)'/.test(f))
+  await check("renamed tab (\"Bob's Jobs\"): the 400 is answered by one tab lookup by sheetId, the stored sheetRef takes the new name, and the row lands; the next apply needs no lookup; every range is quoted", afterRename.stored === "Bob's Jobs" && afterRename.lookups === 1 && afterRename.appendUrl?.includes("/values/'Bob''s Jobs'!A1:append") === true && afterRename.rows === 1 && afterRename.entrySheet === "Bob's Jobs" && afterRename.logged && afterRename.queue === 0 && lookupsAfterSecond === 1 && rowsOf('Second Co').length === 1 && unquoted.length === 0, { afterRename, lookupsAfterSecond, unquoted })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.sheetTitle = 'Renamed'
+  ctl.tabDeleted = true
+  apply('Deleted Tab Co')
+  await settle()
+  await check('tab deleted (no tab with the stored sheetId): one lookup, no retry loop, the row is queued, the stored sheetRef unchanged', tabLookups() === 1 && queue() === 1 && (local.data.sheetRef as any)?.sheetName === 'Sheet1' && rowsOf('Deleted Tab Co').length === 0, { lookups: tabLookups(), queue: queue(), stored: local.data.sheetRef })
 })

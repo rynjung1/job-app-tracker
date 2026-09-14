@@ -802,6 +802,29 @@ it's on, for the offline-queue drain's duplicate check, or null when the
 sheet has no Log ID column (Sheet setup, below). Google implements it as
 the header read plus one `values:get` of that column from row 2 down.
 
+**Fixed 2026-09-14 (a renamed sheet tab):** every A1 range used
+`sheetRef.sheetName` unquoted, and the name was never refreshed. A tab
+renamed to anything with a space or an apostrophe didn't parse, and any
+rename at all left every call failing with 400 "Unable to parse range"
+(every log queued, retried and failing again). Now every range quotes
+the name (`'Name'!A1`, any `'` doubled; `parseAppendedRange` reads that
+form back), and each public provider method runs through `withSheetRef`
+(`googleSheets.ts`): on that 400 it looks the tab's current title up by
+the stored numeric `sheetId` (`spreadsheets.get?fields=sheets.properties`,
+a rename keeps the id), stores it (`updateStoredSheetName` in
+`lib/sheetRef.ts`, only if that spreadsheet is still the connected one;
+`setSheetRef` now takes the storage lock too, so a Connect can't land in
+between) and retries once. A deleted tab, an unchanged title or a
+sheetRef without a `sheetId` keeps the original error. Retrying is safe,
+since a range that didn't parse wrote nothing; the append's retry stays
+inside the append lock. **Verified 2026-09-14 in Node only**
+(`tests/background.test.ts`, the fake Sheets API answering any other
+tab name with that 400): with the tab renamed to "Bob's Jobs", an apply
+made one tab lookup, appended at `'Bob''s Jobs'!A1`, stored the new name
+and logged; the next apply made no lookup; every range sent was quoted;
+with the tab deleted, one lookup, no loop, the row queued and the stored
+sheetRef unchanged. The existing assertions now expect `'Sheet1'!G5`.
+
 **Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`, the
 numeric grid id (not the string `sheetName`),
 captured at `createSheet` time. Needed because `batchUpdate`'s
