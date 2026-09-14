@@ -512,7 +512,11 @@ it. Undo hides itself when the displayed status is `Cancelled`.
 revoked Google sign-in used to be silent: `appendRow` failed, the row
 was queued, every 5-minute drain failed again, and nothing in the UI
 said so (found when the popup's live chip only updated after a
-Reconnect). Now:
+Reconnect). The likely cause of that lapse: the OAuth consent screen was
+in Testing, where Google issues refresh tokens that expire after 7 days
+(external user type, and `drive.file` isn't one of the exempt
+name/email/profile scopes); it goes to In production in web-store-deploy
+step 5. Now:
 - **Detection** (`googleSheets.ts`, `withAuth`): a failing
   non-interactive `getAuthToken` while `navigator.onLine`, or a 401
   that survives the one retry, throws `AuthRequiredError` (Spreadsheet
@@ -1293,6 +1297,12 @@ entries.
   a real, checked-for risk, not a theoretical one. Configured
   2026-09-11: `.github/dependabot.yml` (npm, weekly). Dependabot
   security alerts are a separate switch in the GitHub repo's settings.
+- **Dependabot hold (2026-09-13):** don't merge the open PRs #1-#5
+  without approval. #5 is React 19 (`react`, `react-dom` and their
+  types), which is shipped code; #1, #2 and #4 are major lint upgrades
+  (eslint 10, eslint-plugin-react-refresh 0.5, @eslint/js 10); #3 is
+  @types/chrome 0.2.9 (types only). A vite 5 to 6 PR, if one opens, is
+  held too (crxjs compatibility unchecked).
 
 **Explicitly not applicable** (would apply if this had its own
 backend/database, which it deliberately does not): login rate
@@ -1374,6 +1384,12 @@ published 2026-09-09).
    for the new popup and sheet, and a packaging script (a zip with no
    `key`, plus a contents check). Then the extension-ID sequence, which
    waits on Ryan's developer account.
+   Later 2026-09-13, that list is done: queued rows into the recent
+   list, the drain on Connect and the visible Undo failure (`ec2600e`);
+   `npm run package` (`11f95ef`); and the store screenshots, two
+   rendered ones of the popup and Settings (`078e7cf`, `9273876`), with
+   a sheet screenshot optional. What's left is the extension-ID
+   sequence in the `web-store-deploy` skill.
 
 **Deferred, not abandoned:**
 - **Indeed parser (2026-09-01):** every fetch attempt (curl and

@@ -35,6 +35,11 @@ description: Steps and status for publishing this extension to the Chrome Web St
   (R = only Ryan can do it.)
   1. R: register the developer account (one-time fee), and declare
      non-trader status (a free personal project, not a business).
+     2-Step Verification must be on for that Google account: the policy
+     says "2-Step Verification is required for all developer accounts
+     prior to publishing an extension or updating an existing
+     extension"
+     ([2-Step Verification](https://developer.chrome.com/docs/webstore/program-policies/two-step-verification)).
   2. Upload a zip with no `key` as a new item; don't submit it. The
      store rejects `key` only on the first upload; later updates may
      include it ([manifest key](https://developer.chrome.com/docs/extensions/reference/manifest/key),
@@ -49,12 +54,20 @@ description: Steps and status for publishing this extension to the Chrome Web St
   4. Add the public key as `key` in `manifest.config.ts`; R loads the
      build and checks chrome://extensions shows the Item ID, then
      removes the old unpacked install.
-  5. R (Cloud console): set the OAuth client's Item ID to the new ID,
-     and the consent screen to In production (Testing only lets listed
-     test users sign in; `drive.file` is non-sensitive, basic
-     verification only). Don't add a logo or display name to the
-     consent screen: that triggers brand verification (2-3 business
-     days).
+  5. R (Cloud console), in two parts:
+     - **Now, not waiting for the new ID** (Ryan, 2026-09-13): the
+       consent screen to In production. In Testing, only listed test
+       users can sign in, and Google's refresh tokens expire after 7
+       days: "A Google Cloud Platform project with an OAuth consent
+       screen configured for an external user type and a publishing
+       status of 'Testing' is issued a refresh token expiring in 7 days"
+       unless it only asks for name, email and profile
+       ([OAuth 2.0](https://developers.google.com/identity/protocols/oauth2)),
+       and `drive.file` isn't one of those. `drive.file` is
+       non-sensitive, so basic verification only. Don't add a logo or
+       display name to the consent screen: that triggers brand
+       verification (2-3 business days). Confirm it shows In production.
+     - **After step 4:** set the OAuth client's Item ID to the new ID.
   6. Re-verify Google sign-in and a real logged row on the new-ID
      build. Also check live:
      - Edit from the popup's recent list (never run since provider
@@ -74,6 +87,13 @@ description: Steps and status for publishing this extension to the Chrome Web St
        (`chrome.identity.removeCachedAuthToken`) should show no warning,
        and an application made offline should show the neutral
        "waiting to be saved" banner, not the warning.
+     - The `ec2600e` behaviour, also verified in Node only so far: the
+       row the Reconnect above saves then appears in the popup with Edit
+       and Undo; Connect saves waiting rows at once (make an Easy Apply
+       click before connecting, then Connect: Settings shows "Saved 1
+       waiting application" and the popup lists it); and a notification
+       Undo that fails (for example with the network off) shows the
+       "Undo didn't go through" notice.
      - Left here by phase B (the new ID starts with empty storage, so
        it's a real first install): Settings opens on its own as a
        window, and the "Not connected" notification's Open Settings

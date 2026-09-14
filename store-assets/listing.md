@@ -31,6 +31,36 @@ From the extension's popup you can see each of your 20 most recent applications 
 Privacy: the extension only reads job-posting pages on the specific sites it supports — it never has access to other tabs or browsing activity. It only ever talks to Google's own API to read and write your spreadsheet; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
 ```
 
+## Other dashboard fields
+
+Store listing tab:
+
+- **Category:** Productivity > Workflow & Planning. Checked 2026-09-13:
+  the developer docs don't publish the category list, but the live store
+  has this subcategory
+  (`chromewebstore.google.com/category/extensions/productivity/workflow`,
+  headed "Workflow & Planning", under Extensions > Productivity).
+- **Language:** English.
+- **Homepage URL:** https://github.com/rynjung1/job-app-tracker
+- **Support URL:** https://github.com/rynjung1/job-app-tracker/issues
+- **Mature content:** no.
+
+Distribution tab:
+
+- **Visibility:** TODO (Ryan decides): Public, or Unlisted (installable
+  only through the direct link).
+
+Test instructions tab (optional: the docs say it's "only useful if the
+item requires restricted credentials or a paid account"; this needs only
+any Google account, but it points a reviewer at the flow):
+
+```text
+1. Settings opens on install (or use the gear in the extension's popup). Click Connect Google Sheets and sign in with any Google account; a formatted "Job Applications" sheet is created in that account's Drive.
+2. With LinkedIn's interface in English, open a job posting that has Easy Apply and click Easy Apply. Closing the dialog without applying is fine. A row is logged to the sheet and a "Logged" notification with Undo and Edit appears.
+3. Open the extension's popup: the application is listed, with Edit and Undo.
+Greenhouse postings are logged only after a real, confirmed submission, so they're best not tested by a reviewer.
+```
+
 ## Screenshots (1280×800, 24-bit PNG, no alpha, full bleed)
 
 Chrome requires full-bleed screenshots (square corners, no padding). All
