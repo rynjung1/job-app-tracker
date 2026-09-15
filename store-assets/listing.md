@@ -61,8 +61,8 @@ Store listing tab:
 
 Distribution tab:
 
-- **Visibility:** TODO (Ryan decides): Public, or Unlisted (installable
-  only through the direct link).
+- **Visibility:** Public (decided by Ryan, 2026-09-14). The draft item is
+  `mhldoocgadblnnelahaplfdnaoiehafj`.
 
 Test instructions tab (optional: the docs say it's "only useful if the
 item requires restricted credentials or a paid account"; this needs only

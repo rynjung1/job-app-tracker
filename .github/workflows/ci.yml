@@ -33,4 +33,6 @@ jobs:
       - name: Node tests
         run: npm run test:node
       - name: Package (store zip and its checks)
-        run: npm run package -- --allow-dirty
+        # --allow-key since the manifest carries the store item's key
+        # (2026-09-14); package.mjs checks it derives the store item's ID.
+        run: npm run package -- --allow-dirty --allow-key

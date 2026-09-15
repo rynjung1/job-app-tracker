@@ -59,6 +59,13 @@ export default defineManifest({
   // Client ID is a public identifier for this client type — Google doesn't
   // issue a secret for "Chrome Extension" OAuth clients, so this is fine to
   // commit (see CLAUDE.md Security > Secrets & credentials, Phase 3 note).
+  // The Chrome Web Store item's public key (added 2026-09-14,
+  // web-store-deploy step 4): the base64 body of Package > View public key
+  // for item mhldoocgadblnnelahaplfdnaoiehafj. A public key, public by design
+  // (the pre-commit hook allows it). It pins this build's extension ID to the
+  // store item's, so an unpacked build signs in with the same OAuth client.
+  // scripts/package.mjs checks it derives that ID.
+  key: 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3XBXChjiq2LRuh7dpEKQWL6IWYpelptICK4KWD/WfB9zKmksZsit2iG2V89ECSJshayddD3R6Jruvj5k7V2PYiILRtzwBHypKgDO66X9NWYg8HBTVw/GPHA2pqsRKy1foAVlSJ3aprWkUt1JxOW+acT30v278gq7Dcz7Q7aPt8ofk9VdugHmFOQjy038gh/3guQsxxhPCT8B3H9Vv6pCITabkxRxgj98Ou62kw9o0R2brgKI5PYDfdn70UMLeNQgXBeY9CPWMwBXTWJSgtgbjrTDdRnHTmBYN1GavcoTxpcX4Q008RQeoGnPNOXK+DbSTvnZsFY4KctsC/oAHCD9bwIDAQAB',
   oauth2: {
     client_id: '735296444178-9g9p4hq4abfslhhsd33cjobtsptiqlbn.apps.googleusercontent.com',
     scopes: ['https://www.googleapis.com/auth/drive.file'],

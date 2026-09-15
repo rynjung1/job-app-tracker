@@ -1607,6 +1607,17 @@ See the `web-store-deploy` skill (`.claude/skills/web-store-deploy/SKILL.md`)
 for the submission steps and current status (privacy policy: done,
 published 2026-09-09).
 
+**Store item (2026-09-14):** Ryan uploaded the no-key zip as a draft.
+Item ID `mhldoocgadblnnelahaplfdnaoiehafj`, listed Public once
+submitted. Its public key is `manifest.config.ts`'s `key` (public by
+design), which pins every build, unpacked ones too, to that ID; the old
+unpacked ID `hopcbbifbonofhibjgdkogmbnocaghmg` is retired once Ryan
+removes that install. `scripts/package.mjs` fails a `--allow-key` build
+whose key doesn't derive this ID (SHA-256 of the DER key, the first 32
+hex digits mapped to a-p), and every upload from now on uses
+`npm run package -- --allow-key`. The OAuth client's Item ID still
+points at the old ID until Ryan's web-store-deploy step 5.
+
 ---
 
 ## Build phases (propose and confirm each before starting)
