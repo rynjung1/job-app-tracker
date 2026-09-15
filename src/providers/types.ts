@@ -71,7 +71,9 @@ export interface SpreadsheetProvider {
   readRow(sheetRef: SheetRef, rowNumber: number): Promise<Record<string, string>>
   // Added 2026-09-13 for the popup's live status chips: the named columns
   // of several rows in one read, returned in rowNumbers' order, each keyed
-  // by column name. Read-only (CLAUDE.md, Logging behavior).
+  // by column name. Read-only (CLAUDE.md, Logging behavior). Since
+  // 2026-09-14 a named column the sheet doesn't have is left out of the
+  // records instead of throwing (the live chips ask for Log ID).
   readCells(sheetRef: SheetRef, rowNumbers: number[], columnNames: string[]): Promise<Record<string, string>[]>
   // Added 2026-09-14, a flagged addition: each logged application's Log
   // ID and the row it's on, for the offline-queue drain's duplicate check;

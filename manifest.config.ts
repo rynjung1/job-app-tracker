@@ -8,7 +8,7 @@ export default defineManifest({
   // characters max), so it's the approved short description from
   // store-assets/listing.md, word for word.
   description:
-    'Automatically logs job applications to Google Sheets when you apply on LinkedIn or Greenhouse — no manual data entry.',
+    'Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse or Workday — no manual data entry.',
   version: pkg.version,
   // Added 2026-09-13: chrome.action.setBadgeTextColor, used by the "sign-in
   // needed" badge (lib/authStatus.ts), needs Chrome 110. On older Chrome it
@@ -100,6 +100,17 @@ export default defineManifest({
       // https origins anyway (TRUSTED_ORIGINS).
       matches: ['https://job-boards.greenhouse.io/*/jobs/*'],
       js: ['src/content/greenhouse.ts'],
+      run_at: 'document_idle',
+    },
+    {
+      // Workday career sites (2026-09-14, flagged in CLAUDE.md, Site parsers,
+      // Workday: a new set of install-warning hosts). Every tenant runs on a
+      // subdomain of these two domains, and the app moves from job search to
+      // posting to application without page loads, so no narrower pattern
+      // works. Never *.myworkday.com, Workday's employee HR app. The script
+      // acts only on a job's Apply and final Submit clicks.
+      matches: ['https://*.myworkdayjobs.com/*', 'https://*.myworkdaysite.com/*'],
+      js: ['src/content/workday.ts'],
       run_at: 'document_idle',
     },
   ],

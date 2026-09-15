@@ -18,7 +18,7 @@ import { getActiveProvider } from '../providers/activeProvider'
 import type { SheetRef } from '../providers/types'
 import { SHEET_TEMPLATE_COLUMNS } from '../lib/sheetTemplate'
 import { getSheetRef, setSheetRef } from '../lib/sheetRef'
-import { getRecentApplications, setApplicationStatus, updateRecentApplication } from '../lib/recentApplications'
+import { getRecentApplications, rowStillMatches, setApplicationStatus, updateRecentApplication } from '../lib/recentApplications'
 import { isStatusValue } from '../lib/sheetTemplate'
 import type { StatusValue } from '../lib/sheetTemplate'
 import { AuthRequiredError, SheetMissingError } from '../providers/types'
@@ -298,8 +298,8 @@ async function handleSaveResumeVersion(payload: {
   // field instead of something background would otherwise have to infer.
   if (!skipIdentityCheck) {
     const row = await provider.readRow(sheetRef, entry.rowNumber)
-    if (row.Company !== entry.company || row.Title !== entry.title) {
-      return { ok: false, code: 'STALE_ROW', error: 'Row Company/Title no longer match the cached entry' }
+    if (!rowStillMatches(row, entry)) {
+      return { ok: false, code: 'STALE_ROW', error: 'The row no longer matches the cached entry' }
     }
   }
 
@@ -325,8 +325,8 @@ async function handleSetStatus(payload: { entryId: unknown; status: unknown }): 
   const provider = await getActiveProvider()
 
   const row = await provider.readRow(sheetRef, entry.rowNumber)
-  if (row.Company !== entry.company || row.Title !== entry.title) {
-    return { ok: false, code: 'STALE_ROW', error: 'Row Company/Title no longer match the cached entry' }
+  if (!rowStillMatches(row, entry)) {
+    return { ok: false, code: 'STALE_ROW', error: 'The row no longer matches the cached entry' }
   }
 
   const updated = await setApplicationStatus(provider, sheetRef, entry, payload.status)

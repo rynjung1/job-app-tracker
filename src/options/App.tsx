@@ -317,6 +317,13 @@ function App() {
               <span className="note">Logged once Greenhouse confirms the submission</span>
             </div>
           </li>
+          <li>
+            <TickIcon size={16} className="tick" />
+            <div>
+              <b>Workday</b> career sites (myworkdayjobs.com, myworkdaysite.com)
+              <span className="note">Logged at the final Submit; Company is the site's name from its address</span>
+            </div>
+          </li>
         </ul>
       </section>
 

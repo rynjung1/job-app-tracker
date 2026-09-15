@@ -4,7 +4,7 @@
 // fetch and navigator (fakes/background-env.ts, imported first). Each case
 // is one subtest; they share the listeners and run in order.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { alarms, ctl, HEADERS_WITH_LOG_ID, listeners, local, log, reset, session, sheet } from './fakes/background-env'
+import { alarms, ctl, HEADERS_8, HEADERS_WITH_LOG_ID, listeners, local, log, reset, session, sheet } from './fakes/background-env'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildRow } from '../src/lib/buildRow'
@@ -541,4 +541,90 @@ test('background worker', async (t) => {
   await sendJob('Repeat Co', REPEAT_URL)
   const afterDayOld = appends()
   await check('Easy Apply reopened: the same job twice -> 1 row, 1 "Logged", nothing queued; a different job logs; after the entry is Cancelled it logs again; an entry 25 hours old doesn\'t block', reopened.appends === 1 && reopened.rows === 1 && reopened.logged === 1 && reopened.queue === 0 && afterOtherJob === 2 && afterCancel === 3 && afterDayOld === 1, { reopened, afterOtherJob, afterCancel, afterDayOld })
+
+  // ---- Workday (2026-09-14): tenant origins accepted, lookalikes refused;
+  // the 24-hour repeat check on the normalized URL. ----
+  const WD_URL = 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-System-Software-Engineer--Agentic-Kernel-Development_JR2025621'
+  const fromOrigin = async (origin: string, company: string, url = `${WD_URL}-${company}`) => {
+    listeners.onMessage[0]({ type: 'JOB_APPLICATION_LOGGED', payload: { title: 'Engineer', company, location: 'US, CA, Santa Clara', url } }, { origin }, () => {})
+    await settle()
+  }
+  reset()
+  await local.set({ sheetRef: REF })
+  await fromOrigin('https://nvidia.wd5.myworkdayjobs.com', 'wd-tenant')
+  await fromOrigin('https://wd1.myworkdaysite.com', 'wd-site')
+  const lookalikes = ['https://evil-myworkdayjobs.com', 'https://myworkdayjobs.com.evil.example', 'http://nvidia.wd5.myworkdayjobs.com', 'https://nvidia.wd5.myworkday.com', 'https://nvidia.wd5.myworkdayjobs.com:8443']
+  for (const [i, origin] of lookalikes.entries()) await fromOrigin(origin, `lookalike${i}`)
+  const lookalikeRows = lookalikes.map((_, i) => rowsOf(`lookalike${i}`).length).reduce((a, b) => a + b, 0)
+  await fromOrigin('https://nvidia.wd5.myworkdayjobs.com', 'wd-repeat', WD_URL)
+  await fromOrigin('https://nvidia.wd5.myworkdayjobs.com', 'wd-repeat', WD_URL)
+  await check('Workday: messages from a myworkdayjobs.com tenant and from myworkdaysite.com log; 5 lookalike origins log nothing; the same normalized URL twice logs once', rowsOf('wd-tenant').length === 1 && rowsOf('wd-site').length === 1 && lookalikeRows === 0 && rowsOf('wd-repeat').length === 1 && appends() === 3, { tenant: rowsOf('wd-tenant').length, site: rowsOf('wd-site').length, lookalikeRows, repeat: rowsOf('wd-repeat').length, appends: appends() })
+
+  // ---- The popup's identity check by Log ID (2026-09-14). ----
+  const idEntry = { ...acme, logId: 'id-1' }
+  const idRow = (company: string, logId: string) => ['46277.5', company, 'SWE Intern', 'Remote', 'https://www.linkedin.com/jobs/view/1/', 'SWE v3', 'Applied', '', logId]
+  const withEntry = async (entry: object, headers: string[], row: string[]) => {
+    reset()
+    ctl.headers = headers
+    await local.set({ sheetRef: REF, recentApplications: [entry] })
+    sheet.rows[5] = row
+  }
+  const saveResumeChecked = () => internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 's1', resumeVersion: 'SWE v9', skipIdentityCheck: false } }) as Promise<any>
+
+  await withEntry(idEntry, HEADERS_WITH_LOG_ID, idRow('acme (tenant id, edited by hand)', 'id-1'))
+  const editedStatus = await setStatus('Interview')
+  const editedStatusWrites = sheet.writes.length
+  await withEntry(idEntry, HEADERS_WITH_LOG_ID, idRow('acme (tenant id, edited by hand)', 'id-1'))
+  const editedResume = await saveResumeChecked()
+  await check('Log ID identity: Company edited in the sheet, same Log ID -> SET_STATUS and SAVE_RESUME_VERSION both write', editedStatus.ok && editedStatusWrites === 1 && editedResume.ok && sheet.writes.length === 1, { editedStatus, editedResume })
+
+  await withEntry(idEntry, HEADERS_WITH_LOG_ID, idRow('Acme', 'id-2'))
+  const movedStatus = await setStatus('Offer')
+  const movedResume = await saveResumeChecked()
+  await check('Log ID identity: same Company and Title but another Log ID (the row moved) -> STALE_ROW for both, nothing written', !movedStatus.ok && movedStatus.code === 'STALE_ROW' && !movedResume.ok && movedResume.code === 'STALE_ROW' && sheet.writes.length === 0, { movedStatus, movedResume })
+
+  await withEntry(acme, HEADERS_WITH_LOG_ID, idRow('Acme (edited)', 'id-1'))
+  const noIdOnEntry = await setStatus('Offer')
+  await withEntry(idEntry, HEADERS_8, [...acmeRow])
+  const oldSheetSame = await setStatus('Offer')
+  await withEntry(idEntry, HEADERS_8, ['46277.5', 'Acme (edited)', ...acmeRow.slice(2)])
+  const oldSheetEdited = await setStatus('Offer')
+  await check('Log ID identity falls back to Company/Title: an entry without a logId (edited Company -> STALE_ROW); a sheet without the column (same -> ok, edited -> STALE_ROW)', !noIdOnEntry.ok && noIdOnEntry.code === 'STALE_ROW' && oldSheetSame.ok && !oldSheetEdited.ok && oldSheetEdited.code === 'STALE_ROW', { noIdOnEntry, oldSheetSame: oldSheetSame.ok, oldSheetEdited })
+
+  reset()
+  ctl.headers = HEADERS_WITH_LOG_ID
+  await local.set({ sheetRef: REF })
+  apply('Logged Id Co')
+  await settle()
+  const directEntry = recent()[0]
+  const directRow = rowsOf('Logged Id Co')[0]?.[1]
+  await local.set({ offlineQueue: [{ ...twinRow('queued-id-7'), Company: 'Drained Id Co' }] })
+  await drain()
+  const drainedEntry = recent().find((e) => e.company === 'Drained Id Co')
+  await check('recent entries carry the row\'s Log ID: a direct log (same id as the sheet cell) and a drained row', directEntry?.company === 'Logged Id Co' && !!directEntry?.logId && directEntry.logId === directRow?.[LOG_ID] && drainedEntry?.logId === 'queued-id-7', { directEntry: directEntry?.logId, cell: directRow?.[LOG_ID], drained: drainedEntry?.logId })
+
+  // ---- Live status chips by Log ID (2026-09-14). ----
+  const live = () => internal({ type: 'GET_LIVE_STATUSES' }) as Promise<any>
+  const batchReads = () => log.fetches.filter((f) => f.includes('values:batchGet'))
+  const liveEntry = (id: string, rowNumber: number, logId?: string) => ({ id, company: 'nvidia', title: 'Engineer', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber, ...(logId ? { logId } : {}) })
+  const liveRow = (company: string, status: string, logId: string) => ['46277.5', company, 'Engineer', '', '', '', status, '', logId]
+  reset()
+  ctl.headers = HEADERS_WITH_LOG_ID
+  await local.set({ sheetRef: REF, recentApplications: [liveEntry('a', 2, 'id-a'), liveEntry('b', 3, 'id-b'), liveEntry('c', 4), liveEntry('d', 5)] })
+  sheet.rows[2] = liveRow('NVIDIA (edited by hand)', 'Interview', 'id-a')
+  sheet.rows[3] = liveRow('nvidia', 'Offer', 'id-moved-here')
+  sheet.rows[4] = liveRow('NVIDIA (edited by hand)', 'Rejected', 'id-c')
+  sheet.rows[5] = liveRow('nvidia', 'Interview', 'id-d')
+  const withIds = await live()
+  const readsWithIds = batchReads()
+  await check('live chips on a Log ID sheet: an edited Company with the same Log ID keeps its live status; another Log ID in the row (moved) is left out; entries without a logId match on Company/Title; one batchGet with 4 ranges, nothing written', withIds.ok && JSON.stringify(withIds.data) === '{"a":"Interview","d":"Interview"}' && readsWithIds.length === 1 && (readsWithIds[0].match(/ranges=/g) ?? []).length === 4 && sheet.writes.length === 0, { data: withIds.data, reads: readsWithIds })
+
+  reset()
+  ctl.headers = HEADERS_8
+  await local.set({ sheetRef: REF, recentApplications: [liveEntry('a', 2, 'id-a'), liveEntry('b', 3, 'id-b')] })
+  sheet.rows[2] = liveRow('nvidia', 'Interview', '').slice(0, 8)
+  sheet.rows[3] = liveRow('NVIDIA (edited by hand)', 'Offer', '').slice(0, 8)
+  const oldSheetLive = await live()
+  const readsOldSheet = batchReads()
+  await check('live chips on a sheet without the Log ID column: no error, 3 ranges read, Company/Title decide (same -> live, edited -> left out)', oldSheetLive.ok && JSON.stringify(oldSheetLive.data) === '{"a":"Interview"}' && readsOldSheet.length === 1 && (readsOldSheet[0].match(/ranges=/g) ?? []).length === 3, { oldSheetLive, reads: readsOldSheet })
 })

@@ -239,6 +239,15 @@ export const fakeResponse = (status: number, text: string) =>
       throw new DOMException('The operation was aborted.', 'AbortError')
     }
   }
+  // values:batchGet (readCells): one column slice per ranges= parameter,
+  // majorDimension=COLUMNS, trailing blanks dropped like the real API.
+  const batchRanges = u.includes('values:batchGet') ? [...u.matchAll(/ranges=(?:'(?:[^']|'')*'|[^!&]+)!([A-Z])(\d+):\1(\d+)/g)] : []
+  const columnSlice = (letter: string, from: number, to: number) => {
+    const values: string[] = []
+    for (let row = from; row <= to; row++) values.push(sheet.rows[row]?.[letter.charCodeAt(0) - 65] ?? '')
+    while (values.length && values[values.length - 1] === '') values.pop()
+    return values
+  }
   const rowRead = u.match(/!(\d+):(\d+)(?:\?|$)/)
   const columnRead = u.match(/!([A-Z])2:\1(?:\?|$)/)
   const body =
@@ -246,7 +255,9 @@ export const fakeResponse = (status: number, text: string) =>
       ? { spreadsheetId: 'new1', sheets: [{ properties: { title: 'Sheet1', sheetId: 0 } }] }
       : u.endsWith('?fields=sheets.properties')
         ? { sheets: [{ properties: ctl.tabDeleted ? { title: 'Other', sheetId: 5 } : { title: ctl.sheetTitle, sheetId: 0 } }] }
-        : columnRead
+        : batchRanges.length
+          ? { valueRanges: batchRanges.map((m) => ({ values: [columnSlice(m[1], Number(m[2]), Number(m[3]))] })) }
+          : columnRead
           ? { values: [columnValues(columnRead[1])] }
           : rowRead && rowRead[1] === rowRead[2] && rowRead[1] !== '1'
             ? { values: sheet.rows[Number(rowRead[1])] ? [sheet.rows[Number(rowRead[1])]] : [] }

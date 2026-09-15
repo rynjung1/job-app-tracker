@@ -9,6 +9,8 @@ import type { JobPostingData } from '../parsers/types'
 import { buildRow } from '../lib/buildRow'
 import { sanitizeRow } from '../lib/sanitize'
 import { parseJobPostingData } from '../lib/jobPayload'
+import { isTrustedJobSiteOrigin } from '../lib/trustedOrigins'
+import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { REMOVED_EXCEL_KEYS } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
 import { getDefaultResumeVersion } from '../lib/resumeVersion'
@@ -22,7 +24,6 @@ import { drainOfflineQueue, ensureRetryAlarm, getOfflineQueue, queueRow, RETRY_A
 import { getSheetStatus, SHEET_PROBLEM_NOTIFICATION_ID, showSheetProblemNotification } from '../lib/sheetStatus'
 import { checkSheetInTrash } from './sheetHealth'
 
-const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 // This extension's own pages (popup, options) — used to distinguish an
 // internal RPC message from a content-script message. See the onMessage
 // listener below for why this is sender.origin, not sender.tab or
@@ -96,6 +97,7 @@ async function notifyApplicationLogged(payload: JobPostingData, row: Record<stri
     status: 'Applied',
     sheetName: appended.sheetName,
     rowNumber: appended.rowNumber,
+    logId: row[LOG_ID_COLUMN],
   }
   await addRecentApplication(entry)
 
@@ -344,7 +346,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true // keep the channel open for the async sendResponse above
   }
 
-  if (!sender.origin || !TRUSTED_ORIGINS.includes(sender.origin)) {
+  // The job sites' origins (lib/trustedOrigins.ts): LinkedIn, Greenhouse,
+  // and since 2026-09-14 any Workday career-site tenant.
+  if (!isTrustedJobSiteOrigin(sender.origin)) {
     console.warn('[job-app-tracker] rejected message from unverified origin', sender.origin)
     return false
   }
