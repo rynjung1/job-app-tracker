@@ -25,8 +25,8 @@ interface JobPostingJsonLd {
 // runs on. This path is effectively dead in practice; kept as free
 // insurance in case a future LinkedIn build reintroduces it, not because
 // it's expected to fire. extractFromDom() below is the real primary path.
-function readJobPostingJsonLd(): JobPostingJsonLd | null {
-  const scripts = document.querySelectorAll('script[type="application/ld+json"]')
+function readJobPostingJsonLd(doc: Document): JobPostingJsonLd | null {
+  const scripts = doc.querySelectorAll('script[type="application/ld+json"]')
   for (const script of scripts) {
     try {
       const data = JSON.parse(script.textContent ?? '') as JobPostingJsonLd
@@ -48,11 +48,12 @@ function formatLocation(jsonLd: JobPostingJsonLd): string | null {
   return parts.length > 0 ? parts.join(', ') : null
 }
 
-// document.title carries title/company on /jobs/view/ pages. It does NOT on
-// the split-pane search view: there it stays the search page's title
-// ("(20) software engineer intern Jobs | LinkedIn") even with a job's detail
-// pane loaded (checked live 2026-09-11), so the split pane reads the pane's
-// <h1> instead (see extractSplitPane).
+// document.title carries title/company on /jobs/view/ pages, and since
+// LinkedIn's /jobs/search-results/ layout (checked live 2026-09-14) on the
+// search page too, for the selected job. The older split pane left it as
+// the search page's title ("(20) software engineer intern Jobs | LinkedIn"),
+// so on any ?currentJobId= page it's only a fallback, used when it names the
+// same title as the job's own link (see extractSelectedJob).
 // Format confirmed on one real posting: "{Title} | {Company} | LinkedIn".
 // Anchored from the END rather than a naive 3-way split, since a job title
 // can itself contain " | " (e.g. "Engineer | Backend Team"), which would
@@ -60,8 +61,8 @@ function formatLocation(jsonLd: JobPostingJsonLd): string | null {
 // company segment right before it are far less likely to contain a pipe.
 // Only confirmed against one real posting so far — needs 2-3 more before
 // this pattern counts as settled, per the working agreement.
-function parseDocumentTitle(): { title?: string; company?: string } {
-  const parts = document.title.split(' | ')
+function parseDocumentTitle(doc: Document): { title?: string; company?: string } {
+  const parts = doc.title.split(' | ')
   if (parts.length < 3 || parts[parts.length - 1] !== 'LinkedIn') return {}
   const company = parts[parts.length - 2]?.trim()
   const title = parts
@@ -126,9 +127,9 @@ function extractLocationFromDom(companyLink: Element | null): string | null {
 // pipe-split heuristic holding), and structural/content-shape inference
 // for location (see findLocationSiblingSpans — the most fragile piece of
 // this parser).
-function extractFromDom(): { title?: string; company?: string; location?: string | null } {
-  const { title, company: titleCompany } = parseDocumentTitle()
-  const companyLink = document.querySelector('a[href*="/company/"]')
+function extractFromDom(doc: Document): { title?: string; company?: string; location?: string | null } {
+  const { title, company: titleCompany } = parseDocumentTitle(doc)
+  const companyLink = doc.querySelector('a[href*="/company/"]')
   const company = companyLink?.textContent?.trim() || titleCompany
   const location = extractLocationFromDom(companyLink)
   return { title, company, location }
@@ -141,95 +142,161 @@ function extractFromDom(): { title?: string; company?: string; location?: string
 // hypothetical. Reconstruct the canonical per-job URL from the ID in that
 // case; direct /jobs/view/{id}/ pages already carry the ID in the path
 // and are untouched by this branch.
-function resolveCanonicalJobUrl(): string {
-  const currentJobId = new URLSearchParams(window.location.search).get('currentJobId')
+function resolveCanonicalJobUrl(url: URL): string {
+  const currentJobId = url.searchParams.get('currentJobId')
   if (currentJobId) {
     return `https://www.linkedin.com/jobs/view/${currentJobId}/`
   }
-  return window.location.href.split('?')[0]
+  return url.href.split('?')[0]
 }
 
-// The split-pane search view (/jobs/search/, /jobs/collections/, ...) keeps
-// the selected job in ?currentJobId=. /jobs/view/ pages are excluded
-// explicitly so their proven extraction path is never touched. Digits only,
-// since the id goes into a CSS selector below.
-function splitPaneJobId(): string | null {
-  if (window.location.pathname.startsWith('/jobs/view/')) return null
-  const id = new URLSearchParams(window.location.search).get('currentJobId')
+// Any search layout that keeps the selected job in ?currentJobId= (the old
+// split pane at /jobs/search/, /jobs/collections/, ..., and the
+// /jobs/search-results/ layout LinkedIn's main job search serves since
+// 2026-09). /jobs/view/ pages are excluded explicitly so their proven
+// extraction path is never touched. Digits only, since the id goes into a
+// CSS selector below.
+function selectedJobId(url: URL): string | null {
+  if (url.pathname.startsWith('/jobs/view/')) return null
+  const id = url.searchParams.get('currentJobId')
   return id && /^\d+$/.test(id) ? id : null
 }
 
 const RESULTS_CARD = '[data-occludable-job-id]'
+const EASY_APPLY_SELECTOR = 'a[href*="/jobs/view/"][href*="/apply/"], [aria-label^="Easy Apply to"]'
+const COMPANY_LINK = 'a[href*="/company/"]'
 
 function collapsedText(el: Element | null | undefined): string {
   return el?.textContent?.trim().replace(/\s+/g, ' ') ?? ''
 }
 
-// Split-pane extraction, checked live on 3 jobs (2026-09-11). No hashed
-// classes; structure and links only, like extractFromDom:
-// - title: the detail pane's <h1>, the one linking to /jobs/view/{jobId}/.
-//   Results cards also link there, but not in an <h1>, and are excluded
-//   explicitly anyway.
-// - company: the nearest ancestor of that <h1> (3 levels up in every sample)
-//   holding a company link with text, stopping before any ancestor that
-//   contains results cards, so the company can't come from the list.
-// - location: see extractSplitPaneLocation.
-// Fails safe: if the pane isn't loaded yet, or shows a different job than
-// ?currentJobId=, the <h1> lookup finds nothing and this returns null (no
-// row) rather than logging the wrong job. Both copies of the Easy Apply
-// button sit in this one pane, so it doesn't matter which was clicked.
-function extractSplitPane(jobId: string): JobPostingData | null {
-  const heading = Array.from(document.querySelectorAll('h1')).find(
-    (h) => h.querySelector(`a[href*="/jobs/view/${jobId}"]`) && !h.closest(RESULTS_CARD),
-  )
-  if (!heading) return null
-  const title = collapsedText(heading)
-
-  let topCard: Element | null = null
-  let ancestor: Element | null = heading.parentElement
-  for (let i = 0; i < 6 && ancestor; i++, ancestor = ancestor.parentElement) {
-    if (ancestor.querySelector(RESULTS_CARD)) break
-    const hasCompany = Array.from(ancestor.querySelectorAll('a[href*="/company/"]')).some((a) =>
-      collapsedText(a),
-    )
-    if (hasCompany) {
-      topCard = ancestor
-      break
-    }
-  }
-  if (!topCard) return null
-  const company = collapsedText(
-    Array.from(topCard.querySelectorAll('a[href*="/company/"]')).find((a) => collapsedText(a)),
-  )
-  if (!title || !company) return null
-
-  return { title, company, location: extractSplitPaneLocation(topCard), url: resolveCanonicalJobUrl() }
+// The job id in a /jobs/view/{id}/... link, or null.
+function jobIdOf(href: string | null): string | null {
+  return href?.match(/\/jobs\/view\/(\d+)(?:[/?#]|$)/)?.[1] ?? null
 }
 
-// The "X ago" metadata row, read with the same content-shape filter as
-// extractLocationFromDom. Here "ago" sits in its own wrapper span, so the
-// row ("Markham, ON", "·", "1 week ago", "·", "65 applicants") is one level
-// higher than on /jobs/view/; walks up to 3 levels. Null if there's no row
-// or no location-shaped entry (e.g. a non-English UI, where "ago" differs).
-function extractSplitPaneLocation(topCard: Element): string | null {
-  const agoSpan = Array.from(topCard.querySelectorAll('span')).find(
-    (span) => span.children.length === 0 && AGO_PATTERN.test(collapsedText(span)),
-  )
-  let row: Element | null = agoSpan?.parentElement ?? null
-  for (let i = 0; i < 3 && row; i++, row = row.parentElement) {
-    const location = Array.from(row.children)
-      .filter((el) => el.tagName === 'SPAN')
-      .map((el) => collapsedText(el))
-      .find(
-        (value) =>
-          value.length > 0 &&
-          value !== '·' &&
-          !AGO_PATTERN.test(value) &&
-          !APPLICANTS_PATTERN.test(value),
-      )
+// Rendered with a box: false for display:none, hidden, and detached copies.
+// A document without layout (none here in practice) reports every element
+// hidden, and then every candidate counts.
+function isRendered(el: Element): boolean {
+  return el.getClientRects().length > 0
+}
+
+// The selected job's title link and the pane around it. Rewritten
+// 2026-09-14 for LinkedIn's /jobs/search-results/ layout, which has no <h1>
+// at all (checked live, read-only, on posting 4464201438): the title is
+// <p><a href="/jobs/view/{id}/">Title</a></p> in the detail pane. So the
+// title is the rendered link to /jobs/view/{id}/ that isn't the /apply/ link
+// and isn't inside a results card, and its pane is the nearest ancestor that
+// also holds the Easy Apply control. A results-list link for the same job
+// can match too (the new layout's cards have no data-occludable-job-id), but
+// its nearest ancestor holding an Easy Apply control is much higher up, so
+// the link with the innermost pane wins. The old split pane's <h1> title
+// link is found the same way.
+function findSelectedJob(doc: Document, jobId: string): { titleLink: Element; pane: Element } | null {
+  const links = Array.from(doc.querySelectorAll(`a[href*="/jobs/view/${jobId}"]`)).filter((a) => {
+    const href = a.getAttribute('href')
+    return jobIdOf(href) === jobId && !href?.includes('/apply/') && !a.closest(RESULTS_CARD) && collapsedText(a) !== ''
+  })
+  const rendered = links.filter(isRendered)
+  let best: { titleLink: Element; pane: Element } | null = null
+  for (const titleLink of rendered.length > 0 ? rendered : links) {
+    let pane: Element | null = titleLink.parentElement
+    while (pane && !pane.querySelector(EASY_APPLY_SELECTOR)) pane = pane.parentElement
+    if (pane && (!best || best.pane.contains(pane))) best = { titleLink, pane }
+  }
+  return best
+}
+
+// The "{location} · {n} days ago · {n} applicants" row, in both layouts:
+// the new one is one <p> of text, the old split pane separate <span>s
+// ("Markham, ON", "·", "1 week ago", "·", "65 applicants"). The shortest
+// element whose text has a " · " and an "ago" is that row; its first part
+// that isn't the age or the applicant count is the location. Null if there's
+// no such row or no location-shaped part (e.g. a non-English UI, where
+// "ago" differs).
+function extractMetaRowLocation(scope: Element): string | null {
+  const rows = Array.from(scope.querySelectorAll('p, span, div, li'))
+    .map((el) => collapsedText(el))
+    .filter((text) => text.includes('·') && /\bago\b/i.test(text) && text.length <= 200)
+    .sort((a, b) => a.length - b.length)
+  for (const text of rows) {
+    const location = text
+      .split('·')
+      .map((part) => part.trim())
+      .find((part) => part.length > 0 && !AGO_PATTERN.test(part) && !APPLICANTS_PATTERN.test(part))
     if (location) return location
   }
   return null
+}
+
+// A ?currentJobId= page (both search layouts). Fails safe, as before: if the
+// detail pane hasn't loaded, or shows a different job than ?currentJobId=,
+// this returns null (no row) rather than logging the wrong job.
+// - title: the selected job's own link (findSelectedJob).
+// - company and location: from inside its pane only, the nearest ancestor of
+//   the title link (up to the pane) that holds a company link with text.
+// - fallback: document.title's "Title | Company | LinkedIn" when the pane has
+//   no company link, but only when that title part is exactly the link's
+//   text, so a stale search-page title can't produce a wrong row.
+function extractSelectedJob(doc: Document, jobId: string, url: URL): JobPostingData | null {
+  const found = findSelectedJob(doc, jobId)
+  if (!found) return null
+  const { titleLink, pane } = found
+  // A pane holding results cards is the list, not a detail pane; an Easy
+  // Apply link for another job means the pane shows a different job.
+  if (pane.querySelector(RESULTS_CARD)) return null
+  const applyHrefs = Array.from(pane.querySelectorAll(EASY_APPLY_SELECTOR))
+    .map((el) => el.getAttribute('href'))
+    .filter((href): href is string => href !== null)
+  if (applyHrefs.some((href) => jobIdOf(href) !== jobId)) return null
+
+  const title = collapsedText(titleLink)
+  let scope: Element | null = null
+  for (let el = titleLink.parentElement; el; el = el === pane ? null : el.parentElement) {
+    if (Array.from(el.querySelectorAll(COMPANY_LINK)).some((a) => collapsedText(a))) {
+      scope = el
+      break
+    }
+  }
+  let company = scope ? collapsedText(Array.from(scope.querySelectorAll(COMPANY_LINK)).find((a) => collapsedText(a))) : ''
+  if (!company) {
+    const fromTitle = parseDocumentTitle(doc)
+    if (fromTitle.title === title && fromTitle.company) company = fromTitle.company
+  }
+  if (!title || !company) return null
+
+  const location = extractMetaRowLocation(scope ?? pane)
+  return { title, company, location, url: resolveCanonicalJobUrl(url) }
+}
+
+// The whole extraction for a page, given its document and address. The
+// content script calls it (through linkedinParser.extract) at click time;
+// tests call it on fixture documents at any LinkedIn address.
+export function extractLinkedInJob(doc: Document, href: string): JobPostingData | null {
+  const url = new URL(href)
+  const jobId = selectedJobId(url)
+  if (jobId) return extractSelectedJob(doc, jobId, url)
+
+  const jsonLd = readJobPostingJsonLd(doc)
+
+  let title = typeof jsonLd?.title === 'string' ? jsonLd.title.trim() : undefined
+  let company =
+    typeof jsonLd?.hiringOrganization?.name === 'string'
+      ? jsonLd.hiringOrganization.name.trim()
+      : undefined
+  let location = jsonLd ? formatLocation(jsonLd) : null
+
+  if (!title || !company || !location) {
+    const domFallback = extractFromDom(doc)
+    title = title ?? domFallback.title
+    company = company ?? domFallback.company
+    location = location ?? domFallback.location ?? null
+  }
+
+  if (!title || !company) return null
+
+  return { title, company, location, url: resolveCanonicalJobUrl(url) }
 }
 
 export const linkedinParser: JobPageParser = {
@@ -246,34 +313,7 @@ export const linkedinParser: JobPageParser = {
   },
 
   extract() {
-    const splitPaneId = splitPaneJobId()
-    if (splitPaneId) return extractSplitPane(splitPaneId)
-
-    const jsonLd = readJobPostingJsonLd()
-
-    let title = typeof jsonLd?.title === 'string' ? jsonLd.title.trim() : undefined
-    let company =
-      typeof jsonLd?.hiringOrganization?.name === 'string'
-        ? jsonLd.hiringOrganization.name.trim()
-        : undefined
-    let location = jsonLd ? formatLocation(jsonLd) : null
-
-    if (!title || !company || !location) {
-      const domFallback = extractFromDom()
-      title = title ?? domFallback.title
-      company = company ?? domFallback.company
-      location = location ?? domFallback.location ?? null
-    }
-
-    if (!title || !company) return null
-
-    const data: JobPostingData = {
-      title,
-      company,
-      location,
-      url: resolveCanonicalJobUrl(),
-    }
-    return data
+    return extractLinkedInJob(document, window.location.href)
   },
 
   getApplyButtonSelector() {
@@ -293,6 +333,8 @@ export const linkedinParser: JobPageParser = {
     // Easy-Apply-only scope still holds: "Apply on company website" goes
     // through /safety/go/ with a percent-encoded target, and its label
     // doesn't start with "Easy Apply to", so it matches neither half.
-    return 'a[href*="/jobs/view/"][href*="/apply/"], [aria-label^="Easy Apply to"]'
+    // The /jobs/search-results/ layout (2026-09-14) uses the link variant,
+    // <a aria-label="Easy Apply to this job" href="/jobs/view/{id}/apply/">.
+    return EASY_APPLY_SELECTOR
   },
 }

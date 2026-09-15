@@ -1261,6 +1261,50 @@ a click on the second Easy Apply copy (in this layout it sat offscreen,
 at y = -859, and a click on it did nothing), keyboard activation, the
 off-site Apply, and the Save/card negative checks.
 
+**Fixed 2026-09-14 (LinkedIn's /jobs/search-results/ layout):** found by
+the reviewer, live in Ryan's Chrome on the new-ID build: on
+`/jobs/search-results/?currentJobId=4464201438&...&f_AL=true`, the layout
+LinkedIn's main job search now serves, a trusted Easy Apply click logged
+"apply clicked but extraction failed — no row logged". Read-only DOM
+evidence from that page: no `<h1>` anywhere (the split-pane extraction
+required the detail pane's `<h1>`); the title a
+`<p><a href="/jobs/view/4464201438/">`; several company links to
+`/company/galenthq/life/`; the location as one `<p>` "Mississauga, ON · 3
+days ago · Over 100 applicants"; Easy Apply `<a aria-label="Easy Apply to
+this job" href="/jobs/view/4464201438/apply/">`, which the selector
+already matched; `document.title` now "{Title} | {Company} | LinkedIn" for
+the selected job. Now, for any `?currentJobId=` page (the old split pane
+and this layout), `extractLinkedInJob` (`parsers/linkedin.ts`) takes the
+rendered link to `/jobs/view/{id}/` that isn't the `/apply/` link or in a
+results card; its pane is the nearest ancestor that also holds the Easy
+Apply control, and the link with the innermost pane wins (a results-list
+link for the same job has a much higher one). Company and the "location ·
+age" row come from inside that pane only. `document.title` is a fallback
+for the company, used only when its title part is exactly the link's text.
+Still null when the pane shows a different job (an Easy Apply link for
+another id, or results cards inside it). `/jobs/view/` extraction is
+unchanged. The parser now takes the document and address as arguments
+(`linkedinParser.extract()` passes the page's), so fixtures can run at any
+LinkedIn address.
+**Verified 2026-09-14 in headless Chrome only**
+(`tests/dom/linkedin.test.mjs`, each case in its own iframe; fixtures in
+`tests/fixtures/linkedin/`, the new layout built from the reviewer's
+structure, the other two from the structures recorded above, placeholders
+beyond the one public posting): the old parser returned null on the new
+fixture, reproducing the live failure, and the new one returns Galent /
+the title / Mississauga, ON / `https://www.linkedin.com/jobs/view/4464201438/`;
+with no company link in the pane, the matching `document.title` supplies
+it, and with a stale search-page title there's no row; a pane showing
+another job gives no row; the old split pane still extracts (the `<h1>`
+link, the span location row, the stale title ignored) and gives no row for
+a job whose pane isn't showing; `/jobs/view/` still extracts, URL without
+the query. `npm test` 94 of 94. The same live session passed the
+content-script scope check: from `/feed/`, LinkedIn's own Jobs navigation
+(a page marker survived, so no reload) then an in-app move to a search
+result, the script caught the trusted Easy Apply click; and a full-load
+`/jobs/view/4464201438/` click logged. The live re-test of the search
+layout is the reviewer's, on the new ID.
+
 **Spot-checked 2026-09-10 (test-pass follow-up):** a real risk was
 flagged during a broader test pass but never actually verified live
 at the time — `findLocationSiblingSpans` (`parsers/linkedin.ts`)

@@ -29,6 +29,10 @@ await build({
 })
 
 const files = fs.readdirSync(OUT).filter((f) => f.endsWith('.mjs')).map((f) => path.join(OUT, f))
-if (!nodeOnly) files.push(path.join(TESTS, 'dom', 'popup.test.mjs'))
+// Every headless-Chrome test in tests/dom (each skips itself without Chrome).
+if (!nodeOnly) {
+  const dom = path.join(TESTS, 'dom')
+  for (const f of fs.readdirSync(dom).filter((f) => f.endsWith('.test.mjs')).sort()) files.push(path.join(dom, f))
+}
 const run = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ...files], { cwd: ROOT, stdio: 'inherit' })
 process.exit(run.status ?? 1)
