@@ -170,6 +170,116 @@ test('background worker', async (t) => {
   const stalePage = (await internal({ type: 'CONNECT_PROVIDER' })) as any
   await check('CONNECT_PROVIDER with a sheet already connected (a stale Settings page) -> no spreadsheet created, the connected one kept and returned, the queue still saved', stalePage.ok && spreadsheetCreates() === 0 && stalePage.data.sheetRef.spreadsheetId === REF.spreadsheetId && (local.data.sheetRef as any)?.spreadsheetId === REF.spreadsheetId && stalePage.data.saved === 1 && queue() === 0, { stalePage, creates: spreadsheetCreates() })
 
+  // ---- A sheet in Drive's trash, or deleted (2026-09-14). The fake follows
+  // scripts/sheet-probe.js: trash changes no Sheets answer, only Drive's. ----
+  const sheetFlag = () => local.data.sheetStatus as { state: string } | undefined
+  const sheetNotes = () => log.notifications.filter((n) => n.id === 'sheet-problem')
+  const driveChecks = () => log.fetches.filter((f) => f.includes('googleapis.com/drive')).length
+  const appendCalls = () => log.fetches.filter((f) => f.includes(':append')).length
+  const rowsFor = (company: string) => Object.values(sheet.rows).filter((values) => values[1] === company).length
+  const tick = async () => {
+    listeners.onAlarm[0]({ name: 'retryOfflineQueue' })
+    await settle()
+  }
+  const sheetProvider = await getActiveProvider()
+  const outcome = (p: Promise<unknown>) => p.then(() => 'ok', (e) => (e instanceof AuthRequiredError ? 'AuthRequiredError' : `other: ${(e as Error).name}`))
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.trashedIds.add(REF.spreadsheetId)
+  apply('Before Noticed Co')
+  await settle()
+  await check('trashed: a direct log still lands (Sheets answers as usual); the Drive check after it sets "trashed", the badge and one notification', rowsFor('Before Noticed Co') === 1 && sheetFlag()?.state === 'trashed' && driveChecks() === 1 && sheetNotes().length === 1 && sheetNotes()[0].title === "Your sheet is in Google Drive's trash" && log.badge.at(-1) === '!', { flag: sheetFlag(), drive: driveChecks(), notes: sheetNotes(), badge: log.badge })
+
+  const appendsWhileTrashed = appendCalls()
+  apply('While Trashed Co')
+  await settle()
+  await check('trashed: the next application is queued with no append; the notification repeats with the count', appendCalls() === appendsWhileTrashed && queue() === 1 && rowsFor('While Trashed Co') === 0 && sheetNotes().length === 2 && sheetNotes()[1].message.includes('1 application is waiting'), { appends: appendCalls() - appendsWhileTrashed, queue: queue(), notes: sheetNotes().map((n) => n.message) })
+
+  await tick()
+  await check('trashed: a retry tick asks Drive again and writes nothing, with no new notification', driveChecks() === 2 && appendCalls() === appendsWhileTrashed && queue() === 1 && sheetFlag()?.state === 'trashed' && sheetNotes().length === 2, { drive: driveChecks(), queue: queue() })
+
+  await sheetProvider.readHeaders(REF)
+  await check('trashed: a Sheets call that succeeds does not clear "trashed" (only Drive can)', sheetFlag()?.state === 'trashed', sheetFlag())
+
+  ctl.trashedIds.delete(REF.spreadsheetId)
+  await tick()
+  await check('restored: the next tick gets trashed=false, clears the flag, badge and notification, and the drain writes the queue', !sheetFlag() && queue() === 0 && rowsFor('While Trashed Co') === 1 && log.badge.at(-1) === '' && log.cleared.includes('sheet-problem'), { flag: sheetFlag(), queue: queue(), badge: log.badge.at(-1), cleared: log.cleared })
+
+  const trashedEntry = { id: 't1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
+  const trashedFlag = { state: 'trashed', since: d(1), reason: 'placeholder' }
+  reset()
+  await local.set({ sheetRef: REF, recentApplications: [trashedEntry], sheetStatus: trashedFlag })
+  const refusedStatus = (await internal({ type: 'SET_STATUS', payload: { entryId: 't1', status: 'Interview' } })) as any
+  const refusedResume = (await internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 't1', resumeVersion: 'SWE v9', skipIdentityCheck: true } })) as any
+  await listeners.onButtonClicked[0]('t1', 0)
+  await check('trashed: SET_STATUS and SAVE_RESUME_VERSION are refused (SHEET_UNAVAILABLE) and the notification Undo writes nothing, all before any request', !refusedStatus.ok && refusedStatus.code === 'SHEET_UNAVAILABLE' && !refusedResume.ok && refusedResume.code === 'SHEET_UNAVAILABLE' && log.fetches.length === 0 && sheet.writes.length === 0 && sheetNotes().length === 1 && log.cleared.includes('t1'), { refusedStatus, refusedResume, fetches: log.fetches, notes: sheetNotes().length })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.goneIds.add(REF.spreadsheetId)
+  apply('Deleted Sheet Co')
+  await settle()
+  const afterDeletedApply = { flag: sheetFlag(), queue: queue(), notes: sheetNotes().map((n) => n.title) }
+  await tick()
+  await check('deleted: the append 404s and a second read of the spreadsheet 404s too -> "missing", queued, "Your sheet was deleted"; a tick keeps it and writes nothing', afterDeletedApply.flag?.state === 'missing' && afterDeletedApply.queue === 1 && afterDeletedApply.notes.length === 2 && afterDeletedApply.notes.every((title) => title === 'Your sheet was deleted') && sheetFlag()?.state === 'missing' && queue() === 1 && rowsFor('Deleted Sheet Co') === 0, { afterDeletedApply, afterTick: sheetFlag() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.fetchPlan = [404]
+  apply('Unconfirmed 404 Co')
+  await settle()
+  await check('a 404 that a second read of the spreadsheet doesn\'t confirm -> an ordinary failure: queued, no flag', !sheetFlag() && queue() === 1 && sheetNotes().length === 0, { flag: sheetFlag(), queue: queue() })
+
+  reset()
+  ctl.fetchPlan = [401, 401]
+  const drive401 = await outcome(sheetProvider.isTrashed(REF))
+  const after401 = { signIn: !!flag(), sheet: sheetFlag() }
+  reset()
+  ctl.fetchPlan = [500]
+  const drive500 = await outcome(sheetProvider.isTrashed(REF))
+  const after500 = sheetFlag()
+  reset()
+  ctl.fetchPlan = ['abort']
+  const driveTimeout = await outcome(sheetProvider.isTrashed(REF))
+  await check('Drive check: a 401 surviving the retry means sign-in needed, not trashed; a 500 or a timeout is an ordinary failure with no flag', drive401 === 'AuthRequiredError' && after401.signIn && !after401.sheet && drive500.startsWith('other') && !after500 && driveTimeout.startsWith('other') && !sheetFlag(), { drive401, after401, drive500, driveTimeout })
+
+  const oldEntry = { id: 'old1', company: 'Old Sheet Row', title: 'T', location: null, url: '', date: d(9), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 7 }
+  reset()
+  await local.set({ sheetRef: REF, recentApplications: [oldEntry], offlineQueue: [qrow('Waiting For New Sheet', 12)] })
+  ctl.trashedIds.add(REF.spreadsheetId)
+  const createdForTrashed = (await internal({ type: 'CREATE_NEW_SHEET' })) as any
+  await check('CREATE_NEW_SHEET with the sheet in the trash -> a new spreadsheet, connected, the flag cleared, the recent list emptied, the queue saved into the new sheet', createdForTrashed.ok && spreadsheetCreates() === 1 && (local.data.sheetRef as any)?.spreadsheetId === 'new1' && !sheetFlag() && queue() === 0 && createdForTrashed.data.saved === 1 && recent().length === 1 && recent()[0].company === 'Waiting For New Sheet', { createdForTrashed, creates: spreadsheetCreates(), flag: sheetFlag(), recent: recent().map((e) => e.company) })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  const refusedCreate = (await internal({ type: 'CREATE_NEW_SHEET' })) as any
+  await check('CREATE_NEW_SHEET with a healthy sheet (reachable, not trashed) -> refused (SHEET_HEALTHY), nothing created, the sheet kept', !refusedCreate.ok && refusedCreate.code === 'SHEET_HEALTHY' && spreadsheetCreates() === 0 && (local.data.sheetRef as any)?.spreadsheetId === REF.spreadsheetId, refusedCreate)
+
+  reset()
+  await local.set({ sheetRef: REF, sheetStatus: { state: 'missing', since: d(1), reason: 'placeholder' } })
+  ctl.goneIds.add(REF.spreadsheetId)
+  const createdForDeleted = (await internal({ type: 'CREATE_NEW_SHEET' })) as any
+  await check('CREATE_NEW_SHEET with the sheet deleted -> a new spreadsheet, connected, the flag cleared', createdForDeleted.ok && spreadsheetCreates() === 1 && (local.data.sheetRef as any)?.spreadsheetId === 'new1' && !sheetFlag(), { createdForDeleted, flag: sheetFlag() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.goneIds.add(REF.spreadsheetId)
+  const connectDeleted = (await internal({ type: 'CONNECT_PROVIDER' })) as any
+  const deletedResult = { ok: connectDeleted.ok, creates: spreadsheetCreates(), stored: (local.data.sheetRef as any)?.spreadsheetId, flag: sheetFlag() }
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.trashedIds.add(REF.spreadsheetId)
+  const connectTrashed = (await internal({ type: 'CONNECT_PROVIDER' })) as any
+  await check('CONNECT_PROVIDER with the stored sheet deleted -> replaced by a new one; with it in the trash -> kept, and the flag says trashed', deletedResult.ok && deletedResult.creates === 1 && deletedResult.stored === 'new1' && !deletedResult.flag && connectTrashed.ok && spreadsheetCreates() === 0 && connectTrashed.data.sheetRef.spreadsheetId === REF.spreadsheetId && sheetFlag()?.state === 'trashed', { deletedResult, connectTrashed, flag: sheetFlag() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.trashedIds.add(REF.spreadsheetId)
+  await internal({ type: 'GET_LIVE_STATUSES' })
+  await settle()
+  await check('opening the popup (GET_LIVE_STATUSES) asks Drive too -> "trashed" set', driveChecks() === 1 && sheetFlag()?.state === 'trashed', { drive: driveChecks(), flag: sheetFlag() })
+
   // ---- A failed notification Undo is visible. ----
   const entry = { id: 'n1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
   reset()

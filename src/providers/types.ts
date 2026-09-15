@@ -33,6 +33,18 @@ export class AuthRequiredError extends Error {
   }
 }
 
+// Added 2026-09-14, a flagged addition to the provider contract: the
+// connected spreadsheet itself is gone. For Google: a 404 on a call, confirmed
+// by a second read of just the spreadsheet also answering 404, online.
+// getActiveProvider()'s wrapper turns it into the "sheet missing" flag
+// (lib/sheetStatus.ts).
+export class SheetMissingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SheetMissingError'
+  }
+}
+
 export interface SpreadsheetProvider {
   authenticate(): Promise<void>
   createSheet(templateColumns: string[]): Promise<SheetRef>
@@ -65,4 +77,8 @@ export interface SpreadsheetProvider {
   // ID and the row it's on, for the offline-queue drain's duplicate check;
   // null when the sheet has no Log ID column (CLAUDE.md, Sheet setup).
   readLogIds(sheetRef: SheetRef): Promise<Map<string, number> | null>
+  // Added 2026-09-14, a flagged addition: whether the spreadsheet is in the
+  // storage's trash (Google Drive's), which changes nothing the Sheets API
+  // answers. Throws SheetMissingError when it's gone altogether.
+  isTrashed(sheetRef: SheetRef): Promise<boolean>
 }

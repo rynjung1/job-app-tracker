@@ -845,6 +845,83 @@ and logged; the next apply made no lookup; every range sent was quoted;
 with the tab deleted, one lookup, no loop, the row queued and the stored
 sheetRef unchanged. The existing assertions now expect `'Sheet1'!G5`.
 
+**Added 2026-09-14 (decided by Ryan): a sheet in Drive's trash or
+deleted.** Before, nothing handled a stored sheet that no longer existed:
+every call failed with an error that wasn't `AuthRequiredError`, rows
+queued forever behind "waiting to be saved (offline?)", Settings still
+said Connected, and no UI path could create a new sheet. Measured first
+with `scripts/sheet-probe.js` (`7bdaa07`), Ryan's run on a throwaway
+sheet: moving it to Drive's trash changed no Sheets API answer
+(`spreadsheets.get`, `values.get` and `values.append` all 200 before, in
+trash and after restore; appends still land), while Drive's
+`files.get?fields=trashed,explicitlyTrashed` said `trashed=true` in trash
+and `false` after the restore; that Drive call worked from the service
+worker with no new `host_permissions` (Google's APIs send CORS headers),
+so detecting trash needs no permission change. A permanently deleted file
+is expected to return 404 (not measured). So:
+- **Two states in one flag** (`lib/sheetStatus.ts`, `sheetStatus` in
+  `chrome.storage.local`: `{state, since, reason}`): 'trashed' from Drive
+  (`isTrashed`, a flagged addition to the provider contract), cleared only
+  by a later `trashed=false`; 'missing' from a 404 that a second read of
+  just the spreadsheet also answers 404, online (`SheetMissingError`, a
+  flagged addition), cleared by any call that reaches the sheet. The
+  provider wrapper sets and clears both, like the sign-in flag; a Drive 401
+  that survives the retry is "sign-in needed", not trashed; a 500 or a
+  timeout changes nothing.
+- **When Drive is asked:** after each application logged directly (after
+  the row is written, not holding up the log), on every retry-alarm tick
+  (one call every 5 minutes, before the drain) and when the popup opens
+  (next to `GET_LIVE_STATUSES`, not awaited).
+- **While flagged nothing is written:** new applications and the drain
+  wait in the queue, and `SET_STATUS`, `SAVE_RESUME_VERSION` and the
+  notification's Undo are refused (`SHEET_UNAVAILABLE`). Rows appended in
+  the gap before the trash was noticed stay in the trashed sheet and come
+  back with a restore; the UI says so.
+- **UI, wording per state:** a "!" badge with the state in its tooltip
+  (`lib/badge.ts`, now shared with sign-in); a fixed-id notification with
+  Open Settings, on the first report and for each queued application; the
+  popup banner; the Settings card, amber, with "Create a new sheet" (and
+  "Open Drive's trash" when trashed).
+- **"Create a new sheet"** (`CREATE_NEW_SHEET`, a flagged addition to the
+  internal messages): the one path that replaces the connected sheet, and
+  only when it's trashed or deleted; refused (`SHEET_HEALTHY`) while it's
+  reachable and not trashed. It creates the sheet, connects it, clears the
+  flag, empties the recent list (its rows were in the old sheet) and
+  drains the queue into the new one. It runs one at a time with Connect.
+- **Connect with a stored sheet** now checks it (the header read, then
+  Drive): kept while it exists, in the trash too (flagged); replaced
+  through the same path when it's deleted; any other failure fails the
+  Connect and creates nothing.
+
+**Verified 2026-09-14 in Node and headless Chrome only** (`npm test` 112
+of 112 on the `sheet-missing` branch; the fake Sheets API follows the
+probe: a trashed sheet answers every Sheets call as usual, only Drive
+says trashed, and a deleted one answers 404):
+- trashed: a direct log still lands, then the Drive check after it sets
+  "trashed", the badge and one notification; the next application is
+  queued with no append and the notification repeats with the count; a
+  retry tick asks Drive again and writes nothing; a Sheets success doesn't
+  clear "trashed"; after a restore the next tick clears the flag, badge
+  and notification and the drain writes the queue; `SET_STATUS`,
+  `SAVE_RESUME_VERSION` (`SHEET_UNAVAILABLE`) and the notification's Undo
+  write nothing, before any request;
+- deleted: the append's 404, confirmed by a second read, sets "missing",
+  queues the row and notifies "Your sheet was deleted"; a tick keeps it;
+  a 404 the second read doesn't confirm is an ordinary failure, no flag;
+- Drive: a 401 surviving the retry is "sign-in needed", not trashed; a
+  500 or a timeout sets nothing;
+- `CREATE_NEW_SHEET`: trashed -> a new sheet, connected, flag cleared,
+  recent list emptied, the queue saved into it; healthy -> refused
+  (`SHEET_HEALTHY`), nothing created; deleted -> a new sheet;
+- Connect: a deleted stored sheet is replaced; a trashed one is kept and
+  flagged;
+- opening the popup asks Drive (`GET_LIVE_STATUSES`);
+- the popup, rendered headless: per state, the banner's title, "2
+  applications are waiting" and Open Settings, with every status chip
+  disabled.
+Not run live: the trash, restore and "Create a new sheet" flow is in
+web-store-deploy step 6.
+
 **Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`, the
 numeric grid id (not the string `sheetName`),
 captured at `createSheet` time. Needed because `batchUpdate`'s
