@@ -33,7 +33,7 @@ description: Steps and status for publishing this extension to the Chrome Web St
   recent list. Once `key` is in the manifest, dev builds share the store
   ID, so the unpacked build and a store install can't coexist.
   (R = only Ryan can do it.)
-  1. R: register the developer account (one-time fee), and declare
+  1. **Done 2026-09-14.** R: register the developer account (one-time fee), and declare
      non-trader status (a free personal project, not a business).
      2-Step Verification must be on for that Google account: the policy
      says "2-Step Verification is required for all developer accounts
@@ -47,6 +47,12 @@ description: Steps and status for publishing this extension to the Chrome Web St
      [Su50pbNzRms](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/Su50pbNzRms)
      and [x_NBS6_-NKs](https://groups.google.com/a/chromium.org/g/chromium-extensions/c/x_NBS6_-NKs)).
      R copies the Item ID and Package > View public key.
+     **Done 2026-09-14:** Ryan uploaded the no-key zip as a draft. Store
+     item ID `mhldoocgadblnnelahaplfdnaoiehafj`; its public key's SHA-256
+     derives that ID (checked by the reviewer and again here). From now
+     on every upload is built with `npm run package -- --allow-key`: the
+     manifest carries the key, and the script fails unless it derives
+     this ID.
   3. R: confirm the old ID's offline queue is empty before switching;
      rows still queued there would be stranded. Paste
      `scripts/health-check.js` into the old ID's service-worker console
@@ -56,6 +62,13 @@ description: Steps and status for publishing this extension to the Chrome Web St
   4. Add the public key as `key` in `manifest.config.ts`; R loads the
      build and checks chrome://extensions shows the Item ID, then
      removes the old unpacked install.
+     **Key added 2026-09-14** (one base64 line; the built manifest
+     carries it and it derives `mhldoocgadblnnelahaplfdnaoiehafj`;
+     `scripts/package.mjs` checks that with `--allow-key`, and CI's
+     package step passes `--allow-key`). Still R's: load the build,
+     check the ID, remove the old unpacked install. Until step 5 sets
+     the OAuth client's Item ID to the new ID, Google sign-in on this
+     build fails; that's expected.
   5. R (Cloud console), in two parts:
      - **Now, not waiting for the new ID** (Ryan, 2026-09-13): the
        consent screen to In production. In Testing, only listed test

@@ -3,9 +3,10 @@
 // Vite dev-server build exposes every file to every site.
 //
 //   npm run package                   build, check, zip to release/
-//   npm run package -- --allow-key    allow a manifest "key" (updates after
-//                                     web-store-deploy step 4, never the
-//                                     first upload)
+//   npm run package -- --allow-key    allow a manifest "key" (every upload
+//                                     after web-store-deploy step 4, never
+//                                     the first); the key must derive the
+//                                     store item's ID
 //   npm run package -- --allow-dirty  build from uncommitted changes
 //   node scripts/package.mjs --check <dir>   only run the checks on an
 //                                     unpacked directory
@@ -35,6 +36,9 @@ const EXPECTED = {
   hostPermissions: ['https://sheets.googleapis.com/*'],
   scopes: ['https://www.googleapis.com/auth/drive.file'],
   minimumChromeVersion: '110',
+  // The Chrome Web Store item (created 2026-09-14). A manifest key, allowed
+  // with --allow-key, must derive exactly this ID.
+  storeItemId: 'mhldoocgadblnnelahaplfdnaoiehafj',
   // https only (2026-09-14). LinkedIn is every page, not /jobs/*: moving
   // from /feed/ to /jobs/ is an in-app pushState, so a /jobs/*-only script
   // was never injected (CLAUDE.md, Site parsers).
@@ -71,6 +75,13 @@ function listFiles(dir, prefix = '') {
     .sort()
 }
 
+// Chrome's extension ID for a manifest key: SHA-256 of the DER public key
+// (the key's base64 body), the first 32 hex digits mapped 0-f to a-p.
+function extensionIdOf(base64Key) {
+  const hex = createHash('sha256').update(Buffer.from(base64Key, 'base64')).digest('hex').slice(0, 32)
+  return [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join('')
+}
+
 const sameSet = (a = [], b = []) => a.length === b.length && [...a].sort().join('\n') === [...b].sort().join('\n')
 // crxjs exposes a content script's file to its match pattern's origin.
 const originOf = (pattern) => pattern.replace(/^([^:]+:\/\/[^/]+)\/.*$/, '$1/*')
@@ -94,6 +105,12 @@ function checkDir(dir) {
   if (m.version !== pkg.version) fail(`manifest version ${m.version} doesn't match package.json's ${pkg.version}`)
   if ('key' in m && !allowKey) {
     fail('manifest has a "key": the first Web Store upload must not (--allow-key is only for updates after web-store-deploy step 4)')
+  }
+  if ('key' in m && allowKey) {
+    const id = typeof m.key === 'string' ? extensionIdOf(m.key) : null
+    if (id !== EXPECTED.storeItemId) {
+      fail(`manifest key derives extension ID ${id}, not the store item's ${EXPECTED.storeItemId}`)
+    }
   }
   if (!sameSet(m.permissions, EXPECTED.permissions)) {
     fail(`permissions are ${JSON.stringify(m.permissions)}, expected ${JSON.stringify(EXPECTED.permissions)}`)
