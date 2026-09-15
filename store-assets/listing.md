@@ -16,6 +16,10 @@ disclosure); the content-script, Sheets, storage and notifications texts
 match the code; a no-submit Greenhouse path for the reviewer; the
 screenshots described as they are.
 
+Updated 2026-09-14 (a sheet in Drive's trash or deleted; awaiting review):
+the description's privacy sentence, the identity, storage (both) and
+notifications justifications now cover the Drive trash check and its flag.
+
 ## Short description (117 of 132 characters)
 
 The store's summary comes from the manifest's `description`
@@ -42,7 +46,7 @@ No setup beyond connecting your Google account: the extension creates a new, for
 
 From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, change its status or resume version at any time, and open its job posting, without touching the spreadsheet by hand. The notification after each log also offers a quick Undo and Edit. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
 
-Privacy: the extension reads only the job page you apply on and its URL; it has no access to your other tabs or browsing history. It only ever talks to Google's own API to read and write your spreadsheet; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
+Privacy: the extension reads only the job page you apply on and its URL; it has no access to your other tabs or browsing history. It only talks to Google's own APIs: Sheets, to read and write your spreadsheet, and Drive, only to check whether that spreadsheet is in the trash; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
 ```
 
 ## Other dashboard fields
@@ -127,20 +131,20 @@ Automatically logs the job applications you submit on supported job sites (Linke
 `storage`:
 
 ```text
-Stores, only on this device: which Google Sheet you connected; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged or when the browser closes; after 30 minutes it's no longer used, and it's removed at the next Greenhouse Submit click or confirmation page); your 20 most recent logged applications, shown in the popup so you can change their status or resume version; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and the error message from Chrome or Google, until you reconnect; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
+Stores, only on this device: which Google Sheet you connected; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged or when the browser closes; after 30 minutes it's no longer used, and it's removed at the next Greenhouse Submit click or confirmation page); your 20 most recent logged applications, shown in the popup so you can change their status or resume version; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and the error message from Chrome or Google, until you reconnect; if your sheet is moved to Google Drive's trash or deleted, which of the two and when, until it's restored or replaced; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
 ```
 
 Shorter fallback, use if the dashboard rejects the long one (no
 documented limit was found for these fields):
 
 ```text
-Stores on this device only: the connected Google Sheet; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (unused after 30 minutes); the 20 most recent applications, for status and resume changes; the last resume version per role type; a sign-in-needed flag with the error from Chrome or Google; and the open Settings window's id (session).
+Stores on this device only: the connected Google Sheet; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (unused after 30 minutes); the 20 most recent applications, for status and resume changes; the last resume version per role type; a sign-in-needed flag with the error from Chrome or Google; a sheet-in-trash-or-deleted flag; and the open Settings window's id (session).
 ```
 
 `identity`:
 
 ```text
-Signs you in to Google Sheets with chrome.identity.getAuthToken (scope drive.file, which only covers files this extension creates). Chrome caches the token; the extension stores no credential itself. No profile, email or other account data is requested.
+Signs you in to Google Sheets with chrome.identity.getAuthToken (scope drive.file, which only covers files this extension creates). The same token asks Google Drive whether the extension's own sheet is in the trash (that file's trash status only). Chrome caches the token; the extension stores no credential itself. No profile, email or other account data is requested.
 ```
 
 `alarms`:
@@ -152,7 +156,7 @@ Retries writing queued applications every 5 minutes after a network or sign-in f
 `notifications`:
 
 ```text
-Shows a "Logged" notification after each automatic log, with Undo and Edit buttons to correct it; a notice if you applied while no spreadsheet was connected, with a button that opens Settings; a "Sign-in needed" notice when Google access to your sheet has lapsed, with a Reconnect button, so applications waiting to be saved don't go unnoticed; and an "Undo didn't go through" notice if the Logged notification's Undo fails, saying the application is still logged.
+Shows a "Logged" notification after each automatic log, with Undo and Edit buttons to correct it; a notice if you applied while no spreadsheet was connected, with a button that opens Settings; a "Sign-in needed" notice when Google access to your sheet has lapsed, with a Reconnect button, so applications waiting to be saved don't go unnoticed; a notice if your sheet is moved to Google Drive's trash or deleted, with a button that opens Settings; and an "Undo didn't go through" notice if the Logged notification's Undo fails, saying the application is still logged.
 ```
 
 Host permission `https://sheets.googleapis.com/*`:

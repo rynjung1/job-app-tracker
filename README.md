@@ -31,8 +31,9 @@ applications waiting until you reconnect.
 
 ## Privacy
 
-The extension talks only to Google's Sheets API, and can only access
-files it created. There's no other server and no analytics. Its use of
+The extension talks only to Google: the Sheets API, to read and write the
+sheet it created, and the Drive API, only to check whether that sheet is
+in the trash. It can only access files it created. There's no other server and no analytics. Its use of
 information received from Google APIs adheres to the Google API Services
 User Data Policy, and will adhere to the Chrome Web Store User Data
 Policy, including the Limited Use requirements. Full policy:
@@ -46,14 +47,16 @@ https://rynjung1.github.io/job-app-tracker/privacy.html
   when the browser closes, unused after 30 minutes); your 20 most recent
   applications; the last resume version you used for each type of role;
   while Google sign-in is needed, when that happened and the error message
-  from Chrome or Google; and, while Settings is open, its window's number
+  from Chrome or Google; if your sheet is moved to Google Drive's trash or
+  deleted, which of the two and when; and, while Settings is open, its window's number
   (session storage). No sign-in credential: Chrome keeps the Google token.
 - `identity`: signs you in to Google, with access limited to files the
   extension creates.
 - `alarms`: retries saving applications after a network or sign-in
   problem.
-- `notifications`: the "Logged", "Not connected", "Sign-in needed" and
-  "Undo didn't go through" notices.
+- `notifications`: the "Logged", "Not connected", "Sign-in needed", "Undo
+  didn't go through" and "Your sheet is in Google Drive's trash" / "Your
+  sheet was deleted" notices.
 - `https://sheets.googleapis.com/*`: reads and writes your sheet through
   the Google Sheets API.
 - It runs on LinkedIn and on Greenhouse job boards. LinkedIn moves between
