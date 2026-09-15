@@ -2009,8 +2009,13 @@ or a re-add; no header row: a failed one).
    sequence in the `web-store-deploy` skill.
    Status 2026-09-14: Ryan wants Workday in v1, so the submission (step
    8) waits for the `workday` branch to be merged, after his observed
-   application pins its Submit selector (Site parsers, Workday). The
-   extension-ID steps continue on `main`.
+   application pins its Submit selector (Site parsers, Workday, on the
+   `workday` branch until it merges). The extension-ID steps continue on
+   `main`. The zip built at `838aa00` has no Workday and isn't the one to
+   submit: the final zip is built from `main` after the merge
+   (`npm run package -- --allow-key`), at version 1.0.0 unless the
+   dashboard refuses a second upload at that version (then 1.0.1). Step 8
+   lists what changes at the merge.
 
 **Deferred, not abandoned:**
 - **Indeed parser (2026-09-01):** every fetch attempt (curl and
