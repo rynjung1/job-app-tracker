@@ -29,6 +29,8 @@
   ]
   var live = { a1: 'Applied', a2: 'Interview', a4: 'Interview', a5: 'Applied' }
   var signedOut = sc === 'signedout'
+  // The connected sheet in Drive's trash, or deleted (2026-09-14).
+  var sheetGone = sc === 'trashed' || sc === 'missing'
   var closed = false
   window.close = function () { closed = true; document.body.dataset.closed = '1' }
   window.chrome = {
@@ -36,7 +38,8 @@
       local: { get: function (key) {
         if (key === 'sheetRef') return later({ sheetRef: { spreadsheetId: 'placeholder', sheetName: 'Sheet1', sheetId: 0 } })
         if (key === 'authStatus') return later(signedOut ? { authStatus: { since: '2026-09-13T15:00:00Z', reason: 'placeholder' } } : {})
-        if (key === 'offlineQueue') return later(signedOut ? { offlineQueue: [{}, {}] } : {})
+        if (key === 'sheetStatus') return later(sheetGone ? { sheetStatus: { state: sc, since: '2026-09-14T15:00:00Z', reason: 'placeholder' } } : {})
+        if (key === 'offlineQueue') return later(signedOut || sheetGone ? { offlineQueue: [{}, {}] } : {})
         if (key === 'lastResumeVersionByRoleType') return later({ lastResumeVersionByRoleType: { SWE: 'SWE v3', DE: 'DE v2' } })
         return later({ recentApplications: apps })
       } },
@@ -140,5 +143,12 @@
     await wait(400)
     document.body.dataset.fit = document.documentElement.scrollHeight + '/' + window.innerHeight + (closed ? '/closed' : '')
     document.body.dataset.content = String(Math.ceil(document.body.getBoundingClientRect().height))
+    // The popup's banner text, and the status chips: all of them and the
+    // disabled ones (disabled or aria-disabled).
+    var banner = q('.banner')
+    document.body.dataset.banner = banner ? banner.textContent.replace(/\s+/g, ' ').trim() : ''
+    var chips = document.querySelectorAll('.chip-btn')
+    var disabledChips = document.querySelectorAll('.chip-btn:disabled, .chip-btn[aria-disabled="true"]')
+    document.body.dataset.chips = disabledChips.length + '/' + chips.length
   })
 })()

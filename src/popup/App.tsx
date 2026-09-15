@@ -8,6 +8,7 @@ import type { ResumeVersionsByRoleType } from '../lib/resumeVersion'
 import { safeJobUrl } from '../lib/safeUrl'
 import type { StatusValue } from '../lib/sheetTemplate'
 import { applicationCount } from '../lib/authStatus'
+import { sheetProblemMessage, sheetProblemTitle } from '../lib/sheetStatus'
 import type { BackgroundResponse } from '../background/messageRouter'
 import { CheckIcon, ClockIcon, GearIcon, LockIcon, SheetIcon, WarnIcon } from '../ui/icons'
 import { useSyncStatus } from '../ui/useSyncStatus'
@@ -26,11 +27,13 @@ const STALE_ROW_STATUS =
 const STALE_ROW_RESUME =
   "This row may have changed since it was logged, so it wasn't updated. You can still change it in your spreadsheet."
 const SIGN_IN_NEEDED = 'Google sign-in needed. Reconnect, then try again.'
+const SHEET_UNAVAILABLE = "Your sheet is in Google Drive's trash or was deleted, so nothing was changed. See the note above."
 const GENERIC_ERROR = 'Something went wrong. Please try again.'
 
 function errorMessage(code: string | undefined, staleMessage: string): string {
   if (code === 'STALE_ROW') return staleMessage
   if (code === 'AUTH_REQUIRED') return SIGN_IN_NEEDED
+  if (code === 'SHEET_UNAVAILABLE') return SHEET_UNAVAILABLE
   return GENERIC_ERROR
 }
 
@@ -83,8 +86,15 @@ function App() {
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [editorError, setEditorError] = useState<string | null>(null)
-  const { authStatus, queued } = useSyncStatus()
+  const { authStatus, sheetStatus, queued } = useSyncStatus()
   const signedOut = authStatus !== undefined
+  // Why the status chip and "Change resume version" can't write right now:
+  // signed out, or the sheet is in Drive's trash or deleted (2026-09-14).
+  const blockedReason = signedOut
+    ? 'Reconnect Google Sheets first'
+    : sheetStatus
+      ? `${sheetProblemTitle(sheetStatus.state)}: restore it or create a new sheet first`
+      : null
   // After the editor closes, focus goes back to the row's ⋯ it came from.
   // Done in an effect once the list is back in the DOM, not on a timer.
   const returnFocusTo = useRef<string | null>(null)
@@ -288,7 +298,22 @@ function App() {
         </div>
       )}
 
-      {!loading && sheetRef !== undefined && !editor && !authStatus && queued > 0 && (
+      {/* The sheet is in Drive's trash or deleted (2026-09-14): nothing is
+          written until it's restored or replaced; Settings has the choices. */}
+      {!loading && sheetRef !== undefined && !editor && !authStatus && sheetStatus && (
+        <div className="banner" role="alert">
+          <WarnIcon />
+          <div>
+            <b>{sheetProblemTitle(sheetStatus.state)}</b>
+            <p>{sheetProblemMessage(sheetStatus.state, queued)}</p>
+            <button type="button" className="btn primary" onClick={() => openSettings()}>
+              Open Settings
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!loading && sheetRef !== undefined && !editor && !authStatus && !sheetStatus && queued > 0 && (
         <div className="banner info" role="status">
           <ClockIcon />
           <div>
@@ -333,8 +358,10 @@ function App() {
                   <StatusSelect
                     company={app.company}
                     status={status}
-                    disabled={signedOut || busy}
-                    disabledReason="Reconnect Google Sheets to change the status"
+                    disabled={blockedReason !== null || busy}
+                    disabledReason={
+                      signedOut ? 'Reconnect Google Sheets to change the status' : (blockedReason ?? 'Reconnect Google Sheets to change the status')
+                    }
                     busy={busy}
                     onChange={(next) => handleSetStatus(app, next)}
                   />
@@ -342,7 +369,7 @@ function App() {
                     entryId={app.id}
                     company={app.company}
                     url={url}
-                    signedOut={signedOut}
+                    blockedReason={blockedReason}
                     onChangeResume={() => openEditor(app)}
                   />
                 </div>

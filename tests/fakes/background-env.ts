@@ -63,6 +63,12 @@ export const ctl = {
   // or the tab deleted (the spreadsheet then has only a different tab).
   sheetTitle: 'Sheet1',
   tabDeleted: false,
+  // Spreadsheets in Drive's trash, and deleted ones (2026-09-14). Measured
+  // with scripts/sheet-probe.js: a trashed spreadsheet answers every Sheets
+  // call as usual and only Drive's files.get says trashed; a deleted one is
+  // taken to answer 404 everywhere (expected, not measured).
+  trashedIds: new Set<string>(),
+  goneIds: new Set<string>(),
 }
 // The fake sheet: row values for readRow, and every successful cell write.
 export const sheet = { rows: {} as Record<number, string[]>, writes: [] as Array<{ range: string; values: unknown }> }
@@ -90,6 +96,8 @@ export function reset() {
   ctl.appendThenAbort = false
   ctl.sheetTitle = 'Sheet1'
   ctl.tabDeleted = false
+  ctl.trashedIds.clear()
+  ctl.goneIds.clear()
 }
 
 // fetchWithTimeout's 20s timer is left running when a request is aborted
@@ -198,6 +206,18 @@ export const fakeResponse = (status: number, text: string) =>
   const step = ctl.fetchPlan.length ? ctl.fetchPlan.shift()! : 200
   if (step === 'abort') throw new DOMException('The operation was aborted.', 'AbortError')
   if (step !== 200) return fakeResponse(step, `{"error":{"code":${step}}}`)
+  // Drive files.get?fields=trashed (isTrashed): per ctl.trashedIds; a
+  // deleted file answers 404.
+  const driveFile = u.match(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/([^/?]+)/)?.[1]
+  if (driveFile) {
+    if (ctl.goneIds.has(driveFile)) return fakeResponse(404, `{"error":{"code":404,"message":"File not found: ${driveFile}."}}`)
+    return fakeResponse(200, JSON.stringify({ trashed: ctl.trashedIds.has(driveFile) }))
+  }
+  // A deleted spreadsheet: every Sheets call on it answers 404.
+  const sheetsId = u.match(/^https:\/\/sheets\.googleapis\.com\/v4\/spreadsheets\/([^/?:]+)/)?.[1]
+  if (sheetsId && ctl.goneIds.has(sheetsId)) {
+    return fakeResponse(404, '{"error":{"code":404,"message":"Requested entity was not found.","status":"NOT_FOUND"}}')
+  }
   // A range must name the fake tab, quoted ('It''s'!A1) or not; Sheets
   // answers any other name with 400 "Unable to parse range".
   const named = u.match(/(?:\/values\/|ranges=)(?:'((?:[^']|'')*)'|([^!'?&/]+))!/)

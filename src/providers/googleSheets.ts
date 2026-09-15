@@ -1,4 +1,4 @@
-import { AuthRequiredError } from './types'
+import { AuthRequiredError, SheetMissingError } from './types'
 import type { AppendedRow, SheetRef, SpreadsheetProvider } from './types'
 import { columnIndexToLetter } from '../lib/columnLetter'
 import { isoToLocalDateSerial } from '../lib/dateSerial'
@@ -9,6 +9,10 @@ import { LOG_ID_COLUMN, STATUS_VALUES } from '../lib/sheetTemplate'
 import type { StatusValue } from '../lib/sheetTemplate'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
+// Drive, for one thing only: whether the connected sheet is in the trash
+// (isTrashed). No host permission: Google's APIs answer with CORS headers,
+// checked from the service worker with scripts/sheet-probe.js (2026-09-14).
+const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files'
 
 class SheetsApiError extends Error {
   constructor(
@@ -34,7 +38,11 @@ async function getToken(interactive: boolean): Promise<string> {
 }
 
 async function apiFetch(path: string, token: string, init?: RequestInit): Promise<unknown> {
-  const res = await fetchWithTimeout(`${API_BASE}${path}`, {
+  return googleFetch(`${API_BASE}${path}`, token, init, 'Sheets API')
+}
+
+async function googleFetch(url: string, token: string, init: RequestInit | undefined, label: string): Promise<unknown> {
+  const res = await fetchWithTimeout(url, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -44,7 +52,7 @@ async function apiFetch(path: string, token: string, init?: RequestInit): Promis
   })
   if (!res.ok) {
     const body = await res.text()
-    throw new SheetsApiError(res.status, `Sheets API ${res.status}: ${body}`)
+    throw new SheetsApiError(res.status, `${label} ${res.status}: ${body}`)
   }
   if (res.status === 204) return undefined
   return res.json()
@@ -141,10 +149,33 @@ async function currentSheetName(sheetRef: SheetRef): Promise<string | null> {
   return tab?.properties?.title ?? null
 }
 
+// A deleted spreadsheet (2026-09-14): a 404 means the spreadsheet is gone
+// only if one more read, of just the spreadsheet's id, also answers 404, and
+// only while online. Anything else from that read (a 500, a timeout, signed
+// out) isn't taken as gone, and the first error stands.
+function isNotFound(err: unknown): boolean {
+  return err instanceof SheetsApiError && err.status === 404
+}
+
+async function spreadsheetGone(sheetRef: SheetRef): Promise<boolean> {
+  if (!navigator.onLine) return false
+  try {
+    await withAuth((token) => apiFetch(`/${sheetRef.spreadsheetId}?fields=spreadsheetId`, token))
+    return false
+  } catch (err) {
+    return isNotFound(err)
+  }
+}
+
+function sheetMissing(err: unknown): SheetMissingError {
+  return new SheetMissingError(`The connected spreadsheet is gone: ${(err as Error).message.slice(0, 200)}`)
+}
+
 async function withSheetRef<T>(sheetRef: SheetRef, fn: (ref: SheetRef) => Promise<T>): Promise<T> {
   try {
     return await fn(sheetRef)
   } catch (err) {
+    if (isNotFound(err) && (await spreadsheetGone(sheetRef))) throw sheetMissing(err)
     if (!isUnparsableRange(err) || sheetRef.sheetId === undefined) throw err
     const sheetName = await currentSheetName(sheetRef)
     if (!sheetName || sheetName === sheetRef.sheetName) throw err
@@ -573,6 +604,23 @@ export const googleSheetsProvider: SpreadsheetProvider = {
       })
       return ids
     })
+  },
+
+  // Whether Google Drive has the spreadsheet in its trash (2026-09-14, a
+  // flagged addition): Drive files.get?fields=trashed, metadata only, with
+  // the same drive.file token. scripts/sheet-probe.js showed trash changes no
+  // Sheets API answer but flips this, and back on restore. A 404 here that
+  // Sheets confirms is a deleted sheet (SheetMissingError).
+  async isTrashed(sheetRef: SheetRef): Promise<boolean> {
+    try {
+      const data = (await withAuth((token) =>
+        googleFetch(`${DRIVE_FILES}/${encodeURIComponent(sheetRef.spreadsheetId)}?fields=trashed`, token, undefined, 'Drive API'),
+      )) as { trashed?: boolean }
+      return data.trashed === true
+    } catch (err) {
+      if (isNotFound(err) && (await spreadsheetGone(sheetRef))) throw sheetMissing(err)
+      throw err
+    }
   },
 }
 

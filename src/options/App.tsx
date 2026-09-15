@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { SheetRef } from '../providers/types'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
 import { applicationCount } from '../lib/authStatus'
+import { sheetProblemMessage, sheetProblemTitle } from '../lib/sheetStatus'
 import type { BackgroundResponse, ConnectResult, ReconnectResult } from '../background/messageRouter'
 import { CheckIcon, TickIcon, WarnIcon } from '../ui/icons'
 import { useSyncStatus } from '../ui/useSyncStatus'
@@ -39,7 +40,30 @@ function App() {
   const [state, setState] = useState<ConnectionState>({ status: 'loading' })
   // After a Reconnect: what its immediate drain saved (role="status").
   const [notice, setNotice] = useState('')
-  const { authStatus, queued } = useSyncStatus()
+  const { authStatus, sheetStatus, queued } = useSyncStatus()
+  // "Create a new sheet" (2026-09-14): running, and its error if it failed.
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
+
+  // Replaces the connected sheet when it's in Drive's trash or deleted; the
+  // background refuses while it's healthy (CREATE_NEW_SHEET).
+  async function handleCreateNewSheet() {
+    setNotice('')
+    setCreateError('')
+    setCreating(true)
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        type: 'CREATE_NEW_SHEET',
+      })) as BackgroundResponse<ConnectResult>
+      if (!response.ok) throw new Error(response.error)
+      setState({ status: 'connected', sheetRef: response.data.sheetRef })
+      setNotice(`Created a new sheet. ${savedNotice(response.data)}`.trim())
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setCreating(false)
+    }
+  }
 
   async function handleConnect() {
     setNotice('')
@@ -99,6 +123,8 @@ function App() {
 
   const busy = state.status === 'loading' || state.status === 'connecting'
   const needsReconnect = state.status === 'connected' && authStatus !== undefined
+  // Sign-in comes first: the sheet can't be checked or replaced without it.
+  const sheetProblem = state.status === 'connected' && !needsReconnect ? sheetStatus : undefined
 
   return (
     <div className="page">
@@ -114,7 +140,7 @@ function App() {
 
       <section className="sec" aria-labelledby="spreadsheet-heading">
         <h2 id="spreadsheet-heading">Spreadsheet</h2>
-        <div className={needsReconnect ? 'card warn' : 'card'} aria-busy={busy || undefined}>
+        <div className={needsReconnect || sheetProblem ? 'card warn' : 'card'} aria-busy={busy || creating || undefined}>
           {state.status === 'loading' && <p className="muted">Checking your connection…</p>}
 
           {state.status === 'disconnected' && (
@@ -178,7 +204,43 @@ function App() {
             </>
           )}
 
-          {state.status === 'connected' && !needsReconnect && (
+          {state.status === 'connected' && sheetProblem && (
+            <>
+              <div className="status">
+                <span className="pill warn" aria-hidden="true" />
+                {sheetProblemTitle(sheetProblem.state)}
+              </div>
+              <p className="muted">{sheetProblemMessage(sheetProblem.state, queued)}</p>
+              {sheetProblem.state === 'trashed' && (
+                <p className="muted">A restored sheet is noticed within 5 minutes, or when you open the extension's popup.</p>
+              )}
+              {createError && (
+                <div className="alert" role="alert">
+                  <WarnIcon size={16} />
+                  <span>Couldn't create a new sheet: {createError}</span>
+                </div>
+              )}
+              <div className="acts">
+                {creating ? (
+                  <button type="button" className="btn primary lg" disabled>
+                    Creating…
+                  </button>
+                ) : (
+                  <button type="button" className="btn primary lg" onClick={handleCreateNewSheet}>
+                    Create a new sheet
+                  </button>
+                )}
+                {sheetProblem.state === 'trashed' && (
+                  <a className="btn lg" href="https://drive.google.com/drive/trash" target="_blank" rel="noopener noreferrer">
+                    Open Drive's trash <span aria-hidden="true">↗</span>
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                )}
+              </div>
+            </>
+          )}
+
+          {state.status === 'connected' && !needsReconnect && !sheetProblem && (
             <>
               <div className="status">
                 <span className="pill ok" aria-hidden="true" />

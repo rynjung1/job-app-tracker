@@ -77,7 +77,7 @@ function dumpBody(url, windowSize, profile) {
         return m ? m[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&') : null
       }
       const why = stoppedByBackstop ? ' (headless Chrome was stopped by the 30s backstop before printing the page)' : ''
-      resolve({ kb: attr('kb'), fit: attr('fit'), content: attr('content'), why })
+      resolve({ kb: attr('kb'), fit: attr('fit'), content: attr('content'), banner: attr('banner'), chips: attr('chips'), why })
     })
   })
 }
@@ -113,6 +113,20 @@ test('popup in headless Chrome', { skip: CHROME ? false : 'headless Chrome not f
       await t.test(name, () =>
         assert.ok(content > 0 && content <= EDIT_WINDOW_INNER_HEIGHT, `content ${content}px, window inner height ${EDIT_WINDOW_INNER_HEIGHT}px${page.why}`),
       )
+    }
+
+    // A sheet in Drive's trash, or deleted (2026-09-14): the banner per state,
+    // and no status chip can write.
+    for (const [scenario, title] of [
+      ['trashed', "Your sheet is in Google Drive's trash"],
+      ['missing', 'Your sheet was deleted'],
+    ]) {
+      const page = await dumpBody(`${base}?w=368&scenario=${scenario}`, '500,700', path.join(work, `profile-${scenario}`))
+      await t.test(`sheet ${scenario}: the banner says "${title}", 2 waiting and Open Settings; every status chip is disabled`, () => {
+        assert.ok(page.banner?.includes(title) && page.banner.includes('2 applications are waiting') && page.banner.includes('Open Settings'), `banner: ${page.banner}`)
+        const [disabled, total] = (page.chips ?? '0/0').split('/').map(Number)
+        assert.ok(total > 0 && disabled === total, `disabled chips ${page.chips}`)
+      })
     }
   } finally {
     server.close()

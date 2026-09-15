@@ -10,6 +10,7 @@ import type { AppendedRow } from '../providers/types'
 import { OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
 import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { getSheetRef } from '../lib/sheetRef'
+import { getSheetStatus } from '../lib/sheetStatus'
 import { withStorageLock } from '../lib/storageLock'
 import { addRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
@@ -117,6 +118,9 @@ export async function drainOfflineQueue(): Promise<number> {
   try {
     const sheetRef = await getSheetRef()
     if (!sheetRef) return 0
+    // A sheet in Drive's trash or deleted (lib/sheetStatus.ts): nothing is
+    // written; the rows wait for a restore or a new sheet (2026-09-14).
+    if (await getSheetStatus()) return 0
 
     const queue = await getOfflineQueue()
     if (queue.length === 0) return 0

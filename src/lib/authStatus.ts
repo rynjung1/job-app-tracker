@@ -1,5 +1,6 @@
 import { AUTH_STATUS_KEY, OFFLINE_QUEUE_KEY } from './storageKeys'
 import { withStorageLock } from './storageLock'
+import { refreshBadge } from './badge'
 
 // The "sign-in needed" flag (CLAUDE.md, "needs reconnect"). Set when a
 // provider call fails with AuthRequiredError, cleared by the next provider
@@ -13,8 +14,6 @@ export interface AuthStatus {
 }
 
 export const NEEDS_RECONNECT_NOTIFICATION_ID = 'needs-reconnect'
-const ACTION_TITLE = 'Job Application Tracker'
-const BADGE_COLOR = '#B45309' // white "!" on it: 5.02:1
 
 export async function getAuthStatus(): Promise<AuthStatus | undefined> {
   const stored = await chrome.storage.local.get(AUTH_STATUS_KEY)
@@ -45,7 +44,7 @@ export async function reportAuthRequired(reason: string): Promise<void> {
     return true
   })
   if (firstFailure) {
-    await showBadge(true)
+    await refreshBadge()
     await showNeedsReconnectNotification()
   }
 }
@@ -57,7 +56,7 @@ export async function reportAuthOk(): Promise<void> {
     return true
   })
   if (wasSet) {
-    await showBadge(false)
+    await refreshBadge()
     await chrome.notifications.clear(NEEDS_RECONNECT_NOTIFICATION_ID)
   }
 }
@@ -80,16 +79,8 @@ export async function showNeedsReconnectNotification(): Promise<void> {
 }
 
 // The toolbar badge doesn't survive a browser restart, so the worker
-// re-applies it from the stored flag on startup and install/update.
+// re-applies it from the stored flags on startup and install/update. Since
+// 2026-09-14 the badge reflects the sheet flag too (lib/badge.ts).
 export async function syncBadge(): Promise<void> {
-  await showBadge((await getAuthStatus()) !== undefined)
-}
-
-async function showBadge(on: boolean): Promise<void> {
-  await chrome.action.setBadgeText({ text: on ? '!' : '' })
-  if (on) {
-    await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR })
-    await chrome.action.setBadgeTextColor({ color: '#FFFFFF' })
-  }
-  await chrome.action.setTitle({ title: on ? `${ACTION_TITLE}: Google sign-in needed` : ACTION_TITLE })
+  await refreshBadge()
 }
