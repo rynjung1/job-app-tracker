@@ -173,7 +173,58 @@ description: Steps and status for publishing this extension to the Chrome Web St
      English), and the listing says Easy Apply detection is fully
      supported with LinkedIn set to English. `f3cb30a` also fixed
      split-pane applications not being logged.
-  8. Upload the final build as a new version of the same item, fill in
+  8. **Held until the `workday` branch is merged** (Ryan wants Workday
+     in v1; decided 2026-09-14). The merge waits for Ryan's observed
+     Workday application, which pins the final Submit selector. The zip
+     built at `838aa00` has no Workday and isn't the one to submit: the
+     final zip is built from `main` after the merge, with
+     `npm run package -- --allow-key`. The version stays 1.0.0 (the
+     step 2 draft's) for the first submission; only if the dashboard
+     refuses a second upload at the same version, bump it to 1.0.1
+     (`package.json`'s `version`, which the manifest reads).
+     **What changes at the Workday merge** (prepared 2026-09-14, so the
+     work after the observation is quick):
+     - **The Submit selector:** replace the placeholder
+       `WORKDAY_SUBMIT_SELECTOR_PLACEHOLDER` (`:not(*)`,
+       `src/parsers/workday.ts`) with the control that PART A of
+       `scripts/workday-observe.js` shows. If that Submit shares its
+       `data-automation-id` with the earlier steps' Next button, the
+       selector also needs whatever PART A shows marks the Review step
+       (its label, or the progress step). Tests: the content-script
+       test's test-only selector becomes the real one, and the DOM test
+       checks it matches the observed Submit and not a Next button. The
+       raw output is never committed; a fixture made from it is scrubbed
+       first. CLAUDE.md's Workday note records the evidence.
+     - **The listing and privacy text:** already on the branch (the
+       summary, 126 of 132 characters; the description, single purpose,
+       storage and content-script texts; privacy.html's Workday
+       sentence). Re-read them against what the observation showed, keep
+       the manifest `description` identical to the short description, and
+       change privacy.html's "Last updated" if its text changes.
+     - **Settings "Supported sites":** the Workday line is on the branch
+       (`src/options/App.tsx`). The store screenshot `2-settings.png`
+       shows that list without Workday, so re-render it (listing.md, "How
+       both were made").
+     - **The reviewer note:** the Test instructions tab's step 5, on the
+       branch: Workday is logged only at the final Submit of a real
+       application, so it can't be tested without applying.
+     - **The install warning:** the two Workday matches make 5 warning
+       hosts, which Chrome shows as "Read and change your data on a
+       number of websites", listing "All myworkdayjobs.com sites" and "All
+       myworkdaysite.com sites". Shipping them in the first submission
+       means no update prompt later. `package.mjs` on the branch pins the
+       four matches. An unpacked load shows no install dialog, so check
+       the rebuilt manifest's matches there, and the dialog itself on the
+       store install.
+     - **One live Workday check on the rebuilt build:** rebuild Ryan's
+       `dist/` from `main` after the merge (`npm run build`), confirm its
+       manifest has the key and the two Workday matches, and on one real
+       Workday application check a row lands at the final Submit with the
+       tenant id as Company and the normalized URL, once, and appears in
+       the popup (step 6's Workday bullet, on the branch).
+     - The last bullet of this file ("both shipped v1 site parsers,
+       LinkedIn and Greenhouse") gains Workday.
+     Then upload the final build as a new version of the same item, fill in
      the listing (`store-assets/listing.md`, `store-assets/screenshots/`)
      and the privacy-practices tab; R submits, but only after step 6 has
      passed. The new popup UI, the status dropdown and "needs reconnect"
