@@ -869,9 +869,11 @@ is expected to return 404 (not measured). So:
   that survives the retry is "sign-in needed", not trashed; a 500 or a
   timeout changes nothing.
 - **When Drive is asked:** after each application logged directly (after
-  the row is written, not holding up the log), on every retry-alarm tick
-  (one call every 5 minutes, before the drain) and when the popup opens
-  (next to `GET_LIVE_STATUSES`, not awaited).
+  the row is written, not holding up the log), when the popup opens (next
+  to `GET_LIVE_STATUSES`, not awaited), and on a retry-alarm tick, before
+  the drain, only while applications are waiting or the flag is set
+  (decided in review: no Drive call every 5 minutes on an idle
+  extension).
 - **While flagged nothing is written:** new applications and the drain
   wait in the queue, and `SET_STATUS`, `SAVE_RESUME_VERSION` and the
   notification's Undo are refused (`SHEET_UNAVAILABLE`). Rows appended in
@@ -915,12 +917,22 @@ says trashed, and a deleted one answers 404):
   (`SHEET_HEALTHY`), nothing created; deleted -> a new sheet;
 - Connect: a deleted stored sheet is replaced; a trashed one is kept and
   flagged;
-- opening the popup asks Drive (`GET_LIVE_STATUSES`);
+- opening the popup asks Drive (`GET_LIVE_STATUSES`); a retry tick with
+  nothing queued and no flag doesn't, and with an application queued it
+  does, before the drain;
 - the popup, rendered headless: per state, the banner's title, "2
   applications are waiting" and Open Settings, with every status chip
   disabled.
 Not run live: the trash, restore and "Create a new sheet" flow is in
 web-store-deploy step 6.
+
+Test waits on main (2026-09-14, review): the background tests' fixed
+`settle()` wait (60 ms) is replaced by five event-loop turns, and the fake
+Sheets API answers with plain promise-based objects (`fakeResponse`)
+instead of real `Response`s, as on the `workday` branch (`f4e6bd6`),
+where the reviewer's first cold run had failed 2 tests: a real
+`Response`'s first use in a process costs 21-34 ms, longer than such a
+fixed wait. No test on main depends on wall-clock time now.
 
 **Updated 2026-09-09:** `SheetRef` gained `sheetId?: number`, the
 numeric grid id (not the string `sheetName`),

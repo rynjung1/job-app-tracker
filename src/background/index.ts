@@ -18,7 +18,7 @@ import { recordPendingApplication, takePendingApplication } from '../lib/pending
 import { NEEDS_RECONNECT_NOTIFICATION_ID, showNeedsReconnectNotification, syncBadge } from '../lib/authStatus'
 import { handleInternalMessage, isInternalMessage } from './messageRouter'
 import { openSettingsWindow } from './settingsWindow'
-import { drainOfflineQueue, ensureRetryAlarm, queueRow, RETRY_ALARM_NAME } from './offlineQueue'
+import { drainOfflineQueue, ensureRetryAlarm, getOfflineQueue, queueRow, RETRY_ALARM_NAME } from './offlineQueue'
 import { getSheetStatus, SHEET_PROBLEM_NOTIFICATION_ID, showSheetProblemNotification } from '../lib/sheetStatus'
 import { checkSheetInTrash } from './sheetHealth'
 
@@ -217,14 +217,21 @@ async function handleJobApplicationConfirmed(scopedKey: string) {
   await handleJobApplicationLogged(payload)
 }
 
+// The 5-minute retry tick (2026-09-14): while applications are waiting or
+// the sheet is flagged, first ask Drive whether the sheet is in the trash
+// (which also notices a restore); then drain, which writes nothing while the
+// sheet is trashed or deleted. With nothing waiting and no flag, no Drive
+// call: the checks after each direct log and on popup open cover that case.
+async function retryTick() {
+  if ((await getOfflineQueue()).length > 0 || (await getSheetStatus())) await checkSheetInTrash()
+  await drainOfflineQueue()
+}
+
 // The offline queue itself (queueRow, drainOfflineQueue, its re-entrancy
 // guard) lives in ./offlineQueue.ts.
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RETRY_ALARM_NAME) {
-    // First ask Drive whether the sheet is in the trash (2026-09-14), which
-    // also notices a restore; the drain then writes nothing while the sheet
-    // is trashed or deleted.
-    checkSheetInTrash().then(() => drainOfflineQueue())
+    retryTick()
     return
   }
   if (alarm.name.startsWith(NOTIFICATION_CLEAR_ALARM_PREFIX)) {

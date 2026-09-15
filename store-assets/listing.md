@@ -18,7 +18,9 @@ screenshots described as they are.
 
 Updated 2026-09-14 (a sheet in Drive's trash or deleted; awaiting review):
 the description's privacy sentence, the identity, storage (both) and
-notifications justifications now cover the Drive trash check and its flag.
+notifications justifications, the certification note and the
+Authentication information note now cover the Drive trash check and its
+flag.
 
 ## Short description (117 of 132 characters)
 
@@ -186,7 +188,8 @@ processed on the device, so local storage is disclosed too.
   URL, read from the job page when you apply.
 - **Authentication information: check.** The extension uses a Google
   OAuth access token, from `chrome.identity.getAuthToken`, to call the
-  Sheets API. Chrome caches the token and the extension stores no
+  Sheets API, and for the Drive check of whether that spreadsheet is in
+  the trash. Chrome caches the token and the extension stores no
   credential itself, but it does handle the token for each request, so
   this errs on the side of disclosing.
 - **Web history: check.** Every logged row stores the job posting's URL
@@ -213,7 +216,8 @@ Match these to the dashboard's exact wording:
 
 - Doesn't sell or transfer user data to third parties outside the
   approved use cases. Data only goes to Google's Sheets API to read and
-  write your own spreadsheet, which is the single purpose.
+  write your own spreadsheet, and asks Google Drive whether that
+  spreadsheet is in the trash, which is the single purpose.
 - Doesn't use or transfer user data for purposes unrelated to the
   single purpose.
 - Doesn't use or transfer user data to determine creditworthiness or

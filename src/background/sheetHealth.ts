@@ -5,8 +5,8 @@ import { getSheetRef } from '../lib/sheetRef'
 
 // Asks Drive whether the connected sheet is in the trash; the provider
 // wrapper records the answer (lib/sheetStatus.ts). Called after each
-// application logged directly, on every retry-alarm tick (once every 5
-// minutes) and when the popup opens (2026-09-14). Never throws: a check that
+// application logged directly, when the popup opens, and on a retry-alarm
+// tick while applications are waiting or the sheet is flagged (2026-09-14). Never throws: a check that
 // fails (offline, a 500, a timeout) changes nothing, and signed out it
 // sets "sign-in needed" through the same wrapper.
 export async function checkSheetInTrash(): Promise<void> {

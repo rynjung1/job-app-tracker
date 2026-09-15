@@ -16,7 +16,13 @@ import { ensureRetryAlarm } from '../src/background/offlineQueue'
 import '../src/background/index'
 
 const REF = { spreadsheetId: 'sheet1', sheetName: 'Sheet1', sheetId: 0 }
-const settle = () => new Promise((r) => setTimeout(r, 60))
+// Lets the listeners' async work finish. The fakes answer with plain
+// promises (no timers, no real Response; see fakeResponse), so all of that
+// work runs as microtasks, and a few event-loop turns cover it however slow
+// the machine is. This used to wait a fixed 60 ms, a race against wall time.
+const settle = async () => {
+  for (let turn = 0; turn < 5; turn++) await new Promise((r) => setImmediate(r))
+}
 const flag = () => local.data.authStatus as { reason: string } | undefined
 const needsReconnect = () => log.notifications.filter((n) => n.id === 'needs-reconnect')
 const queue = () => (local.data.offlineQueue as unknown[] | undefined)?.length ?? 0
@@ -279,6 +285,14 @@ test('background worker', async (t) => {
   await internal({ type: 'GET_LIVE_STATUSES' })
   await settle()
   await check('opening the popup (GET_LIVE_STATUSES) asks Drive too -> "trashed" set', driveChecks() === 1 && sheetFlag()?.state === 'trashed', { drive: driveChecks(), flag: sheetFlag() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  await tick()
+  const idleTickChecks = driveChecks()
+  await local.set({ offlineQueue: [qrow('Queued For Tick', 12)] })
+  await tick()
+  await check('retry tick: with nothing queued and no flag, no Drive call; with an application queued, one Drive call before the drain', idleTickChecks === 0 && driveChecks() === 1 && queue() === 0 && rowsFor('Queued For Tick') === 1, { idleTickChecks, drive: driveChecks(), queue: queue() })
 
   // ---- A failed notification Undo is visible. ----
   const entry = { id: 'n1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
