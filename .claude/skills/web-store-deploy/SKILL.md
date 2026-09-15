@@ -84,7 +84,28 @@ description: Steps and status for publishing this extension to the Chrome Web St
        verification (2-3 business days). Confirm it shows In production.
      - **After step 4:** set the OAuth client's Item ID to the new ID.
   6. Re-verify Google sign-in and a real logged row on the new-ID
-     build. Also check live:
+     build. **First pass 2026-09-14** (the reviewer drove LinkedIn in
+     Ryan's Chrome, Ryan did Connect; the loaded build came from the
+     `workday` branch at `4f51b92`, which includes main's `8f18d83`):
+     - PASS: Google sign-in on `mhldoocgadblnnelahaplfdnaoiehafj`, so
+       step 5's Item ID is in place.
+     - PASS: an Easy Apply click before Connect was queued, and Connect
+       saved it ("Saved 1 waiting application").
+     - PASS: `/feed/` → LinkedIn's Jobs navigation → an in-app search
+       result, no reload: the content script was present and caught the
+       trusted Easy Apply click.
+     - PASS: a `/jobs/view/{id}/` click (full load) logs.
+     - PASS: a `/jobs/search-results/?currentJobId=` click logs on
+       `8f18d83`; it failed before that commit.
+     - The sheet held exactly the 2 expected rows, fields correct,
+       formatting intact.
+     - Not verified: the 24-hour repeat skip (the browser tool's later
+       clicks never reached the page); Ryan is checking it by hand.
+     - Two sheets were created that day; the Connect paths and the fix
+       are in CLAUDE.md (Deployment path).
+     - Rebuild `dist/` from main once Ryan's checks are done, so his
+       daily build matches what ships.
+     Also check live:
      - `scripts/health-check.js` in the new ID's service-worker console,
        after Connect: the new extension ID and version, a spreadsheet
        id, an empty queue, no sign-in flag, no badge, and the retry
