@@ -154,6 +154,15 @@ description: Steps and status for publishing this extension to the Chrome Web St
        30-second fallback alarm can't be seen here. After the store
        install (step 8), check the notification still clears after
        about 5 seconds.
+     - A sheet in Drive's trash or deleted (CLAUDE.md, Spreadsheet
+       backend, 2026-09-14), with a throwaway sheet connected: move it
+       to Drive's trash, open the popup (the 5-minute tick only asks
+       Drive while something is queued or already flagged): the
+       banner, the "!" badge and the notification say it's in the trash;
+       make one Easy Apply click, which is queued. Restore it: within 5
+       minutes (or on opening the popup) the banner clears and the
+       queued row lands. Trash it again, then Settings > Create a new
+       sheet: a new sheet is connected and the queued rows land in it.
      - Left here by phase B (the new ID starts with empty storage, so
        it's a real first install): Settings opens on its own as a
        window, and the "Not connected" notification's Open Settings

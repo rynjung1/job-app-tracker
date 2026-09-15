@@ -7,21 +7,23 @@ interface RowMenuProps {
   company: string
   // Already checked by safeJobUrl; null hides "Open job posting".
   url: string | null
-  signedOut: boolean
+  // Why "Change resume version" can't write right now (signed out, or the
+  // sheet is in the trash or deleted); null when it can.
+  blockedReason: string | null
   onChangeResume: () => void
 }
 
 // The row's ⋯ menu: Change resume version, Open job posting. Status changes
 // live only in the status chip. The button's id (more-<entry id>) is where
 // focus returns after the resume editor closes.
-export function RowMenu({ entryId, company, url, signedOut, onChangeResume }: RowMenuProps) {
+export function RowMenu({ entryId, company, url, blockedReason, onChangeResume }: RowMenuProps) {
   const items: DropdownItem[] = [
     {
       key: 'resume',
       label: 'Change resume version',
       icon: <PencilIcon size={16} />,
-      disabled: signedOut,
-      title: signedOut ? 'Reconnect Google Sheets first' : undefined,
+      disabled: blockedReason !== null,
+      title: blockedReason ?? undefined,
       onSelect: onChangeResume,
     },
   ]

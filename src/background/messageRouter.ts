@@ -21,7 +21,10 @@ import { getSheetRef, setSheetRef } from '../lib/sheetRef'
 import { getRecentApplications, setApplicationStatus, updateRecentApplication } from '../lib/recentApplications'
 import { isStatusValue } from '../lib/sheetTemplate'
 import type { StatusValue } from '../lib/sheetTemplate'
-import { AuthRequiredError } from '../providers/types'
+import { AuthRequiredError, SheetMissingError } from '../providers/types'
+import { clearSheetProblem, getSheetStatus } from '../lib/sheetStatus'
+import { clearRecentApplications } from '../lib/recentApplications'
+import { checkSheetInTrash, sheetHealth } from './sheetHealth'
 import type { RecentApplication } from '../lib/recentApplications'
 import { setLastResumeVersion } from '../lib/resumeVersion'
 import { LIVE_STATUS_COLUMNS, matchLiveStatuses } from '../lib/liveStatuses'
@@ -37,6 +40,7 @@ export type BackgroundRequest =
     }
   | { type: 'SET_STATUS'; payload: { entryId: string; status: StatusValue } }
   | { type: 'GET_LIVE_STATUSES' }
+  | { type: 'CREATE_NEW_SHEET' }
   | { type: 'OPEN_SETTINGS'; payload?: { reconnect?: boolean } }
 
 // RECONNECT_PROVIDER's result: rows the immediate drain saved, and rows
@@ -63,7 +67,13 @@ export interface ConnectResult extends ReconnectResult {
 // message, and the "needs reconnect" flag is already set by then.
 export type BackgroundResponse<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string; code?: 'STALE_ROW' | 'AUTH_REQUIRED' }
+  | { ok: false; error: string; code?: 'STALE_ROW' | 'AUTH_REQUIRED' | 'SHEET_UNAVAILABLE' | 'SHEET_HEALTHY' }
+
+// SHEET_UNAVAILABLE (2026-09-14): the sheet is in Drive's trash or deleted
+// (lib/sheetStatus.ts), so the change wasn't written. SHEET_HEALTHY: "Create
+// a new sheet" refused because the connected one is reachable and not
+// trashed.
+const SHEET_UNAVAILABLE_ERROR = "Your sheet is in Google Drive's trash or was deleted, so nothing was written"
 
 const INTERNAL_MESSAGE_TYPES = [
   'CONNECT_PROVIDER',
@@ -72,6 +82,7 @@ const INTERNAL_MESSAGE_TYPES = [
   'SET_STATUS',
   'GET_LIVE_STATUSES',
   'OPEN_SETTINGS',
+  'CREATE_NEW_SHEET',
 ] as const
 
 export function isInternalMessage(message: unknown): message is BackgroundRequest {
@@ -107,6 +118,8 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
         return await handleSetStatus(message.payload)
       case 'GET_LIVE_STATUSES':
         return await handleGetLiveStatuses()
+      case 'CREATE_NEW_SHEET':
+        return await handleCreateNewSheet()
       case 'OPEN_SETTINGS':
         await openSettingsWindow({ reconnect: message.payload?.reconnect === true })
         return { ok: true, data: undefined }
@@ -114,6 +127,7 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     if (err instanceof AuthRequiredError) return { ok: false, error, code: 'AUTH_REQUIRED' }
+    if (err instanceof SheetMissingError) return { ok: false, error, code: 'SHEET_UNAVAILABLE' }
     return { ok: false, error }
   }
 }
@@ -128,11 +142,56 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
 // in and keeps that sheet.
 let connectInFlight: Promise<BackgroundResponse<ConnectResult>> | null = null
 
+// Connect and "Create a new sheet" never interleave: each waits for the
+// other to finish, so the second sees the first's sheet (2026-09-14).
+let sheetWork: Promise<unknown> = Promise.resolve()
+function oneAtATime<T>(work: () => Promise<T>): Promise<T> {
+  const run = sheetWork.then(work, work)
+  sheetWork = run.catch(() => undefined)
+  return run
+}
+
 function handleConnectProvider(): Promise<BackgroundResponse<ConnectResult>> {
-  connectInFlight ??= connect().finally(() => {
+  connectInFlight ??= oneAtATime(connect).finally(() => {
     connectInFlight = null
   })
   return connectInFlight
+}
+
+// "Create a new sheet" (2026-09-14, a flagged addition to the internal
+// messages): the one path that replaces the connected sheet, and only when
+// that sheet is in Drive's trash or deleted; refused (SHEET_HEALTHY) while
+// it's reachable and not trashed. Overlapping requests share one run. It
+// signs in only non-interactively: signed out, it fails with AUTH_REQUIRED
+// and Settings offers Reconnect.
+let createInFlight: Promise<BackgroundResponse<ConnectResult>> | null = null
+
+function handleCreateNewSheet(): Promise<BackgroundResponse<ConnectResult>> {
+  createInFlight ??= oneAtATime(createNewSheet).finally(() => {
+    createInFlight = null
+  })
+  return createInFlight
+}
+
+async function createNewSheet(): Promise<BackgroundResponse<ConnectResult>> {
+  const existing = await getSheetRef()
+  if (!existing) return { ok: false, error: 'No sheet is connected yet: use Connect.' }
+  if ((await sheetHealth(existing)) === 'healthy') {
+    return { ok: false, code: 'SHEET_HEALTHY', error: 'Your sheet is still there and not in the trash, so it was kept.' }
+  }
+  return { ok: true, data: await replaceSheet() }
+}
+
+// A new sheet in place of a trashed or deleted one: create it, connect it,
+// clear the flag, forget the recent list (its rows are in the old sheet), and
+// save the waiting applications into the new one.
+async function replaceSheet(): Promise<ConnectResult> {
+  const provider = await getActiveProvider()
+  const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS])
+  await setSheetRef(sheetRef)
+  await clearSheetProblem()
+  await clearRecentApplications()
+  return { sheetRef, ...(await drainAfterSignIn()) }
 }
 
 async function connect(): Promise<BackgroundResponse<ConnectResult>> {
@@ -144,8 +203,17 @@ async function connect(): Promise<BackgroundResponse<ConnectResult>> {
   // just relocated.
   await provider.authenticate()
   const existing = await getSheetRef()
-  const sheetRef = existing ?? (await provider.createSheet([...SHEET_TEMPLATE_COLUMNS]))
-  if (!existing) await setSheetRef(sheetRef)
+  if (!existing) {
+    const created = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS])
+    await setSheetRef(created)
+    return { ok: true, data: { sheetRef: created, ...(await drainAfterSignIn()) } }
+  }
+  // A sheet is already connected: kept while it exists, in Drive's trash
+  // too (the flag is then set, and Settings offers to restore or replace
+  // it); a deleted one is replaced (2026-09-14). Any other failure of the
+  // check fails the Connect, and nothing is created.
+  if ((await sheetHealth(existing)) === 'missing') return { ok: true, data: await replaceSheet() }
+  const sheetRef = existing
   // Save what queued before a sheet was connected (the "Not connected"
   // notification's case) now, not at the next 5-minute alarm, the same way
   // Reconnect does, so Settings can say so.
@@ -216,6 +284,7 @@ async function handleSaveResumeVersion(payload: {
     return { ok: false, error: `Resume version must be text of at most ${MAX_RESUME_VERSION_LENGTH} characters` }
   }
   if (typeof payload.entryId !== 'string') return { ok: false, error: 'Missing entry id' }
+  if (await getSheetStatus()) return { ok: false, code: 'SHEET_UNAVAILABLE', error: SHEET_UNAVAILABLE_ERROR }
   const { entryId, resumeVersion } = payload
   const skipIdentityCheck = payload.skipIdentityCheck === true
   const sheetRef = await requireSheetRefOrThrow()
@@ -250,6 +319,7 @@ async function handleSaveResumeVersion(payload: {
 async function handleSetStatus(payload: { entryId: unknown; status: unknown }): Promise<BackgroundResponse<RecentApplication>> {
   if (!isStatusValue(payload?.status)) return { ok: false, error: `Unknown status: ${String(payload?.status)}` }
   if (typeof payload.entryId !== 'string') return { ok: false, error: 'Missing entry id' }
+  if (await getSheetStatus()) return { ok: false, code: 'SHEET_UNAVAILABLE', error: SHEET_UNAVAILABLE_ERROR }
   const sheetRef = await requireSheetRefOrThrow()
   const entry = await findEntryOrThrow(payload.entryId)
   const provider = await getActiveProvider()
@@ -268,6 +338,9 @@ async function handleSetStatus(payload: { entryId: unknown; status: unknown }): 
 // only for rows that still match (lib/liveStatuses.ts). One batched read,
 // never a write, and the cached list isn't updated from it.
 async function handleGetLiveStatuses(): Promise<BackgroundResponse<Record<string, string>>> {
+  // The popup opening is also when Drive is asked whether the sheet is in
+  // the trash (2026-09-14). Not awaited, so the chips don't wait for it.
+  checkSheetInTrash()
   const sheetRef = await getSheetRef()
   const entries = await getRecentApplications()
   if (!sheetRef || entries.length === 0) return { ok: true, data: {} }

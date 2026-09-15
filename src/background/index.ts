@@ -3,7 +3,7 @@
 // Content scripts and other components must never write to a spreadsheet directly.
 
 import { getActiveProvider } from '../providers/activeProvider'
-import { AuthRequiredError } from '../providers/types'
+import { AuthRequiredError, SheetMissingError } from '../providers/types'
 import type { AppendedRow } from '../providers/types'
 import type { JobPostingData } from '../parsers/types'
 import { buildRow } from '../lib/buildRow'
@@ -18,7 +18,9 @@ import { recordPendingApplication, takePendingApplication } from '../lib/pending
 import { NEEDS_RECONNECT_NOTIFICATION_ID, showNeedsReconnectNotification, syncBadge } from '../lib/authStatus'
 import { handleInternalMessage, isInternalMessage } from './messageRouter'
 import { openSettingsWindow } from './settingsWindow'
-import { drainOfflineQueue, ensureRetryAlarm, queueRow, RETRY_ALARM_NAME } from './offlineQueue'
+import { drainOfflineQueue, ensureRetryAlarm, getOfflineQueue, queueRow, RETRY_ALARM_NAME } from './offlineQueue'
+import { getSheetStatus, SHEET_PROBLEM_NOTIFICATION_ID, showSheetProblemNotification } from '../lib/sheetStatus'
+import { checkSheetInTrash } from './sheetHealth'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 // This extension's own pages (popup, options) — used to distinguish an
@@ -158,11 +160,22 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
     return
   }
 
+  // The sheet is in Drive's trash or was deleted (lib/sheetStatus.ts):
+  // don't write; queue it and say why, each time (the fixed id replaces it).
+  if (await getSheetStatus()) {
+    await queueRow(row)
+    await showSheetProblemNotification()
+    return
+  }
+
   try {
     const provider = await getActiveProvider()
     const appended = await provider.appendRow(sheetRef, row)
     console.log('[job-app-tracker] row written to sheet, row', appended.rowNumber)
     await notifyApplicationLogged(payload, row, appended)
+    // Then, not holding up the log: is the sheet in Drive's trash? Trash
+    // changes no Sheets answer, so only Drive can tell (2026-09-14).
+    checkSheetInTrash()
   } catch (err) {
     console.warn('[job-app-tracker] appendRow failed, queuing for retry:', err)
     await queueRow(row)
@@ -171,6 +184,11 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
     // first, so the count includes this application.
     if (err instanceof AuthRequiredError) {
       await showNeedsReconnectNotification()
+    }
+    // Deleted: the wrapper notified on the first report; this repeats it
+    // with the new count, like the sign-in case.
+    if (err instanceof SheetMissingError) {
+      await showSheetProblemNotification()
     }
   }
 }
@@ -199,11 +217,21 @@ async function handleJobApplicationConfirmed(scopedKey: string) {
   await handleJobApplicationLogged(payload)
 }
 
+// The 5-minute retry tick (2026-09-14): while applications are waiting or
+// the sheet is flagged, first ask Drive whether the sheet is in the trash
+// (which also notices a restore); then drain, which writes nothing while the
+// sheet is trashed or deleted. With nothing waiting and no flag, no Drive
+// call: the checks after each direct log and on popup open cover that case.
+async function retryTick() {
+  if ((await getOfflineQueue()).length > 0 || (await getSheetStatus())) await checkSheetInTrash()
+  await drainOfflineQueue()
+}
+
 // The offline queue itself (queueRow, drainOfflineQueue, its re-entrancy
 // guard) lives in ./offlineQueue.ts.
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RETRY_ALARM_NAME) {
-    drainOfflineQueue()
+    retryTick()
     return
   }
   if (alarm.name.startsWith(NOTIFICATION_CLEAR_ALARM_PREFIX)) {
@@ -234,6 +262,13 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
     return
   }
 
+  // "Your sheet is in the trash / was deleted": Settings offers the choices.
+  if (notificationId === SHEET_PROBLEM_NOTIFICATION_ID) {
+    openSettingsWindow()
+    chrome.notifications.clear(notificationId)
+    return
+  }
+
   const sheetRef = await getSheetRef()
   if (!sheetRef) return
 
@@ -241,6 +276,12 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
     const entries = await getRecentApplications()
     const entry = entries.find((e) => e.id === notificationId)
     if (!entry) return
+    // Trashed or deleted sheet: nothing is written (lib/sheetStatus.ts).
+    if (await getSheetStatus()) {
+      await showSheetProblemNotification()
+      chrome.notifications.clear(notificationId)
+      return
+    }
     try {
       const provider = await getActiveProvider()
       await cancelApplication(provider, sheetRef, entry)

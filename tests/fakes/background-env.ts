@@ -63,6 +63,12 @@ export const ctl = {
   // or the tab deleted (the spreadsheet then has only a different tab).
   sheetTitle: 'Sheet1',
   tabDeleted: false,
+  // Spreadsheets in Drive's trash, and deleted ones (2026-09-14). Measured
+  // with scripts/sheet-probe.js: a trashed spreadsheet answers every Sheets
+  // call as usual and only Drive's files.get says trashed; a deleted one is
+  // taken to answer 404 everywhere (expected, not measured).
+  trashedIds: new Set<string>(),
+  goneIds: new Set<string>(),
 }
 // The fake sheet: row values for readRow, and every successful cell write.
 export const sheet = { rows: {} as Record<number, string[]>, writes: [] as Array<{ range: string; values: unknown }> }
@@ -90,6 +96,8 @@ export function reset() {
   ctl.appendThenAbort = false
   ctl.sheetTitle = 'Sheet1'
   ctl.tabDeleted = false
+  ctl.trashedIds.clear()
+  ctl.goneIds.clear()
 }
 
 // fetchWithTimeout's 20s timer is left running when a request is aborted
@@ -184,18 +192,38 @@ function columnValues(letter: string): string[] {
   while (values.length && values[values.length - 1] === '') values.pop()
   return values
 }
+// The fake's answers are plain objects with the four members the code uses
+// (ok, status, text(), json()), all promise-based. Not a real Response:
+// the first one in a process loads Node's fetch internals, measured at
+// 21-24 ms idle and 28-34 ms under load, which made every test waiting on
+// this fake race wall time (tests/background.test.ts, settle()).
+export const fakeResponse = (status: number, text: string) =>
+  ({ ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text) }) as unknown as Response
+
 ;(globalThis as any).fetch = async (url: string, init?: RequestInit) => {
   const u = decodeURIComponent(url)
   log.fetches.push(u.replace(/^https:\/\/sheets\.googleapis\.com\/v4\/spreadsheets/, ''))
   const step = ctl.fetchPlan.length ? ctl.fetchPlan.shift()! : 200
   if (step === 'abort') throw new DOMException('The operation was aborted.', 'AbortError')
-  if (step !== 200) return new Response(`{"error":{"code":${step}}}`, { status: step })
+  if (step !== 200) return fakeResponse(step, `{"error":{"code":${step}}}`)
+  // Drive files.get?fields=trashed (isTrashed): per ctl.trashedIds; a
+  // deleted file answers 404.
+  const driveFile = u.match(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/([^/?]+)/)?.[1]
+  if (driveFile) {
+    if (ctl.goneIds.has(driveFile)) return fakeResponse(404, `{"error":{"code":404,"message":"File not found: ${driveFile}."}}`)
+    return fakeResponse(200, JSON.stringify({ trashed: ctl.trashedIds.has(driveFile) }))
+  }
+  // A deleted spreadsheet: every Sheets call on it answers 404.
+  const sheetsId = u.match(/^https:\/\/sheets\.googleapis\.com\/v4\/spreadsheets\/([^/?:]+)/)?.[1]
+  if (sheetsId && ctl.goneIds.has(sheetsId)) {
+    return fakeResponse(404, '{"error":{"code":404,"message":"Requested entity was not found.","status":"NOT_FOUND"}}')
+  }
   // A range must name the fake tab, quoted ('It''s'!A1) or not; Sheets
   // answers any other name with 400 "Unable to parse range".
   const named = u.match(/(?:\/values\/|ranges=)(?:'((?:[^']|'')*)'|([^!'?&/]+))!/)
   const rangeSheet = named ? (named[1] !== undefined ? named[1].replace(/''/g, "'") : named[2]) : undefined
   if (rangeSheet !== undefined && rangeSheet !== ctl.sheetTitle) {
-    return new Response(`{"error":{"code":400,"message":"Unable to parse range: ${rangeSheet}!A1"}}`, { status: 400 })
+    return fakeResponse(400, `{"error":{"code":400,"message":"Unable to parse range: ${rangeSheet}!A1"}}`)
   }
   if (init?.method === 'PUT') {
     sheet.writes.push({ range: u.match(/\/values\/([^?]+)/)?.[1] ?? '', values: JSON.parse(String(init.body)).values })
@@ -227,5 +255,5 @@ function columnValues(letter: string): string[] {
               : u.includes('!1:1')
                 ? { values: [ctl.headers] }
                 : {}
-  return new Response(JSON.stringify(body), { status: 200 })
+  return fakeResponse(200, JSON.stringify(body))
 }

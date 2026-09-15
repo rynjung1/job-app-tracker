@@ -52,6 +52,12 @@ export async function addRecentApplications(entries: RecentApplication[]): Promi
   })
 }
 
+// Empties the list: after "Create a new sheet" (2026-09-14) its entries
+// point at rows of the old, trashed or deleted sheet.
+export async function clearRecentApplications(): Promise<void> {
+  await withStorageLock(() => chrome.storage.local.remove(RECENT_APPLICATIONS_KEY))
+}
+
 export async function updateRecentApplication(
   id: string,
   patch: Partial<RecentApplication>,
