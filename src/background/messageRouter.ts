@@ -118,7 +118,24 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
   }
 }
 
-async function handleConnectProvider(): Promise<BackgroundResponse<ConnectResult>> {
+// One sheet per extension, however Connect is clicked (2026-09-14). The
+// Settings page swaps Connect for a disabled "Connecting…" button while it
+// runs, so one page can't send two; but two pages can (the Settings window
+// and the options tab from chrome://extensions), and a page opened before a
+// Connect keeps showing Connect afterwards. Each of those used to create a
+// sheet and swap it in, leaving the earlier one orphaned. Now Connects that
+// overlap share one run, and a Connect with a sheet already connected signs
+// in and keeps that sheet.
+let connectInFlight: Promise<BackgroundResponse<ConnectResult>> | null = null
+
+function handleConnectProvider(): Promise<BackgroundResponse<ConnectResult>> {
+  connectInFlight ??= connect().finally(() => {
+    connectInFlight = null
+  })
+  return connectInFlight
+}
+
+async function connect(): Promise<BackgroundResponse<ConnectResult>> {
   const provider = await getActiveProvider()
   // Interactive — this is one of the few places allowed to trigger a
   // provider's OAuth consent popup, since it's a direct result of the
@@ -126,8 +143,9 @@ async function handleConnectProvider(): Promise<BackgroundResponse<ConnectResult
   // mid-apply. Mirrors options/App.tsx's original handleConnect exactly,
   // just relocated.
   await provider.authenticate()
-  const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS])
-  await setSheetRef(sheetRef)
+  const existing = await getSheetRef()
+  const sheetRef = existing ?? (await provider.createSheet([...SHEET_TEMPLATE_COLUMNS]))
+  if (!existing) await setSheetRef(sheetRef)
   // Save what queued before a sheet was connected (the "Not connected"
   // notification's case) now, not at the next 5-minute alarm, the same way
   // Reconnect does, so Settings can say so.

@@ -530,7 +530,10 @@ still queue two rows (with different Log IDs). **Verified 2026-09-14 in
 Node only** (`tests/background.test.ts`): the same job twice gave 1
 append, 1 row and 1 "Logged" notification with nothing queued; a
 different job still logged; after the entry was set to Cancelled the
-job logged again; an entry 25 hours old didn't block it.
+job logged again; an entry 25 hours old didn't block it. Not yet verified
+live: in the 2026-09-14 session the browser tool's later clicks never
+reached the page (a tool issue, not the extension's); Ryan is checking it
+by hand.
 
 **Updated 2026-09-01 (Phase 4):** the "toast" is a real
 `chrome.notifications` system notification, not the extension's
@@ -1302,8 +1305,10 @@ the query. `npm test` 94 of 94. The same live session passed the
 content-script scope check: from `/feed/`, LinkedIn's own Jobs navigation
 (a page marker survived, so no reload) then an in-app move to a search
 result, the script caught the trusted Easy Apply click; and a full-load
-`/jobs/view/4464201438/` click logged. The live re-test of the search
-layout is the reviewer's, on the new ID.
+`/jobs/view/4464201438/` click logged. **Passed live 2026-09-14** on the
+new-ID build with `8f18d83`: a `/jobs/search-results/?currentJobId=`
+Easy Apply click logged ("apply logged, sent to background") and its row
+reached the sheet with the right fields.
 
 **Spot-checked 2026-09-10 (test-pass follow-up):** a real risk was
 flagged during a broader test pass but never actually verified live
@@ -1659,8 +1664,43 @@ unpacked ID `hopcbbifbonofhibjgdkogmbnocaghmg` is retired once Ryan
 removes that install. `scripts/package.mjs` fails a `--allow-key` build
 whose key doesn't derive this ID (SHA-256 of the DER key, the first 32
 hex digits mapped to a-p), and every upload from now on uses
-`npm run package -- --allow-key`. The OAuth client's Item ID still
-points at the old ID until Ryan's web-store-deploy step 5.
+`npm run package -- --allow-key`. Sign-in on the new ID passed live on
+2026-09-14, so the OAuth client's Item ID points at it (web-store-deploy
+step 5).
+
+**Live on the new ID (2026-09-14, web-store-deploy step 6, first
+pass):** the reviewer drove LinkedIn in Ryan's Chrome; Ryan did Connect.
+Google sign-in worked; an Easy Apply click made before Connect was queued,
+and Connect saved it ("Saved 1 waiting application"); from `/feed/`,
+LinkedIn's own Jobs navigation (no reload) to an in-app search result, the
+content script was present and caught the trusted click; `/jobs/view/`
+and `/jobs/search-results/` clicks logged; the sheet held exactly the 2
+expected rows, fields correct, formatting intact. The 24-hour repeat skip
+wasn't verified live (see Logging behavior). The `dist/` Ryan's Chrome
+loaded had been built from the `workday` branch (`4f51b92`, which includes
+main's `8f18d83`) by one of my test runs: `npm test`'s popup test and
+`npm run package` both rebuild `dist/` in the working directory, and Chrome
+loads the unpacked extension from there. Lesson: while Ryan runs a build
+from this directory, builds and tests run in a separate copy, and `dist/`
+is rebuilt from main on purpose, not as a side effect.
+
+**Fixed 2026-09-14 (one sheet per Connect):** two "Job Applications"
+sheets were created that day, 20 minutes apart. Checked every path: a
+double click on Connect in one Settings page can't send two (the click
+swaps Connect for a disabled "Connecting…" button in the same render); a
+Settings window plus the options tab from chrome://extensions could each
+send one at once, and a page opened before a Connect kept showing Connect
+afterwards, so a later click there created a second sheet and swapped it
+in (`CONNECT_PROVIDER` always created one); a Connect whose spreadsheet was
+created but whose header write or formatting then failed leaves that sheet
+orphaned when "Try again" creates another (not fixed, no evidence it
+happened); and removing and re-adding the unpacked extension wipes its
+storage, so the next Connect creates a new sheet (expected). Now
+overlapping Connects share one run, and a Connect with a sheet already
+connected signs in and keeps that sheet (`background/messageRouter.ts`).
+Which path made the second sheet isn't known; the 8:07 PM sheet's contents
+would tell (formatted with headers: a completed Connect, from a stale page
+or a re-add; no header row: a failed one).
 
 ---
 

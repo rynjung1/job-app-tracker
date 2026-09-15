@@ -158,6 +158,18 @@ test('background worker', async (t) => {
   const cf = (await internal({ type: 'CONNECT_PROVIDER' })) as any
   await check('CONNECT_PROVIDER whose drain throws (queue write fails) -> still ok, saved 0, waiting 1, sheet kept', cf.ok && cf.data.sheetRef.spreadsheetId === 'new1' && cf.data.saved === 0 && cf.data.waiting === 1 && (local.data.sheetRef as any)?.spreadsheetId === 'new1', cf)
 
+  // One sheet per extension (2026-09-14): overlapping Connects (two Settings
+  // pages) share one run; a stale page's Connect keeps the connected sheet.
+  const spreadsheetCreates = () => log.fetches.filter((f) => f === '').length
+  reset()
+  const [connectA, connectB] = (await Promise.all([internal({ type: 'CONNECT_PROVIDER' }), internal({ type: 'CONNECT_PROVIDER' })])) as any[]
+  await check('two CONNECT_PROVIDER at once -> exactly one spreadsheet created, both answered with it', connectA.ok && connectB.ok && spreadsheetCreates() === 1 && connectA.data.sheetRef.spreadsheetId === 'new1' && connectB.data.sheetRef.spreadsheetId === 'new1' && (local.data.sheetRef as any)?.spreadsheetId === 'new1', { connectA, connectB, creates: spreadsheetCreates() })
+
+  reset()
+  await local.set({ sheetRef: REF, offlineQueue: [qrow('StalePage', 12)] })
+  const stalePage = (await internal({ type: 'CONNECT_PROVIDER' })) as any
+  await check('CONNECT_PROVIDER with a sheet already connected (a stale Settings page) -> no spreadsheet created, the connected one kept and returned, the queue still saved', stalePage.ok && spreadsheetCreates() === 0 && stalePage.data.sheetRef.spreadsheetId === REF.spreadsheetId && (local.data.sheetRef as any)?.spreadsheetId === REF.spreadsheetId && stalePage.data.saved === 1 && queue() === 0, { stalePage, creates: spreadsheetCreates() })
+
   // ---- A failed notification Undo is visible. ----
   const entry = { id: 'n1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
   reset()
