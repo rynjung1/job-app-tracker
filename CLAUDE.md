@@ -1859,6 +1859,16 @@ loads the unpacked extension from there. Lesson: while Ryan runs a build
 from this directory, builds and tests run in a separate copy, and `dist/`
 is rebuilt from main on purpose, not as a side effect.
 
+**Declined 2026-09-16 (Ryan): the rest of step 6's live checks weren't
+run.** He chose not to run the popup's status and resume changes, the
+stale-row refusal, the notification's Edit window, the 24-hour repeat
+skip, the sheet trash/restore/create flow, the sign-in-lost flow, or
+offline. So those paths are **verified in Node and headless renders only**
+— not live — and this file's notes on them say as much where they were
+written. They stay on web-store-deploy's step 6 list rather than being
+struck off, and step 8 runs them again on the installed store build,
+which is the first live run they would get.
+
 **Fixed 2026-09-14 (one sheet per Connect):** two "Job Applications"
 sheets were created that day, 20 minutes apart. Checked every path: a
 double click on Connect in one Settings page can't send two (the click
