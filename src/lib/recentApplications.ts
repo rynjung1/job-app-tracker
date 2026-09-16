@@ -18,12 +18,14 @@ export interface RecentApplication {
   status: string
   sheetName: string
   rowNumber: number
-  // The row's hidden Log ID (2026-09-14), for rowStillMatches below. Absent on
-  // entries logged before it and on rows of sheets without the column.
+  // The row's hidden Log ID (2026-09-14), for rowStillMatches below, and so
+  // the popup can leave out a waiting application once its saved entry exists
+  // (lib/popupList.ts). Absent on entries logged before it and on rows of
+  // sheets without the column.
   logId?: string
 }
 
-const MAX_RECENT = 20
+export const MAX_RECENT = 20
 
 // Is this sheet row still the entry's? Checked by SAVE_RESUME_VERSION and
 // SET_STATUS before writing (background/messageRouter.ts). Since 2026-09-14

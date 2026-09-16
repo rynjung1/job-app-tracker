@@ -1,4 +1,4 @@
-import { DotsIcon, ExternalIcon, PencilIcon } from '../ui/icons'
+import { DotsIcon, ExternalIcon, NoteIcon, PencilIcon } from '../ui/icons'
 import { Dropdown } from './Dropdown'
 import type { DropdownItem } from './Dropdown'
 
@@ -7,16 +7,18 @@ interface RowMenuProps {
   company: string
   // Already checked by safeJobUrl; null hides "Open job posting".
   url: string | null
-  // Why "Change resume version" can't write right now (signed out, or the
-  // sheet is in the trash or deleted); null when it can.
+  // Why "Change resume version" and "Add note" can't reach the sheet right
+  // now (signed out, or the sheet is in the trash or deleted); null when
+  // they can.
   blockedReason: string | null
   onChangeResume: () => void
+  onAddNote: () => void
 }
 
-// The row's ⋯ menu: Change resume version, Open job posting. Status changes
-// live only in the status chip. The button's id (more-<entry id>) is where
-// focus returns after the resume editor closes.
-export function RowMenu({ entryId, company, url, blockedReason, onChangeResume }: RowMenuProps) {
+// The row's ⋯ menu: Change resume version, Add note (2026-09-15), Open job
+// posting. Status changes live only in the status chip. The button's id
+// (more-<entry id>) is where focus returns after an editor closes.
+export function RowMenu({ entryId, company, url, blockedReason, onChangeResume, onAddNote }: RowMenuProps) {
   const items: DropdownItem[] = [
     {
       key: 'resume',
@@ -25,6 +27,14 @@ export function RowMenu({ entryId, company, url, blockedReason, onChangeResume }
       disabled: blockedReason !== null,
       title: blockedReason ?? undefined,
       onSelect: onChangeResume,
+    },
+    {
+      key: 'note',
+      label: 'Add note',
+      icon: <NoteIcon size={16} />,
+      disabled: blockedReason !== null,
+      title: blockedReason ?? undefined,
+      onSelect: onAddNote,
     },
   ]
   if (url) {

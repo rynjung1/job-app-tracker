@@ -30,7 +30,7 @@ body.in-window {
   height: 28px;
   padding: 0 9px;
   border-radius: 6px;
-  color: var(--brand);
+  color: var(--brand-text);
   font-size: 12.5px;
   font-weight: 600;
   text-decoration: none;
@@ -38,7 +38,7 @@ body.in-window {
 }
 
 .tbtn:hover {
-  background: #eff4ff;
+  background: var(--active-bg);
 }
 
 /* "Sign-in needed" (amber, with Reconnect) and "waiting to be saved"
@@ -125,7 +125,7 @@ body.in-window {
 }
 
 a.co:hover {
-  color: var(--brand);
+  color: var(--brand-text);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -205,13 +205,13 @@ a.co:hover {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #4b5563;
+  color: var(--icon);
   cursor: pointer;
 }
 
 .more:hover,
 .more[aria-expanded='true'] {
-  background: #f3f4f6;
+  background: var(--hover);
 }
 
 .err {
@@ -234,10 +234,8 @@ a.co:hover {
   z-index: 10;
   padding: 5px;
   border-radius: 9px;
-  background: #fff;
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.09),
-    0 12px 28px rgba(0, 0, 0, 0.18);
+  background: var(--surface);
+  box-shadow: var(--menu-shadow);
 }
 
 .dd-item {
@@ -264,16 +262,16 @@ a.co:hover {
 
 .dd-item svg {
   flex: none;
-  color: #4b5563;
+  color: var(--icon);
 }
 
 .dd-item.active {
-  background: #eff4ff;
-  color: #1e3a8a;
+  background: var(--active-bg);
+  color: var(--active-text);
 }
 
 .dd-item.active svg {
-  color: #1e40af;
+  color: var(--active-icon);
 }
 
 .dd-item[aria-disabled='true'] {
@@ -286,7 +284,7 @@ a.co:hover {
 }
 
 .dd-item svg.dd-check {
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .dd-dot {
@@ -362,17 +360,17 @@ body.in-window .editor {
   width: 100%;
   height: 34px;
   padding: 0 10px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--input-border);
   border-radius: 7px;
-  background: #fff;
+  background: var(--surface);
   color: var(--text);
   font: inherit;
   font-size: 13.5px;
 }
 
 .input:focus {
-  border-color: var(--brand);
-  box-shadow: 0 0 0 3px #bfd3fe;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-glow);
   outline: none;
 }
 
@@ -393,8 +391,8 @@ body.in-window .editor {
   padding: 0 9px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  background: #fff;
-  color: #1f2937;
+  background: var(--surface);
+  color: var(--btn-text);
   font: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -450,8 +448,8 @@ body.in-window .editor {
   height: 40px;
   margin: 0 auto 12px;
   border-radius: 10px;
-  background: #eff4ff;
-  color: var(--brand);
+  background: var(--active-bg);
+  color: var(--brand-text);
 }
 
 .empty h2 {
@@ -469,9 +467,62 @@ body.in-window .editor {
 .skel {
   height: 10px;
   border-radius: 5px;
-  background: linear-gradient(90deg, #eef0f3, #f6f7f9, #eef0f3);
+  background: linear-gradient(90deg, var(--skel-1), var(--skel-2), var(--skel-1));
 }
 
 .skel + .skel {
   margin-top: 8px;
+}
+
+/* The summary line under the header (2026-09-15): "3 this week · 2
+   interviews" (lib/popupList.ts). */
+.sum {
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.sum b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sum-sep {
+  margin: 0 2px;
+  color: var(--muted);
+}
+
+/* A waiting application's row (2026-09-15): the same 79px row, with a dashed
+   Waiting chip instead of the status menu, and no ⋯ (the spacer keeps the
+   chip where the saved rows' chips are). */
+.chip.chip-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px 0 7px;
+  border: 1px dashed var(--wait-border);
+  background: transparent;
+  color: var(--wait-text);
+}
+
+.more-spacer {
+  flex: none;
+  width: 26px;
+}
+
+/* The note editor (2026-09-15): the resume editor's layout, with a textarea. */
+.input.area {
+  display: block;
+  height: auto;
+  min-height: 84px;
+  padding: 8px 10px;
+  font-family: inherit;
+  line-height: 1.4;
+  resize: none;
+}
+
+.hint .count {
+  float: right;
 }
