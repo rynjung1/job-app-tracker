@@ -541,4 +541,27 @@ test('background worker', async (t) => {
   await sendJob('Repeat Co', REPEAT_URL)
   const afterDayOld = appends()
   await check('Easy Apply reopened: the same job twice -> 1 row, 1 "Logged", nothing queued; a different job logs; after the entry is Cancelled it logs again; an entry 25 hours old doesn\'t block', reopened.appends === 1 && reopened.rows === 1 && reopened.logged === 1 && reopened.queue === 0 && afterOtherJob === 2 && afterCancel === 3 && afterDayOld === 1, { reopened, afterOtherJob, afterCancel, afterDayOld })
+
+  // ---- Lever and Ashby (2026-09-15): messages from their own origins log,
+  // and a lookalike origin is refused by the sender-origin check. ----
+  reset()
+  await local.set({ sheetRef: REF })
+  const fromOrigin = async (origin: string, company: string, url: string) => {
+    listeners.onMessage[0]({ type: 'JOB_APPLICATION_LOGGED', payload: { title: 'Engineer', company, location: null, url } }, { origin }, () => {})
+    await settle()
+  }
+  await fromOrigin('https://jobs.lever.co', 'Lever Co', 'https://jobs.lever.co/northwind/1111')
+  await fromOrigin('https://jobs.eu.lever.co', 'Lever EU Co', 'https://jobs.eu.lever.co/northwind/2222')
+  await fromOrigin('https://jobs.ashbyhq.com', 'Ashby Co', 'https://jobs.ashbyhq.com/northwind/3333')
+  const loggedFromAts = recent().map((e) => e.company)
+  const lookalikes = [
+    'https://evil-jobs.lever.co',
+    'https://jobs.lever.co.evil.example',
+    'http://jobs.lever.co',
+    'https://jobs.ashbyhq.com.evil.example',
+    'https://ashbyhq.com',
+    'https://lever.co',
+  ]
+  for (const origin of lookalikes) await fromOrigin(origin, `Refused ${origin}`, `${origin}/northwind/9999`)
+  await check('Lever and Ashby: their three origins log; 6 lookalike origins (a prefixed host, a suffixed host, http, and the bare domains) log nothing', loggedFromAts.length === 3 && recent().length === 3, { loggedFromAts, after: recent().map((e) => e.company) })
 })

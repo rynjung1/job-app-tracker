@@ -52,5 +52,10 @@ test('manifest content-script matches: https only, LinkedIn on every page', () =
   // tests/run.mjs runs from the repo root; the bundled test lives elsewhere.
   const source = fs.readFileSync(path.join(process.cwd(), 'manifest.config.ts'), 'utf8')
   const matches = [...source.matchAll(/^\s*matches: \[([^\]]*)\]/gm)].map((m) => m[1].trim())
-  assert.deepEqual(matches, ["'https://www.linkedin.com/*'", "'https://job-boards.greenhouse.io/*/jobs/*'"])
+  assert.deepEqual(matches, [
+    "'https://www.linkedin.com/*'",
+    "'https://job-boards.greenhouse.io/*/jobs/*'",
+    "'https://jobs.lever.co/*/*/apply*', 'https://jobs.eu.lever.co/*/*/apply*'",
+    "'https://jobs.ashbyhq.com/*'",
+  ])
 })

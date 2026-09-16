@@ -8,7 +8,7 @@ export default defineManifest({
   // characters max), so it's the approved short description from
   // store-assets/listing.md, word for word.
   description:
-    'Automatically logs job applications to Google Sheets when you apply on LinkedIn or Greenhouse — no manual data entry.',
+    'Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse, Lever or Ashby — no manual data entry.',
   version: pkg.version,
   // Added 2026-09-13: chrome.action.setBadgeTextColor, used by the "sign-in
   // needed" badge (lib/authStatus.ts), needs Chrome 110. On older Chrome it
@@ -100,6 +100,27 @@ export default defineManifest({
       // https origins anyway (TRUSTED_ORIGINS).
       matches: ['https://job-boards.greenhouse.io/*/jobs/*'],
       js: ['src/content/greenhouse.ts'],
+      run_at: 'document_idle',
+    },
+    {
+      // Lever's own job sites, the application form page only (2026-09-15,
+      // flagged in CLAUDE.md, Site parsers, Lever: two more install-warning
+      // hosts). Lever is not a single-page app — the posting, the form and
+      // the thanks page are each a full load — so this narrow path match is
+      // enough. EU tenants exist only on jobs.eu.lever.co. https only.
+      matches: ['https://jobs.lever.co/*/*/apply*', 'https://jobs.eu.lever.co/*/*/apply*'],
+      js: ['src/content/lever.ts'],
+      run_at: 'document_idle',
+    },
+    {
+      // Ashby's hosted job boards (2026-09-15, flagged with Lever above).
+      // A React single-page app: its Overview and Application tabs are
+      // client-side routes, so a match limited to /application would miss
+      // moving there in-app, the same reason LinkedIn matches every page.
+      // The script acts only when the path is /{org}/{id}/application at the
+      // click. https only.
+      matches: ['https://jobs.ashbyhq.com/*'],
+      js: ['src/content/ashby.ts'],
       run_at: 'document_idle',
     },
   ],

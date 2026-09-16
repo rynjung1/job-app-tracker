@@ -16,13 +16,20 @@ disclosure); the content-script, Sheets, storage and notifications texts
 match the code; a no-submit Greenhouse path for the reviewer; the
 screenshots described as they are.
 
+Updated 2026-09-15 (branch `ats-lever-ashby`; awaiting review, and merged
+only after one real application on each site confirms its trigger): Lever
+and Ashby in the summary, the description, the single purpose, the
+content-script text and the test instructions. The summary now names four
+sites at 131 of 132 characters; the `workday` branch rewrites the same line,
+so whichever merges second needs shorter wording (five sites don't fit).
+
 Updated 2026-09-14 (a sheet in Drive's trash or deleted; awaiting review):
 the description's privacy sentence, the identity, storage (both) and
 notifications justifications, the certification note and the
 Authentication information note now cover the Drive trash check and its
 flag.
 
-## Short description (117 of 132 characters)
+## Short description (131 of 132 characters)
 
 The store's summary comes from the manifest's `description`
 (`manifest.config.ts`), not from a dashboard field: the dashboard's
@@ -32,7 +39,7 @@ chrome://extensions and the Web Store. Since 2026-09-14 the manifest
 holds this exact text; keep the two identical.
 
 ```text
-Automatically logs job applications to Google Sheets when you apply on LinkedIn or Greenhouse — no manual data entry.
+Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse, Lever or Ashby — no manual data entry.
 ```
 
 ## Detailed description
@@ -40,7 +47,7 @@ Automatically logs job applications to Google Sheets when you apply on LinkedIn 
 The dashboard shows this as plain text, so it has no Markdown.
 
 ```text
-Job Application Tracker eliminates the copy-paste step of a job search. When you click Easy Apply on LinkedIn, or once a Greenhouse-hosted job posting confirms your application, it automatically logs the company, title, location, date, and a link to the job posting to a Google Sheet you control.
+Job Application Tracker eliminates the copy-paste step of a job search. When you click Easy Apply on LinkedIn, submit an application on a Lever or Ashby job board, or once a Greenhouse-hosted job posting confirms your application, it automatically logs the company, title, location, date, and a link to the job posting to a Google Sheet you control.
 
 Easy Apply detection is fully supported with LinkedIn set to English.
 
@@ -78,7 +85,8 @@ any Google account, but it points a reviewer at the flow):
 1. Settings opens on install (or use the gear in the extension's popup). Click Connect Google Sheets and sign in with any Google account; a formatted "Job Applications" sheet is created in that account's Drive.
 2. With LinkedIn's interface in English, open a job posting that has Easy Apply and click Easy Apply. Closing the dialog without applying is fine. A row is logged to the sheet and a "Logged" notification with Undo and Edit appears.
 3. Open the extension's popup: the application is listed. Its status chip changes the Status in the sheet, and its ⋯ menu changes the resume version or opens the job posting.
-4. Greenhouse, without submitting anything: open a job posting on job-boards.greenhouse.io and click Submit application with the form left blank. Greenhouse shows its "is required" messages and sends nothing. Within 30 minutes, open the same address with /confirmation added to the end (https://job-boards.greenhouse.io/<board>/jobs/<id>/confirmation): one row is logged to the sheet. Opening it again logs nothing more.
+4. Lever and Ashby are logged only when you actually submit an application, so they can't be tested without applying.
+5. Greenhouse, without submitting anything: open a job posting on job-boards.greenhouse.io and click Submit application with the form left blank. Greenhouse shows its "is required" messages and sends nothing. Within 30 minutes, open the same address with /confirmation added to the end (https://job-boards.greenhouse.io/<board>/jobs/<id>/confirmation): one row is logged to the sheet. Opening it again logs nothing more.
 ```
 
 ## Screenshots (1280×800, 24-bit PNG, no alpha)
@@ -125,7 +133,7 @@ the matching field.
 ### Single purpose
 
 ```text
-Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply and Greenhouse-hosted job postings) as rows in a Google Sheet you own.
+Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply, Greenhouse-hosted job postings, and Lever and Ashby job boards) as rows in a Google Sheet you own.
 ```
 
 ### Permission justifications
@@ -171,7 +179,7 @@ If the dashboard also asks about the content-script sites (they're
 declared under `content_scripts`, not `host_permissions`):
 
 ```text
-Content scripts run on https://www.linkedin.com/* and https://job-boards.greenhouse.io/*/jobs/*. LinkedIn moves between pages without reloading them, so its script is loaded on every LinkedIn page, but it acts only on job pages (/jobs/): it reads the job title, company, location and page URL when you click Easy Apply or Submit application, and nothing else.
+Content scripts run on https://www.linkedin.com/*, https://job-boards.greenhouse.io/*/jobs/*, the application pages of Lever's job sites (https://jobs.lever.co/*/*/apply* and https://jobs.eu.lever.co/*/*/apply*) and Ashby's job boards (https://jobs.ashbyhq.com/*). LinkedIn and Ashby move between pages without reloading them, so their scripts are loaded on every page of those sites, but they act only on job pages: they read the job title, company, location and page URL when you click Easy Apply, submit a Lever application form, or click Submit application on Greenhouse or Submit Application on Ashby, and nothing else.
 ```
 
 ### Remote code

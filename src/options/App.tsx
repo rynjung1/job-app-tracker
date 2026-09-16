@@ -317,6 +317,20 @@ function App() {
               <span className="note">Logged once Greenhouse confirms the submission</span>
             </div>
           </li>
+          <li>
+            <TickIcon size={16} className="tick" />
+            <div>
+              <b>Lever</b> jobs.lever.co and jobs.eu.lever.co postings
+              <span className="note">Logged when you submit the application form</span>
+            </div>
+          </li>
+          <li>
+            <TickIcon size={16} className="tick" />
+            <div>
+              <b>Ashby</b> jobs.ashbyhq.com postings
+              <span className="note">Logged when you click Submit Application</span>
+            </div>
+          </li>
         </ul>
       </section>
 

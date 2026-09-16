@@ -22,7 +22,16 @@ import { drainOfflineQueue, ensureRetryAlarm, getOfflineQueue, queueRow, RETRY_A
 import { getSheetStatus, SHEET_PROBLEM_NOTIFICATION_ID, showSheetProblemNotification } from '../lib/sheetStatus'
 import { checkSheetInTrash } from './sheetHealth'
 
-const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
+// Exact origins, never a suffix match: a lookalike host like
+// evil-jobs.lever.co or jobs.lever.co.evil.example is a different origin and
+// is refused (2026-09-15, with Lever and Ashby).
+const TRUSTED_ORIGINS = [
+  'https://www.linkedin.com',
+  'https://job-boards.greenhouse.io',
+  'https://jobs.lever.co',
+  'https://jobs.eu.lever.co',
+  'https://jobs.ashbyhq.com',
+]
 // This extension's own pages (popup, options) — used to distinguish an
 // internal RPC message from a content-script message. See the onMessage
 // listener below for why this is sender.origin, not sender.tab or
