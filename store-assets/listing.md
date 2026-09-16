@@ -19,9 +19,10 @@ screenshots described as they are.
 Updated 2026-09-15 (branch `ats-lever-ashby`; awaiting review, and merged
 only after one real application on each site confirms its trigger): Lever
 and Ashby in the summary, the description, the single purpose, the
-content-script text and the test instructions. The summary now names four
-sites at 131 of 132 characters; the `workday` branch rewrites the same line,
-so whichever merges second needs shorter wording (five sites don't fit).
+content-script text and the test instructions. The summary (decided by Ryan,
+2026-09-15) names all five sites at 117 of 132 characters, Workday included,
+so whichever of `workday` and `ats-lever-ashby` merges second keeps this
+line and there's no collision left to resolve.
 
 Updated 2026-09-14 (a sheet in Drive's trash or deleted; awaiting review):
 the description's privacy sentence, the identity, storage (both) and
@@ -29,7 +30,7 @@ notifications justifications, the certification note and the
 Authentication information note now cover the Drive trash check and its
 flag.
 
-## Short description (131 of 132 characters)
+## Short description (117 of 132 characters)
 
 The store's summary comes from the manifest's `description`
 (`manifest.config.ts`), not from a dashboard field: the dashboard's
@@ -39,7 +40,7 @@ chrome://extensions and the Web Store. Since 2026-09-14 the manifest
 holds this exact text; keep the two identical.
 
 ```text
-Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse, Lever or Ashby — no manual data entry.
+Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse, Lever, Ashby or Workday.
 ```
 
 ## Detailed description

@@ -1555,6 +1555,12 @@ confirms its trigger).** Neither delays the Workday launch.
   nothing to show for it. The listener deliberately doesn't require
   `isTrusted`, unlike LinkedIn's click: Lever triggers the submit from its
   own scripted click, so requiring trust would log nothing at all.
+  **The accepted trade-off** (decided by Ryan, 2026-09-15): a script running
+  on a Lever page could dispatch its own submit event on `#application-form`
+  and log a row the user never sent. That row is visible in the popup and
+  one status change cancels it, while requiring `isTrusted` would miss every
+  real application. The origin check still holds: only Lever's own pages run
+  this script, and the background refuses any other sender.
 - **Ashby, a React single-page app.** The posting is `/{org}/{id}` and the
   application `/{org}/{id}/application`, a client-side route in the same
   document, so the script matches the whole host and checks the path at the
@@ -1599,9 +1605,14 @@ confirms its trigger).** Neither delays the Workday launch.
   content scripts don't run in frames), and an Ashby board a company has
   turned off, which serves "Page not found" even though the posting API
   still lists its jobs.
-- **The store summary** now names four sites at 131 of 132 characters. The
-  `workday` branch rewrites that same line, so whichever merges second needs
-  shorter wording: five sites don't fit.
+- **The store summary** (decided by Ryan, 2026-09-15) names all five sites
+  at 117 of 132 characters, Workday included, even though Workday isn't on
+  this branch: "Automatically logs job applications to Google Sheets when
+  you apply on LinkedIn, Greenhouse, Lever, Ashby or Workday." The `workday`
+  branch rewrites the same line, so whichever of `workday` and
+  `ats-lever-ashby` merges second keeps this line and there's no collision
+  left to resolve. It's the manifest's `description`, and
+  `store-assets/listing.md` holds the identical text.
 
 **Verified 2026-09-15 in Node and headless Chrome only** (`npm test` 142 of
 142 on `ats-lever-ashby`, `npm run test:node` 101 of 101; `npm run package`

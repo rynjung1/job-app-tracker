@@ -8,7 +8,7 @@ export default defineManifest({
   // characters max), so it's the approved short description from
   // store-assets/listing.md, word for word.
   description:
-    'Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse, Lever or Ashby — no manual data entry.',
+    'Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse, Lever, Ashby or Workday.',
   version: pkg.version,
   // Added 2026-09-13: chrome.action.setBadgeTextColor, used by the "sign-in
   // needed" badge (lib/authStatus.ts), needs Chrome 110. On older Chrome it
