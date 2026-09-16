@@ -18,7 +18,13 @@
     document.head.appendChild(st)
   }
   var never = new Promise(function () {})
-  function later(v, ms) { return new Promise(function (r) { setTimeout(function () { r(v) }, ms || 40) }) }
+  // Answers still in flight, so the capture at the end waits for the page to
+  // be quiet instead of for a number of milliseconds (2026-09-16).
+  var pending = 0
+  function later(v, ms) {
+    pending++
+    return new Promise(function (r) { setTimeout(function () { pending--; r(v) }, ms || 40) })
+  }
   // Dates relative to today, so the summary line ("this week") has something
   // to count on any day: n days ago, at that hour.
   function daysAgo(n, hour) { var d = new Date(); d.setDate(d.getDate() - n); d.setHours(hour, 0, 0, 0); return d.toISOString() }
@@ -94,81 +100,210 @@
 
   function key(el, k) { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })) }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms) }) }
+  // Every step waits for the condition it actually needs — the menu open,
+  // focus moved, the editor gone — never for a fixed number of milliseconds
+  // (2026-09-16; the background tests dropped their fixed waits in f4e6bd6
+  // for the same reason). A condition that never comes true fails the step
+  // with what it was waiting for, instead of racing the machine.
+  var DEADLINE_MS = 4000
+  function until(label, test) {
+    return new Promise(function (resolve, reject) {
+      var started = Date.now()
+      ;(function poll() {
+        var value = false
+        try { value = test() } catch (err) { value = false }
+        if (value) return resolve(value)
+        if (Date.now() - started >= DEADLINE_MS) {
+          return reject(new Error('timed out after ' + DEADLINE_MS + 'ms waiting for ' + label))
+        }
+        setTimeout(poll, 10)
+      })()
+    })
+  }
+  // For a recorded step: the outcome plus, on a timeout, what it waited for.
+  async function reached(label, test) {
+    try {
+      await until(label, test)
+      return { ok: true, detail: name(document.activeElement) }
+    } catch (err) {
+      return { ok: false, detail: err.message + ' | focus: ' + name(document.activeElement) }
+    }
+  }
+  // The page is quiet: the stub has answered every message it was given and
+  // React has rendered the result. Never fails — the 'busy' scenario leaves
+  // an answer outstanding on purpose.
+  async function quiet() {
+    try { await until('the stub to answer every message', function () { return pending === 0 }) } catch (err) { /* busy scenario */ }
+    await wait(0)
+    await wait(0)
+  }
   function q(s) { return document.querySelector(s) }
   function chip(i) { return document.querySelectorAll('.chip-btn')[i] }
   function more(id) { return document.getElementById('more-' + id) }
   function name(el) { return el ? (el.getAttribute('aria-label') || el.textContent || el.id || el.tagName).trim().slice(0, 70) : null }
   async function ready() {
-    for (var i = 0; i < 60; i++) { if (q('.chip-btn') || q('form.editor') || q('.window-note') || q('.card')) return; await wait(50) }
+    try {
+      await until('the page to render', function () { return q('.chip-btn') || q('form.editor') || q('.window-note') || q('.card') || q('.empty') })
+    } catch (err) {
+      console.warn('[stub] ' + err.message)
+    }
   }
   // Opens a1's ⋯ menu and picks "Add note", its second item.
-  async function openNote() { more('a1').focus(); key(more('a1'), 'ArrowDown'); await wait(80); key(document.activeElement, 'ArrowDown'); await wait(40); key(document.activeElement, 'Enter') }
+  async function openNote() {
+    more('a1').focus()
+    key(more('a1'), 'ArrowDown')
+    await until('the ⋯ menu to open', function () { return q('[role=menu]') })
+    key(document.activeElement, 'ArrowDown')
+    await until('Add note to take focus', function () { return document.activeElement.textContent.indexOf('Add note') !== -1 })
+    key(document.activeElement, 'Enter')
+    await until('the note editor to open', function () { return q('form.editor') })
+  }
 
   async function keyboardTest() {
     var out = []
-    function rec(step, ok, detail) { out.push({ step: step, ok: !!ok, focus: detail }) }
-    var m = more('a1'); m.focus(); key(m, 'ArrowDown'); await wait(80)
-    rec('ArrowDown on ⋯ opens the menu, focus on its first item', q('[role=menu]') && document.activeElement.textContent.includes('Change resume version'), name(document.activeElement))
-    key(document.activeElement, 'ArrowDown'); await wait(40)
-    rec('ArrowDown moves to Add note', document.activeElement.textContent.includes('Add note'), name(document.activeElement))
-    key(document.activeElement, 'ArrowDown'); await wait(40); key(document.activeElement, 'ArrowDown'); await wait(40)
-    rec('ArrowDown past Open job posting wraps to the first item', document.activeElement.textContent.includes('Change resume version'), name(document.activeElement))
-    key(document.activeElement, 'End'); await wait(40)
-    rec('End jumps to the last item', document.activeElement.textContent.includes('Open job posting'), name(document.activeElement))
-    key(document.activeElement, 'Home'); await wait(40)
-    rec('Home jumps to the first item', document.activeElement.textContent.includes('Change resume version'), name(document.activeElement))
-    key(document.activeElement, 'Escape'); await wait(60)
-    rec('Esc closes the menu and returns focus to ⋯', !q('[role=menu]') && document.activeElement === m, name(document.activeElement))
-    var c = chip(0); c.focus(); key(c, 'ArrowDown'); await wait(80)
-    rec('ArrowDown on the status chip opens the list on the current status', q('[role=listbox]') && document.activeElement.getAttribute('aria-selected') === 'true' && document.activeElement.textContent.includes('Applied'), name(document.activeElement))
-    key(document.activeElement, 'ArrowDown'); await wait(40)
-    rec('ArrowDown moves to Interview', document.activeElement.textContent.includes('Interview'), name(document.activeElement))
-    key(document.activeElement, 'Enter'); await wait(300)
-    rec('Enter picks Interview: list closed, focus back on the chip, which now reads Interview', !q('[role=listbox]') && document.activeElement === chip(0) && chip(0).textContent.includes('Interview'), name(document.activeElement))
-    var c2 = chip(1); c2.focus(); key(c2, 'ArrowDown'); await wait(80); key(document.activeElement, 'ArrowDown'); await wait(40); key(document.activeElement, 'Escape'); await wait(60)
-    rec('Esc closes the status list without changing the status', !q('[role=listbox]') && document.activeElement === c2 && c2.textContent.includes('Interview'), name(document.activeElement))
-    m = more('a1'); m.focus(); key(m, 'ArrowDown'); await wait(80); key(document.activeElement, 'Enter'); await wait(150)
-    rec('Enter on Change resume version opens the editor, focus in the input', q('form.editor') && document.activeElement.id === 'resume-version' && document.activeElement.value === 'SWE v3', name(document.activeElement))
-    key(document.activeElement, 'Escape'); await wait(150)
-    rec('Esc in the editor returns to the list, focus on that row\'s ⋯', !q('form.editor') && document.activeElement === more('a1'), name(document.activeElement))
-    // The menus are fixed: scrolling the list must close them. The five
-    // rows don't overflow the list, so cap its height here (test only) to
-    // make it really scroll.
+    var res
+    function rec(step, outcome) { out.push({ step: step, ok: !!outcome.ok, focus: outcome.detail }) }
+    var active = function () { return document.activeElement }
+    var activeIs = function (text) { return function () { return active().textContent.indexOf(text) !== -1 } }
+
+    var m = more('a1'); m.focus(); key(m, 'ArrowDown')
+    res = await reached('the ⋯ menu to open on Change resume version', function () { return q('[role=menu]') && active().textContent.indexOf('Change resume version') !== -1 })
+    rec('ArrowDown on ⋯ opens the menu, focus on its first item', res)
+
+    key(active(), 'ArrowDown')
+    res = await reached('Add note to take focus', activeIs('Add note'))
+    rec('ArrowDown moves to Add note', res)
+
+    key(active(), 'ArrowDown')
+    await reached('Open job posting to take focus', activeIs('Open job posting'))
+    key(active(), 'ArrowDown')
+    res = await reached('focus to wrap to the first item', activeIs('Change resume version'))
+    rec('ArrowDown past Open job posting wraps to the first item', res)
+
+    key(active(), 'End')
+    res = await reached('End to move focus to the last item', activeIs('Open job posting'))
+    rec('End jumps to the last item', res)
+
+    key(active(), 'Home')
+    res = await reached('Home to move focus to the first item', activeIs('Change resume version'))
+    rec('Home jumps to the first item', res)
+
+    key(active(), 'Escape')
+    res = await reached('the menu to close with focus back on ⋯', function () { return !q('[role=menu]') && active() === m })
+    rec('Esc closes the menu and returns focus to ⋯', res)
+
+    var c = chip(0); c.focus(); key(c, 'ArrowDown')
+    res = await reached('the status list to open on the current status', function () {
+      return q('[role=listbox]') && active().getAttribute('aria-selected') === 'true' && active().textContent.indexOf('Applied') !== -1
+    })
+    rec('ArrowDown on the status chip opens the list on the current status', res)
+
+    key(active(), 'ArrowDown')
+    res = await reached('Interview to take focus', activeIs('Interview'))
+    rec('ArrowDown moves to Interview', res)
+
+    key(active(), 'Enter')
+    res = await reached('the status to be saved, the list closed and the chip to read Interview', function () {
+      return !q('[role=listbox]') && active() === chip(0) && chip(0).textContent.indexOf('Interview') !== -1
+    })
+    rec('Enter picks Interview: list closed, focus back on the chip, which now reads Interview', res)
+
+    var c2 = chip(1); c2.focus(); key(c2, 'ArrowDown')
+    await reached('the second row\'s status list to open', function () { return q('[role=listbox]') })
+    key(active(), 'ArrowDown')
+    key(active(), 'Escape')
+    res = await reached('the list to close with the status unchanged', function () {
+      return !q('[role=listbox]') && active() === c2 && c2.textContent.indexOf('Interview') !== -1
+    })
+    rec('Esc closes the status list without changing the status', res)
+
+    m = more('a1'); m.focus(); key(m, 'ArrowDown')
+    await reached('the ⋯ menu to open', function () { return q('[role=menu]') })
+    key(active(), 'Enter')
+    res = await reached('the resume editor to open with focus in its input', function () {
+      return q('form.editor') && active().id === 'resume-version' && active().value === 'SWE v3'
+    })
+    rec('Enter on Change resume version opens the editor, focus in the input', res)
+
+    key(active(), 'Escape')
+    res = await reached('the list to come back with focus on that row\'s ⋯', function () { return !q('form.editor') && active() === more('a1') })
+    rec('Esc in the editor returns to the list, focus on that row\'s ⋯', res)
+
+    // The menus are fixed: scrolling the list must close them. The five rows
+    // don't overflow the list, so cap its height here (test only) to make it
+    // really scroll.
     // Headless --dump-dom renders no frames, and Chrome delivers scroll
     // events while rendering a frame, so after the real scrollTop change the
     // test also dispatches the scroll event itself. It records whether a
     // native one arrived first.
-    var list = q('.list'); list.style.maxHeight = '240px'; await wait(60)
-    var nativeScrolls = 0; list.addEventListener('scroll', function (e) { if (e.isTrusted) nativeScrolls++ })
-    m = more('a1'); m.focus(); key(m, 'ArrowDown'); await wait(80)
-    var menuOpened = !!q('[role=menu]')
-    list.scrollTop = 80; await wait(150); var nativeAfterScroll = nativeScrolls; var scrolledTo = list.scrollTop
-    list.dispatchEvent(new Event('scroll')); await wait(80)
-    rec('Scrolling the list closes an open ⋯ menu, focus back on ⋯, scrollTop unchanged', menuOpened && !q("[role=menu]") && scrolledTo > 0 && list.scrollTop === scrolledTo && document.activeElement === m, name(document.activeElement) + ' | opened ' + menuOpened + ', open now ' + !!q('[role=menu]') + ', scrollTop ' + list.scrollTop + ', scrollHeight ' + list.scrollHeight + ', clientHeight ' + list.clientHeight + ', native scroll events ' + nativeAfterScroll)
-    list.scrollTop = 0; await wait(150)
-    c = chip(0); c.focus(); key(c, 'ArrowDown'); await wait(80)
-    var listOpened = !!q('[role=listbox]')
-    list.scrollTop = 80; await wait(150); var scrolledTo2 = list.scrollTop
-    list.dispatchEvent(new Event("scroll")); await wait(80)
-    rec('Scrolling the list closes an open status list, focus back on the chip, scrollTop unchanged', listOpened && !q("[role=listbox]") && scrolledTo2 > 0 && list.scrollTop === scrolledTo2 && document.activeElement === c, name(document.activeElement) + ' | opened ' + listOpened + ', open now ' + !!q('[role=listbox]') + ', scrollTop ' + list.scrollTop)
+    var list = q('.list'); list.style.maxHeight = '240px'
+    await reached('the capped list to overflow', function () { return list.scrollHeight > list.clientHeight })
+    var nativeScrolls = 0
+    list.addEventListener('scroll', function (e) { if (e.isTrusted) nativeScrolls++ })
+
+    m = more('a1'); m.focus(); key(m, 'ArrowDown')
+    await reached('the ⋯ menu to open before scrolling', function () { return q('[role=menu]') })
+    list.scrollTop = 80
+    list.dispatchEvent(new Event('scroll'))
+    res = await reached('the scroll to close the ⋯ menu, with focus back on ⋯ and the list still scrolled', function () {
+      return !q('[role=menu]') && list.scrollTop === 80 && active() === m
+    })
+    res.detail += ' | scrollHeight ' + list.scrollHeight + ', clientHeight ' + list.clientHeight + ', native scroll events ' + nativeScrolls
+    rec('Scrolling the list closes an open ⋯ menu, focus back on ⋯, scrollTop unchanged', res)
+
+    list.scrollTop = 0
+    c = chip(0); c.focus(); key(c, 'ArrowDown')
+    await reached('the status list to open before scrolling', function () { return q('[role=listbox]') })
+    list.scrollTop = 80
+    list.dispatchEvent(new Event('scroll'))
+    res = await reached('the scroll to close the status list, with focus back on the chip and the list still scrolled', function () {
+      return !q('[role=listbox]') && list.scrollTop === 80 && active() === c
+    })
+    rec('Scrolling the list closes an open status list, focus back on the chip, scrollTop unchanged', res)
+
     document.body.dataset.kb = JSON.stringify(out)
   }
 
   window.addEventListener('load', async function () {
-    await ready(); await wait(300)
+    await ready()
+    await quiet()
     if (act === 'focus') more('a1').focus()
-    if (act === 'menu') { more('a2').focus(); key(more('a2'), 'ArrowDown') }
-    if (act === 'status') { chip(0).focus(); key(chip(0), 'ArrowDown'); await wait(80); key(document.activeElement, 'ArrowDown') }
-    if (act === 'choose') {
-      var i = Number(p.get('row') || 0)
-      chip(i).focus(); key(chip(i), 'ArrowDown'); await wait(80); key(document.activeElement, 'ArrowDown'); await wait(40); key(document.activeElement, 'Enter')
+    if (act === 'menu') {
+      more('a2').focus()
+      key(more('a2'), 'ArrowDown')
+      await until('the ⋯ menu to open', function () { return q('[role=menu]') })
     }
-    if (act === 'editor') { more('a1').focus(); key(more('a1'), 'ArrowDown'); await wait(80); key(document.activeElement, 'Enter') }
-    if (act === 'save') { await wait(100); q('form.editor').requestSubmit() }
+    if (act === 'status' || act === 'choose') {
+      var i = act === 'choose' ? Number(p.get('row') || 0) : 0
+      chip(i).focus()
+      key(chip(i), 'ArrowDown')
+      await until('the status list to open', function () { return q('[role=listbox]') })
+      key(document.activeElement, 'ArrowDown')
+      await until('Interview to take focus', function () { return document.activeElement.textContent.indexOf('Interview') !== -1 })
+      if (act === 'choose') {
+        key(document.activeElement, 'Enter')
+        await until('the status list to close', function () { return !q('[role=listbox]') })
+      }
+    }
+    if (act === 'editor') {
+      more('a1').focus()
+      key(more('a1'), 'ArrowDown')
+      await until('the ⋯ menu to open', function () { return q('[role=menu]') })
+      key(document.activeElement, 'Enter')
+      await until('the resume editor to open', function () { return q('form.editor') })
+    }
+    if (act === 'save') {
+      await until('the resume editor to open', function () { return q('form.editor') })
+      q('form.editor').requestSubmit()
+    }
     if (act === 'note') await openNote()
-    if (act === 'notesave') { await openNote(); await wait(300); q('form.editor').requestSubmit() }
+    if (act === 'notesave') {
+      await openNote()
+      await until('the note to load into the editor', function () { var t = q('#note'); return t && !t.readOnly })
+      q('form.editor').requestSubmit()
+    }
     if (p.get('kbtest')) await keyboardTest()
-    await wait(400)
+    await quiet()
     var data = document.body.dataset
     data.fit = document.documentElement.scrollHeight + '/' + window.innerHeight + (closed ? '/closed' : '')
     data.content = String(Math.ceil(document.body.getBoundingClientRect().height))

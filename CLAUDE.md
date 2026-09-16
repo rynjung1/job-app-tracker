@@ -26,6 +26,14 @@ release).
   works must come with real pasted evidence — actual command output,
   a real API response, a before/after diff — not a prose summary of
   what supposedly happened.
+- **Never chain a commit or push after a test command without gating on
+  its exit code.** Write `npm test && git commit … && git push`, or run
+  them as separate steps and read the result first. Incident 2026-09-16:
+  a merge was committed and pushed in one `;`-chained command whose
+  `npm test` had just failed two headless steps; the failure was only
+  noticed afterwards, in the output of the same command. (The failure was
+  a flake, and the fixed waits behind it were then replaced by polling —
+  see Tech stack, Tests — but the push happened blind either way.)
 - **No single-case verification for anything safety- or
   correctness-critical.** A parser working on one sample job posting
   is not "the parser works" — test each site parser against several
@@ -1937,7 +1945,13 @@ delegated entirely to Google OAuth by design.
   the note editor and Settings at 440px), and `tests/dom/*.test.mjs` for the
   site parsers on fixtures. They skip themselves when Chrome isn't found.
   `npm run test:node` runs only the Node parts. The storage fakes
-  deep-clone on every get and set, per the 2026-09-09 lesson.
+  deep-clone on every get and set, per the 2026-09-09 lesson. Since
+  2026-09-16 the DOM tests' stub waits for the condition each step needs
+  (the menu open, focus moved, the editor gone, the stub's answers all in)
+  rather than for a number of milliseconds, with one 4-second deadline and
+  a message naming what it waited for: a fixed 80 ms wait for a dropdown to
+  open had failed about once in four runs. Same lesson as `f4e6bd6` for the
+  background tests: no test depends on wall-clock timing.
 
 ---
 
