@@ -121,7 +121,7 @@ export function NoteEditor({ entry, appliedOn, onClose }: NoteEditorProps) {
         autoFocus
       />
       <p className="hint">
-        Saved to the Notes column in your sheet, replacing what's there.{' '}
+        Saved to the Notes column in your sheet.{' '}
         <span className="count">
           {value.length} / {MAX_NOTE_LENGTH}
         </span>
