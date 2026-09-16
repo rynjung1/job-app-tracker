@@ -243,3 +243,7 @@ actions pinned to commit SHAs.
 ## Issues
 
 https://github.com/rynjung1/job-app-tracker/issues
+
+## License
+
+MIT. See [LICENSE](LICENSE).
