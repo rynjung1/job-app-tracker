@@ -163,6 +163,16 @@ description: Steps and status for publishing this extension to the Chrome Web St
        minutes (or on opening the popup) the banner clears and the
        queued row lands. Trash it again, then Settings > Create a new
        sheet: a new sheet is connected and the queued rows land in it.
+     - The `ui-polish` items (CLAUDE.md, Popup + Settings, 2026-09-15),
+       verified in Node and headless renders only: with the system set to
+       dark, the popup, Settings and the Edit window are dark and
+       readable, and Tab shows a focus ring; with the network off, an
+       Easy Apply click shows a Waiting row at its date with the banner,
+       and it becomes a normal row once saved; ⋯ > Add note shows the
+       row's Notes cell and Save writes it; edit that cell in the sheet
+       while the editor is open, then Save: "This note changed in your
+       sheet; reopen to see it." and the sheet's text stays; the summary
+       line counts this week's applications (Monday to Sunday).
      - Left here by phase B (the new ID starts with empty storage, so
        it's a real first install): Settings opens on its own as a
        window, and the "Not connected" notification's Open Settings

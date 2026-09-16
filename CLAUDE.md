@@ -428,6 +428,74 @@ Not run live; web-store-deploy step 6 has the checks for the new-ID
 build. Not checkable headless: whether Esc inside Chrome's real toolbar
 popup also closes the popup itself.
 
+**Updated 2026-09-15 (decided by Ryan): dark mode, waiting applications,
+notes and a summary line** (branch `ui-polish`, from the approved mockups):
+- **Dark mode:** every colour is a token in `src/ui/tokens.css`, light on
+  `:root` and dark under `prefers-color-scheme: dark`, and `popup.css` and
+  `options.css` use only tokens, so the popup, the Edit window, both editors
+  and Settings follow the system theme. The blue primary buttons (white on
+  `#2563EB`) are the same in both. Input and row borders stay below 3:1 in
+  both themes, as before.
+- **Waiting applications:** the popup lists queued applications (offline,
+  signed out, the sheet in the trash or deleted, or no sheet yet) at their
+  dates among the saved ones, with a dashed "Waiting" chip, no status menu
+  and no ⋯, since they have no row yet; the banner still says why. The
+  saved list keeps its cap of 20, and every waiting application is shown
+  on top of it. Recent entries now keep their row's Log ID (`logId`, from a
+  direct log and from the drain), and a waiting application whose Log ID
+  already has an entry is left out, since the drain writes the list and the
+  queue in two storage writes (`lib/popupList.ts`). With no sheet
+  connected, they're listed under the Connect prompt.
+- **Add note** in the row's ⋯ menu (`GET_NOTE` and `SAVE_NOTE`, flagged
+  additions to the internal messages): the editor opens with the row's
+  Notes cell, read with the same Company/Title check as `SET_STATUS`, and
+  saves the edited text as an edit of that cell, never an append, only if
+  the cell still holds what it opened with. Otherwise it's `NOTE_CHANGED`,
+  "This note changed in your sheet; reopen to see it.", and nothing is
+  written. Refused while the sheet is flagged (`SHEET_UNAVAILABLE`),
+  `AUTH_REQUIRED` when signed out, never queued, at most 1000 characters,
+  written RAW. The popup's error texts moved to `popup/messages.ts`. On the
+  `workday` branch the popup's identity check uses the Log ID
+  (`rowStillMatches`); the note messages follow it at that merge.
+- **Summary line** under the header, "N this week · M interviews". This
+  week is the current calendar week, Monday 00:00 to the end of Sunday, in
+  local time. It counts saved and waiting applications dated in it, except
+  those shown as Cancelled (the live status when read, else the cached
+  one); interviews are saved entries shown as Interview, whatever their
+  date. Counted from the list and the live statuses, with no extra reads;
+  "20+" when all 20 saved entries are from this week.
+
+**Verified 2026-09-15 in Node and headless Chrome only** (`npm test` 185
+of 185 on `ui-polish`, `npm run test:node` 145 of 145):
+- `tests/tokens.test.ts`: 39 text/background, focus-ring and border pairs
+  in both themes (text 4.5:1, focus rings and the Waiting chip's border
+  3:1; the lowest text pair is 4.63:1 light and 5.17:1 dark); both themes
+  define the same tokens; no colour literal left in `popup.css`,
+  `options.css` or the rules of `tokens.css`, and every token used exists.
+- `tests/popupList.test.ts`: every moment from Monday 00:00 to Sunday
+  23:59:59 maps to that Monday, and a minute earlier to the week before;
+  the count takes this week's saved and waiting applications and leaves out
+  Cancelled ones by the shown status; "20+" only when all 20 are this week;
+  waiting rows sort among the saved ones, one whose Log ID has an entry is
+  left out, and 20 saved plus 3 waiting show 23.
+- `tests/background.test.ts`: `GET_NOTE` returns the Notes cell;
+  `SAVE_NOTE` writes the whole note RAW to `'Sheet1'!H5` (a note starting
+  with `=` included) when the cell is unchanged, returns `NOTE_CHANGED`
+  with no write when it changed, `STALE_ROW` after a hand-edited Company,
+  `SHEET_UNAVAILABLE` before any request when trashed, and `AUTH_REQUIRED`
+  signed out; a non-string or 1001-character note, or no `expected`, is
+  refused before any request; a direct log and a drained row both get the
+  row's Log ID.
+- `tests/dom/popup.test.mjs`: the page background and an Applied chip in
+  each theme; offline with 2 queued, 2 Waiting rows with no status menu or
+  ⋯, in date order among the saved rows; the summary line; ⋯ > Add note
+  prefilled from `GET_NOTE`; `NOTE_CHANGED` shown inline with the editor
+  open; a save closing it; Settings at a real 440px viewport (a 440px
+  iframe, since headless windows can't be narrower than 500px) with no
+  horizontal scroll, healthy, signed out and trashed, in both themes; the
+  keyboard steps with the three-item menu.
+Not run live; web-store-deploy step 6 has the checks.
+
 **Fixed 2026-09-10 (fresh-install UX, found during a test pass):**
 a genuinely fresh install had several real, silent gaps — no
 onboarding, a popup that just said "No recent applications yet"
@@ -1588,7 +1656,8 @@ popup mid-request killed the in-flight call along with it.
   above — see `background/messageRouter.ts` for the message list
   (`CONNECT_PROVIDER`, `RECONNECT_PROVIDER`, `SAVE_RESUME_VERSION`,
   `SET_STATUS` (which replaced `CANCEL_APPLICATION` on 2026-09-14),
-  `GET_LIVE_STATUSES`, and `OPEN_SETTINGS`, which
+  `GET_LIVE_STATUSES`, `GET_NOTE` and `SAVE_NOTE` (the note editor,
+  2026-09-15), and `OPEN_SETTINGS`, which
   opens the Settings window rather than calling a provider) and envelope shape (`{ ok: true, data } |
   { ok: false, error, code? }`). Two other fields were tried first and
   found not to actually test this, confirmed live against a real
@@ -1730,10 +1799,13 @@ delegated entirely to Google OAuth by design.
 - Tests (added 2026-09-14), with no extra dependencies: `npm test`
   bundles `tests/*.test.ts` with the esbuild that comes with Vite and runs
   them with `node:test` (the background worker against faked chrome,
-  fetch and navigator; Greenhouse pending applications), then
+  fetch and navigator; Greenhouse pending applications; since 2026-09-15 the
+  popup's list and summary line, and the colour tokens in both themes), then
   `tests/dom/popup.test.mjs`, which builds the extension and drives the
   built popup in headless Chrome through a stand-in chrome API (keyboard,
-  scroll and Edit-window fit). It skips itself when Chrome isn't found.
+  scroll and Edit-window fit; since 2026-09-15 both themes, waiting rows,
+  the note editor and Settings at 440px). It skips itself when Chrome isn't
+  found.
   `npm run test:node` runs only the Node parts. The storage fakes
   deep-clone on every get and set, per the 2026-09-09 lesson.
 
