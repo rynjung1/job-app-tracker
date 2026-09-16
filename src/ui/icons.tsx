@@ -115,6 +115,15 @@ export function ClockIcon(props: IconProps) {
   )
 }
 
+export function NoteIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 4h14v11l-5 5H5Z" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinejoin="round" />
+      <path d="M14 20v-5h5M8.5 9h7M8.5 12.5h4" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+}
+
 export function WarnIcon(props: IconProps) {
   return (
     <Svg {...props}>

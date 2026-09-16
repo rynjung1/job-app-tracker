@@ -30,6 +30,7 @@ import { setLastResumeVersion } from '../lib/resumeVersion'
 import { LIVE_STATUS_COLUMNS, matchLiveStatuses } from '../lib/liveStatuses'
 import { openSettingsWindow } from './settingsWindow'
 import { drainOfflineQueue, getOfflineQueue } from './offlineQueue'
+import { MAX_NOTE_LENGTH, NOTES_COLUMN } from '../lib/notes'
 
 export type BackgroundRequest =
   | { type: 'CONNECT_PROVIDER' }
@@ -42,6 +43,8 @@ export type BackgroundRequest =
   | { type: 'GET_LIVE_STATUSES' }
   | { type: 'CREATE_NEW_SHEET' }
   | { type: 'OPEN_SETTINGS'; payload?: { reconnect?: boolean } }
+  | { type: 'GET_NOTE'; payload: { entryId: string } }
+  | { type: 'SAVE_NOTE'; payload: { entryId: string; note: string; expected: string } }
 
 // RECONNECT_PROVIDER's result: rows the immediate drain saved, and rows
 // still queued after it (Settings shows both).
@@ -67,12 +70,13 @@ export interface ConnectResult extends ReconnectResult {
 // message, and the "needs reconnect" flag is already set by then.
 export type BackgroundResponse<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string; code?: 'STALE_ROW' | 'AUTH_REQUIRED' | 'SHEET_UNAVAILABLE' | 'SHEET_HEALTHY' }
+  | { ok: false; error: string; code?: 'STALE_ROW' | 'AUTH_REQUIRED' | 'SHEET_UNAVAILABLE' | 'SHEET_HEALTHY' | 'NOTE_CHANGED' }
 
 // SHEET_UNAVAILABLE (2026-09-14): the sheet is in Drive's trash or deleted
 // (lib/sheetStatus.ts), so the change wasn't written. SHEET_HEALTHY: "Create
 // a new sheet" refused because the connected one is reachable and not
-// trashed.
+// trashed. NOTE_CHANGED (2026-09-15): SAVE_NOTE refused because the Notes
+// cell no longer holds what the editor opened with.
 const SHEET_UNAVAILABLE_ERROR = "Your sheet is in Google Drive's trash or was deleted, so nothing was written"
 
 const INTERNAL_MESSAGE_TYPES = [
@@ -83,6 +87,8 @@ const INTERNAL_MESSAGE_TYPES = [
   'GET_LIVE_STATUSES',
   'OPEN_SETTINGS',
   'CREATE_NEW_SHEET',
+  'GET_NOTE',
+  'SAVE_NOTE',
 ] as const
 
 export function isInternalMessage(message: unknown): message is BackgroundRequest {
@@ -123,6 +129,10 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
       case 'OPEN_SETTINGS':
         await openSettingsWindow({ reconnect: message.payload?.reconnect === true })
         return { ok: true, data: undefined }
+      case 'GET_NOTE':
+        return await handleGetNote(message.payload)
+      case 'SAVE_NOTE':
+        return await handleSaveNote(message.payload)
     }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
@@ -332,6 +342,54 @@ async function handleSetStatus(payload: { entryId: unknown; status: unknown }): 
   const updated = await setApplicationStatus(provider, sheetRef, entry, payload.status)
   if (!updated) throw new Error('Recent application entry disappeared mid-update')
   return { ok: true, data: updated }
+}
+
+// The popup's note editor (2026-09-15, decided by Ryan; two flagged additions
+// to the internal messages). GET_NOTE reads the entry's row with the same
+// Company/Title identity check as SET_STATUS and returns its Notes cell, to
+// prefill the editor. SAVE_NOTE writes the edited note back as an edit of
+// that cell, never an append, and only if the cell still holds what the
+// editor opened with (`expected`): a note changed in the sheet since then is
+// never overwritten (NOTE_CHANGED). Both are refused while the sheet is in
+// the trash or deleted; a sign-in failure is AUTH_REQUIRED. Never queued.
+// Written RAW like every other cell, so a note starting with = stays text.
+async function handleGetNote(payload: { entryId: unknown }): Promise<BackgroundResponse<{ note: string }>> {
+  if (typeof payload?.entryId !== 'string') return { ok: false, error: 'Missing entry id' }
+  if (await getSheetStatus()) return { ok: false, code: 'SHEET_UNAVAILABLE', error: SHEET_UNAVAILABLE_ERROR }
+  const sheetRef = await requireSheetRefOrThrow()
+  const entry = await findEntryOrThrow(payload.entryId)
+  const provider = await getActiveProvider()
+  const row = await provider.readRow(sheetRef, entry.rowNumber)
+  if (row.Company !== entry.company || row.Title !== entry.title) {
+    return { ok: false, code: 'STALE_ROW', error: 'Row Company/Title no longer match the cached entry' }
+  }
+  return { ok: true, data: { note: row[NOTES_COLUMN] ?? '' } }
+}
+
+async function handleSaveNote(payload: {
+  entryId: unknown
+  note: unknown
+  expected: unknown
+}): Promise<BackgroundResponse<{ note: string }>> {
+  // Checked before anything is read or written, like SAVE_RESUME_VERSION.
+  if (typeof payload?.note !== 'string' || payload.note.length > MAX_NOTE_LENGTH) {
+    return { ok: false, error: `A note must be text of at most ${MAX_NOTE_LENGTH} characters` }
+  }
+  if (typeof payload.expected !== 'string') return { ok: false, error: 'Missing the note the editor opened with' }
+  if (typeof payload.entryId !== 'string') return { ok: false, error: 'Missing entry id' }
+  if (await getSheetStatus()) return { ok: false, code: 'SHEET_UNAVAILABLE', error: SHEET_UNAVAILABLE_ERROR }
+  const sheetRef = await requireSheetRefOrThrow()
+  const entry = await findEntryOrThrow(payload.entryId)
+  const provider = await getActiveProvider()
+  const row = await provider.readRow(sheetRef, entry.rowNumber)
+  if (row.Company !== entry.company || row.Title !== entry.title) {
+    return { ok: false, code: 'STALE_ROW', error: 'Row Company/Title no longer match the cached entry' }
+  }
+  if ((row[NOTES_COLUMN] ?? '') !== payload.expected) {
+    return { ok: false, code: 'NOTE_CHANGED', error: 'The Notes cell changed since the editor opened' }
+  }
+  await provider.updateCell(sheetRef, entry.rowNumber, NOTES_COLUMN, payload.note)
+  return { ok: true, data: { note: payload.note } }
 }
 
 // The popup's live status chips: entry id -> the sheet's current Status,

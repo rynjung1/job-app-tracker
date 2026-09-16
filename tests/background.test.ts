@@ -541,4 +541,73 @@ test('background worker', async (t) => {
   await sendJob('Repeat Co', REPEAT_URL)
   const afterDayOld = appends()
   await check('Easy Apply reopened: the same job twice -> 1 row, 1 "Logged", nothing queued; a different job logs; after the entry is Cancelled it logs again; an entry 25 hours old doesn\'t block', reopened.appends === 1 && reopened.rows === 1 && reopened.logged === 1 && reopened.queue === 0 && afterOtherJob === 2 && afterCancel === 3 && afterDayOld === 1, { reopened, afterOtherJob, afterCancel, afterDayOld })
+
+  // ---- The note editor (2026-09-15): GET_NOTE prefills from the row;
+  // SAVE_NOTE writes only if the Notes cell still holds what it opened with. ----
+  const getNote = (entryId: unknown = 's1') => internal({ type: 'GET_NOTE', payload: { entryId } }) as Promise<any>
+  const saveNote = (note: unknown, expected: unknown, entryId: unknown = 's1') =>
+    internal({ type: 'SAVE_NOTE', payload: { entryId, note, expected } }) as Promise<any>
+  const withAcmeNote = async (note: string) => {
+    await withAcme()
+    sheet.rows[5] = [...acmeRow.slice(0, 7), note]
+  }
+
+  await withAcmeNote('Called the recruiter')
+  const gotNote = await getNote()
+  await check('GET_NOTE: the row still matches -> its Notes cell; nothing written', gotNote.ok && gotNote.data.note === 'Called the recruiter' && sheet.writes.length === 0, gotNote)
+
+  await withAcmeNote('Called the recruiter')
+  const formulaNote = '=HYPERLINK("https://example.com") follow up Friday'
+  let savedNote = await saveNote(formulaNote, 'Called the recruiter')
+  await check('SAVE_NOTE: the cell still holds what the editor opened with -> one RAW write of the whole note to Sheet1!H5, replacing it', savedNote.ok && sheet.writes.length === 1 && sheet.writes[0].range === "'Sheet1'!H5" && JSON.stringify(sheet.writes[0].values) === JSON.stringify([[formulaNote]]) && log.fetches.some((f) => f.includes('H5') && f.includes('valueInputOption=RAW')), { savedNote, writes: sheet.writes, fetches: log.fetches })
+
+  await withAcmeNote('Edited in the sheet')
+  savedNote = await saveNote('My note', 'Called the recruiter')
+  await check('SAVE_NOTE: the Notes cell changed in the sheet since the editor opened -> NOTE_CHANGED, nothing written', !savedNote.ok && savedNote.code === 'NOTE_CHANGED' && sheet.writes.length === 0, savedNote)
+
+  await withAcme()
+  const emptyNote = await getNote()
+  savedNote = await saveNote('First note', '')
+  await check('GET_NOTE on an empty Notes cell -> ""; SAVE_NOTE expecting "" writes the first note', emptyNote.ok && emptyNote.data.note === '' && savedNote.ok && sheet.writes.length === 1 && JSON.stringify(sheet.writes[0].values) === '[["First note"]]', { emptyNote, savedNote, writes: sheet.writes })
+
+  await withAcme()
+  sheet.rows[5][1] = 'Acme Renamed'
+  const staleGet = await getNote()
+  const staleSave = await saveNote('x', '')
+  await check('GET_NOTE and SAVE_NOTE: Company edited by hand -> STALE_ROW, nothing written', !staleGet.ok && staleGet.code === 'STALE_ROW' && !staleSave.ok && staleSave.code === 'STALE_ROW' && sheet.writes.length === 0, { staleGet, staleSave })
+
+  await withAcme()
+  const tooLongNote = await saveNote('x'.repeat(1001), '')
+  const numericNote = await saveNote(5, '')
+  const noExpected = await saveNote('x', undefined)
+  const noteFetchesAfterRejects = log.fetches.length
+  const maxNote = await saveNote('y'.repeat(1000), '')
+  await check('SAVE_NOTE: a non-string or over-1000-character note, or no expected value, is refused before any request; exactly 1000 characters is saved', !tooLongNote.ok && !numericNote.ok && !noExpected.ok && noteFetchesAfterRejects === 0 && maxNote.ok && sheet.writes.length === 1, { tooLongNote: tooLongNote.error, numericNote: numericNote.error, noExpected: noExpected.error, noteFetchesAfterRejects, maxNote: maxNote.ok })
+
+  reset()
+  await local.set({ sheetRef: REF, recentApplications: [acme], sheetStatus: { state: 'trashed', since: d(1), reason: 'placeholder' } })
+  sheet.rows[5] = [...acmeRow]
+  const trashedGet = await getNote()
+  const trashedSave = await saveNote('x', '')
+  await check('sheet in the trash: GET_NOTE and SAVE_NOTE -> SHEET_UNAVAILABLE before any request', !trashedGet.ok && trashedGet.code === 'SHEET_UNAVAILABLE' && !trashedSave.ok && trashedSave.code === 'SHEET_UNAVAILABLE' && log.fetches.length === 0 && sheet.writes.length === 0, { trashedGet, trashedSave, fetches: log.fetches })
+
+  await withAcme()
+  ctl.tokenReject = true
+  const signedOutNote = await saveNote('x', '')
+  await check('SAVE_NOTE signed out -> AUTH_REQUIRED, sign-in flag set, nothing written', !signedOutNote.ok && signedOutNote.code === 'AUTH_REQUIRED' && !!flag() && sheet.writes.length === 0, signedOutNote)
+
+  // ---- Recent entries carry the row's Log ID (2026-09-15), so the popup can
+  // leave out a waiting application once its saved entry exists. ----
+  reset()
+  ctl.headers = HEADERS_WITH_LOG_ID
+  await local.set({ sheetRef: REF })
+  apply('Log Id Direct Co')
+  await settle()
+  const queuedRow = sanitizeRow(buildRow({ title: 'Engineer', company: 'Log Id Drained Co', location: null, url: 'https://www.linkedin.com/jobs/view/991/' }, 'SWE v1'))
+  await local.set({ offlineQueue: [queuedRow] })
+  await internal({ type: 'RECONNECT_PROVIDER' })
+  const directEntry = recent().find((e) => e.company === 'Log Id Direct Co')
+  const drainedEntry = recent().find((e) => e.company === 'Log Id Drained Co')
+  const directRowId = rowsOf('Log Id Direct Co')[0]?.[1][8]
+  await check('recent entries carry the row\'s Log ID: a direct log and a drained row', !!directEntry?.logId && directEntry.logId === directRowId && drainedEntry?.logId === queuedRow['Log ID'] && queue() === 0, { direct: directEntry?.logId, directRowId, drained: drainedEntry?.logId, queued: queuedRow['Log ID'] })
 })

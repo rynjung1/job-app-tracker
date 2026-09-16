@@ -21,10 +21,12 @@ application twice.
    Apply; on Greenhouse, once the site confirms your application was
    submitted.
 3. A "Logged" notification appears, with Undo and Edit for a quick fix.
-4. The extension's popup lists your 20 most recent applications. From
-   there you can change an application's status (Applied, Interview,
-   Offer, Rejected, Cancelled) or resume version, or open the job
-   posting. Changes are written to your sheet.
+4. The extension's popup lists your 20 most recent applications, plus any
+   still waiting to be saved. From there you can change an application's
+   status (Applied, Interview, Offer, Rejected, Cancelled), resume version
+   or note, or open the job posting. Changes are written to your sheet. A
+   line at the top counts this week's applications and your interviews,
+   and the popup and Settings follow your system's light or dark theme.
 
 If your Google sign-in lapses, the extension tells you and keeps your
 applications waiting until you reconnect.

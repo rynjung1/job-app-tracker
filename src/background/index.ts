@@ -7,6 +7,7 @@ import { AuthRequiredError, SheetMissingError } from '../providers/types'
 import type { AppendedRow } from '../providers/types'
 import type { JobPostingData } from '../parsers/types'
 import { buildRow } from '../lib/buildRow'
+import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { sanitizeRow } from '../lib/sanitize'
 import { parseJobPostingData } from '../lib/jobPayload'
 import { REMOVED_EXCEL_KEYS } from '../lib/storageKeys'
@@ -96,6 +97,7 @@ async function notifyApplicationLogged(payload: JobPostingData, row: Record<stri
     status: 'Applied',
     sheetName: appended.sheetName,
     rowNumber: appended.rowNumber,
+    logId: row[LOG_ID_COLUMN] || undefined,
   }
   await addRecentApplication(entry)
 
