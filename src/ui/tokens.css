@@ -1,22 +1,120 @@
-/* Shared by the popup and the Settings page (phase B, 2026-09-13). Every
-   text/background pair below was checked for contrast: at least 4.6:1. */
+/* Shared by the popup and the Settings page (phase B, 2026-09-13). Dark mode
+   (2026-09-15): every colour is a token here, defined for the light theme on
+   :root and again under prefers-color-scheme: dark, and popup.css and
+   options.css use only these tokens. tests/tokens.test.ts checks every
+   text/background pair (4.5:1 or better) and every focus ring (3:1 or
+   better) in both themes. */
 :root {
-  --brand: #2563eb; /* the extension icon's blue */
-  --brand-hover: #1d4ed8;
+  --bg: #ffffff;
+  --surface: #ffffff; /* menus, inputs, secondary buttons */
+  --subtle: #f9fafb;
+  --hover: #f3f4f6;
   --text: #111827;
   --text-2: #374151;
   --muted: #6b7280;
+  --heading: #4b5563;
   --border: #e5e7eb;
   --border-strong: #d1d5db;
-  --subtle: #f9fafb;
+  --input-border: #cbd5e1;
+  --brand: #2563eb; /* the extension icon's blue: primary buttons, the mark */
+  --brand-hover: #1d4ed8;
+  --brand-text: #2563eb; /* links and Open sheet */
+  --on-brand: #ffffff;
+  --btn-text: #1f2937;
+  --icon: #4b5563;
+  --focus: #2563eb;
+  --focus-glow: #bfd3fe;
+  --active-bg: #eff4ff;
+  --active-text: #1e3a8a;
+  --active-icon: #1e40af;
   --danger: #b91c1c;
   --ok: #15803d;
-  /* "Sign-in needed" (amber): text 6.84:1 on its background. */
+  --pill: #9ca3af;
+  /* "Sign-in needed" (amber). */
   --warn-bg: #fffbeb;
   --warn-border: #fde68a;
   --warn-text: #92400e;
   --warn-dot: #d97706;
+  --alert-bg: #fef2f2;
+  --alert-border: #fecaca;
+  --alert-text: #991b1b;
+  /* Status chips. Cancelled is grey, matching the sheet's Cancelled rule. */
+  --chip-applied-bg: #fef9c3;
+  --chip-applied: #854d0e;
+  --chip-interview-bg: #dbeafe;
+  --chip-interview: #1e40af;
+  --chip-offer-bg: #dcfce7;
+  --chip-offer: #166534;
+  --chip-rejected-bg: #fee2e2;
+  --chip-rejected: #991b1b;
+  --chip-cancelled-bg: #f3f4f6;
+  --chip-cancelled: #4b5563;
+  --chip-neutral-bg: #f3f4f6;
+  --chip-neutral: #374151;
+  /* A waiting application's chip (2026-09-15): dashed, no fill. */
+  --wait-text: #374151;
+  --wait-border: #6b7280;
+  --skel-1: #eef0f3;
+  --skel-2: #f6f7f9;
+  --page-wide: #f3f4f6; /* behind Settings in a wide tab */
+  --menu-shadow: 0 0 0 1px rgba(0, 0, 0, 0.09), 0 12px 28px rgba(0, 0, 0, 0.18);
   color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111318;
+    --surface: #1b1e25;
+    --subtle: #171a20;
+    --hover: #272b34;
+    --text: #f3f4f6;
+    --text-2: #d1d5db;
+    --muted: #9ca3af;
+    --heading: #b8bec8;
+    --border: #2b2f38;
+    --border-strong: #474d59;
+    --input-border: #565d6b;
+    --brand: #2563eb;
+    --brand-hover: #1d4ed8;
+    --brand-text: #8ab4ff;
+    --on-brand: #ffffff;
+    --btn-text: #e5e7eb;
+    --icon: #c3c9d3;
+    --focus: #8ab4ff;
+    --focus-glow: #1e3a8a;
+    --active-bg: #1e2b47;
+    --active-text: #dbe6ff;
+    --active-icon: #dbe6ff;
+    --danger: #fca5a5;
+    --ok: #4ade80;
+    --pill: #8b93a1;
+    --warn-bg: #251c0c;
+    --warn-border: #5a4417;
+    --warn-text: #fcd34d;
+    --warn-dot: #f59e0b;
+    --alert-bg: #2a1414;
+    --alert-border: #5b2525;
+    --alert-text: #fecaca;
+    --chip-applied-bg: #3a3010;
+    --chip-applied: #fde68a;
+    --chip-interview-bg: #16284a;
+    --chip-interview: #bfdbfe;
+    --chip-offer-bg: #12301f;
+    --chip-offer: #bbf7d0;
+    --chip-rejected-bg: #3b1717;
+    --chip-rejected: #fecaca;
+    --chip-cancelled-bg: #262a31;
+    --chip-cancelled: #c7ccd4;
+    --chip-neutral-bg: #262a31;
+    --chip-neutral: #e5e7eb;
+    --wait-text: #d1d5db;
+    --wait-border: #8b93a1;
+    --skel-1: #22262e;
+    --skel-2: #2a2f38;
+    --page-wide: #0b0d11;
+    --menu-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 12px 28px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -25,15 +123,16 @@
 
 body {
   margin: 0;
-  background: #fff;
+  background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 a:focus-visible,
 button:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--brand);
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -57,7 +156,7 @@ input:focus-visible {
   height: 22px;
   border-radius: 6px;
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 
 .mark.lg {
@@ -75,8 +174,8 @@ input:focus-visible {
   padding: 0 10px;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
-  color: #1f2937;
+  background: var(--surface);
+  color: var(--btn-text);
   font: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -86,13 +185,13 @@ input:focus-visible {
 }
 
 .btn:hover {
-  background: var(--subtle);
+  background: var(--hover);
 }
 
 .btn.primary {
   border-color: var(--brand);
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 
 .btn.primary:hover {
@@ -120,16 +219,16 @@ input:focus-visible {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #4b5563;
+  color: var(--icon);
   cursor: pointer;
 }
 
 .icon-btn:hover {
-  background: #f3f4f6;
+  background: var(--hover);
 }
 
 .link {
-  color: var(--brand);
+  color: var(--brand-text);
   font-weight: 500;
   text-decoration: none;
 }
@@ -143,10 +242,10 @@ input:focus-visible {
   align-items: flex-start;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--alert-border);
   border-radius: 8px;
-  background: #fef2f2;
-  color: #991b1b;
+  background: var(--alert-bg);
+  color: var(--alert-text);
   font-size: 12.5px;
   line-height: 1.4;
 }
@@ -162,34 +261,34 @@ input:focus-visible {
   flex: none;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--chip-neutral-bg);
+  color: var(--chip-neutral);
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .chip-applied {
-  background: #fef9c3;
-  color: #854d0e;
+  background: var(--chip-applied-bg);
+  color: var(--chip-applied);
 }
 
 .chip-interview {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--chip-interview-bg);
+  color: var(--chip-interview);
 }
 
 .chip-offer {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--chip-offer-bg);
+  color: var(--chip-offer);
 }
 
 .chip-rejected {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--chip-rejected-bg);
+  color: var(--chip-rejected);
 }
 
 .chip-cancelled {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: var(--chip-cancelled-bg);
+  color: var(--chip-cancelled);
 }

@@ -9,33 +9,22 @@ import { safeJobUrl } from '../lib/safeUrl'
 import type { StatusValue } from '../lib/sheetTemplate'
 import { applicationCount } from '../lib/authStatus'
 import { sheetProblemMessage, sheetProblemTitle } from '../lib/sheetStatus'
+import { mergeWaiting, waitingFromQueue, weekSummary } from '../lib/popupList'
+import type { WaitingApplication, WeekSummary } from '../lib/popupList'
 import type { BackgroundResponse } from '../background/messageRouter'
 import { CheckIcon, ClockIcon, GearIcon, LockIcon, SheetIcon, WarnIcon } from '../ui/icons'
 import { useSyncStatus } from '../ui/useSyncStatus'
 import { StatusSelect } from './StatusSelect'
 import { RowMenu } from './RowMenu'
 import { ResumeVersionEditor } from './ResumeVersionEditor'
+import { NoteEditor } from './NoteEditor'
+import { errorMessage, GENERIC_ERROR, STALE_ROW_RESUME, STALE_ROW_STATUS } from './messages'
 
 // Opened by the notification's Edit button (background/index.ts), this page
 // is a small window showing only the resume editor for that entry. Opened
 // from the toolbar, there's no edit param and it's the popup.
 const editId = new URLSearchParams(window.location.search).get('edit')
 if (editId) document.body.classList.add('in-window')
-
-const STALE_ROW_STATUS =
-  "This row may have changed since it was logged, so its status wasn't changed. You can still change it in your spreadsheet."
-const STALE_ROW_RESUME =
-  "This row may have changed since it was logged, so it wasn't updated. You can still change it in your spreadsheet."
-const SIGN_IN_NEEDED = 'Google sign-in needed. Reconnect, then try again.'
-const SHEET_UNAVAILABLE = "Your sheet is in Google Drive's trash or was deleted, so nothing was changed. See the note above."
-const GENERIC_ERROR = 'Something went wrong. Please try again.'
-
-function errorMessage(code: string | undefined, staleMessage: string): string {
-  if (code === 'STALE_ROW') return staleMessage
-  if (code === 'AUTH_REQUIRED') return SIGN_IN_NEEDED
-  if (code === 'SHEET_UNAVAILABLE') return SHEET_UNAVAILABLE
-  return GENERIC_ERROR
-}
 
 function sheetUrl(sheetRef: SheetRef): string {
   return `https://docs.google.com/spreadsheets/d/${sheetRef.spreadsheetId}/edit`
@@ -63,7 +52,79 @@ async function openSettings({ reconnect = false }: { reconnect?: boolean } = {})
   }
 }
 
-type View = { mode: 'list' } | { mode: 'edit'; id: string }
+// One line: the title takes the ellipsis, the location stays whole. Full
+// text in the tooltip.
+function Place({ title, location }: { title: string; location: string | null }) {
+  const place = [title, location].filter(Boolean).join(' · ')
+  return (
+    <div className="ti" title={place}>
+      <span className="t">{title}</span>
+      {location && (
+        <>
+          <span className="tsep" aria-hidden="true">
+            ·
+          </span>
+          <span className="sr-only">, </span>
+          <span className="loc">{location}</span>
+        </>
+      )}
+    </div>
+  )
+}
+
+function CompanyLink({ company, url }: { company: string; url: string | null }) {
+  return url ? (
+    <a className="co" href={url} target="_blank" rel="noopener noreferrer" title={`${company}: open the job posting`}>
+      {company}
+      <span className="sr-only"> (opens the job posting in a new tab)</span>
+    </a>
+  ) : (
+    <span className="co">{company}</span>
+  )
+}
+
+// A queued application (2026-09-15): it has no row in the sheet yet, so no
+// status menu and no ⋯; a spacer keeps the columns lined up with the saved
+// rows. The banner above says why it's waiting.
+function WaitingRow({ app }: { app: WaitingApplication }) {
+  const meta = [app.resumeVersion && `Resume ${app.resumeVersion}`, formatDate(app.date), 'not in your sheet yet']
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <li className="row waiting">
+      <div className="r1">
+        <CompanyLink company={app.company} url={safeJobUrl(app.url)} />
+        <span className="chip chip-waiting" title="Not in your sheet yet. It's saved automatically once it can be.">
+          <ClockIcon size={12} />
+          Waiting
+        </span>
+        <span className="more-spacer" aria-hidden="true" />
+      </div>
+      <Place title={app.title} location={app.location} />
+      <div className="meta">{meta}</div>
+    </li>
+  )
+}
+
+// "3 this week · 2 interviews" (2026-09-15; lib/popupList.ts says what counts).
+// Plain inline text with real spaces, so it reads the same to a screen reader.
+function Summary({ summary }: { summary: WeekSummary }) {
+  return (
+    <div className="sum" title="This week runs Monday to Sunday. Cancelled applications aren't counted.">
+      <b>
+        {summary.thisWeek}
+        {summary.more ? '+' : ''}
+      </b>{' '}
+      this week{' '}
+      <span className="sum-sep" aria-hidden="true">
+        ·
+      </span>{' '}
+      <b>{summary.interviews}</b> {summary.interviews === 1 ? 'interview' : 'interviews'}
+    </div>
+  )
+}
+
+type View = { mode: 'list' } | { mode: 'edit'; id: string } | { mode: 'note'; id: string }
 
 function App() {
   const [applications, setApplications] = useState<RecentApplication[] | null>(null)
@@ -86,16 +147,17 @@ function App() {
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
   const [saving, setSaving] = useState(false)
   const [editorError, setEditorError] = useState<string | null>(null)
-  const { authStatus, sheetStatus, queued } = useSyncStatus()
+  const { authStatus, sheetStatus, queued, queue } = useSyncStatus()
   const signedOut = authStatus !== undefined
-  // Why the status chip and "Change resume version" can't write right now:
-  // signed out, or the sheet is in Drive's trash or deleted (2026-09-14).
+  // Why the status chip, "Change resume version" and "Add note" can't reach
+  // the sheet right now: signed out, or the sheet is in Drive's trash or
+  // deleted (2026-09-14).
   const blockedReason = signedOut
     ? 'Reconnect Google Sheets first'
     : sheetStatus
       ? `${sheetProblemTitle(sheetStatus.state)}: restore it or create a new sheet first`
       : null
-  // After the editor closes, focus goes back to the row's ⋯ it came from.
+  // After an editor closes, focus goes back to the row's ⋯ it came from.
   // Done in an effect once the list is back in the DOM, not on a timer.
   const returnFocusTo = useRef<string | null>(null)
 
@@ -157,10 +219,10 @@ function App() {
     }
   }
 
-  function openEditor(entry: RecentApplication) {
+  function openEditor(entry: RecentApplication, mode: 'edit' | 'note') {
     setEditorError(null)
     setRowError(null)
-    setView({ mode: 'edit', id: entry.id })
+    setView({ mode, id: entry.id })
   }
 
   function closeEditor(entryId: string) {
@@ -202,6 +264,12 @@ function App() {
 
   const loading = !sheetRefChecked || applications === null
   const editing = view.mode === 'edit' ? applications?.find((a) => a.id === view.id) : undefined
+  const noting = view.mode === 'note' ? applications?.find((a) => a.id === view.id) : undefined
+  // The list (2026-09-15): saved entries and waiting applications, newest
+  // first, and the summary line counted from them (lib/popupList.ts).
+  const waiting = waitingFromQueue(queue)
+  const items = mergeWaiting(applications ?? [], waiting)
+  const summary = weekSummary(items, (app) => liveStatuses[app.id] ?? app.status, new Date())
 
   const editor = editing && (
     <ResumeVersionEditor
@@ -215,6 +283,10 @@ function App() {
       onCancel={() => closeEditor(editing.id)}
     />
   )
+  const noteEditor = noting && (
+    <NoteEditor key={noting.id} entry={noting} appliedOn={formatDate(noting.date)} onClose={() => closeEditor(noting.id)} />
+  )
+  const panel = editor || noteEditor
 
   // The notification's Edit window: the editor only.
   if (editId) {
@@ -252,6 +324,8 @@ function App() {
         </button>
       </header>
 
+      {!loading && sheetRef !== undefined && !panel && items.length > 0 && <Summary summary={summary} />}
+
       {loading && (
         <div className="list" aria-busy="true">
           <span className="sr-only">Loading…</span>
@@ -277,11 +351,21 @@ function App() {
         </div>
       )}
 
-      {!loading && sheetRef !== undefined && editor}
+      {/* Applications made before a sheet was connected wait in the queue;
+          Connect saves them. Listed under the prompt so they're not unseen. */}
+      {!loading && sheetRef === undefined && waiting.length > 0 && (
+        <ul className="list" aria-label="Applications waiting to be saved">
+          {waiting.map((app) => (
+            <WaitingRow key={app.key} app={app} />
+          ))}
+        </ul>
+      )}
+
+      {!loading && sheetRef !== undefined && panel}
 
       {/* Statuses in the list stay the saved ones while signed out: the live
           read needs sign-in too, and a failed read shows nothing live. */}
-      {!loading && sheetRef !== undefined && !editor && authStatus && (
+      {!loading && sheetRef !== undefined && !panel && authStatus && (
         <div className="banner" role="alert">
           <LockIcon />
           <div>
@@ -300,7 +384,7 @@ function App() {
 
       {/* The sheet is in Drive's trash or deleted (2026-09-14): nothing is
           written until it's restored or replaced; Settings has the choices. */}
-      {!loading && sheetRef !== undefined && !editor && !authStatus && sheetStatus && (
+      {!loading && sheetRef !== undefined && !panel && !authStatus && sheetStatus && (
         <div className="banner" role="alert">
           <WarnIcon />
           <div>
@@ -313,7 +397,7 @@ function App() {
         </div>
       )}
 
-      {!loading && sheetRef !== undefined && !editor && !authStatus && !sheetStatus && queued > 0 && (
+      {!loading && sheetRef !== undefined && !panel && !authStatus && !sheetStatus && queued > 0 && (
         <div className="banner info" role="status">
           <ClockIcon />
           <div>
@@ -326,35 +410,29 @@ function App() {
         </div>
       )}
 
-      {!loading && sheetRef !== undefined && !editor && applications.length === 0 && (
+      {!loading && sheetRef !== undefined && !panel && items.length === 0 && (
         <div className="empty">
           <h2>No applications yet</h2>
           <p>Apply with LinkedIn Easy Apply or on a Greenhouse job page and it will show up here.</p>
         </div>
       )}
 
-      {!loading && sheetRef !== undefined && !editor && applications.length > 0 && (
+      {!loading && sheetRef !== undefined && !panel && items.length > 0 && (
         <ul className="list" aria-label="Recent applications">
-          {applications.map((app) => {
+          {items.map((item) => {
+            if (item.kind === 'waiting') return <WaitingRow key={`w-${item.app.key}`} app={item.app} />
+            const app = item.app
             const status = liveStatuses[app.id] ?? app.status
             const url = safeJobUrl(app.url)
             const busy = statusBusyId === app.id
             const error = rowError?.id === app.id ? rowError.message : null
-            const place = [app.title, app.location].filter(Boolean).join(' · ')
             const meta = [app.resumeVersion && `Resume ${app.resumeVersion}`, formatDate(app.date)]
               .filter(Boolean)
               .join(' · ')
             return (
               <li key={app.id} className={error ? 'row has-error' : 'row'} aria-busy={busy || undefined}>
                 <div className="r1">
-                  {url ? (
-                    <a className="co" href={url} target="_blank" rel="noopener noreferrer" title={`${app.company}: open the job posting`}>
-                      {app.company}
-                      <span className="sr-only"> (opens the job posting in a new tab)</span>
-                    </a>
-                  ) : (
-                    <span className="co">{app.company}</span>
-                  )}
+                  <CompanyLink company={app.company} url={url} />
                   <StatusSelect
                     company={app.company}
                     status={status}
@@ -370,23 +448,11 @@ function App() {
                     company={app.company}
                     url={url}
                     blockedReason={blockedReason}
-                    onChangeResume={() => openEditor(app)}
+                    onChangeResume={() => openEditor(app, 'edit')}
+                    onAddNote={() => openEditor(app, 'note')}
                   />
                 </div>
-                {/* One line: the title takes the ellipsis, the location stays
-                    whole. Full text in the tooltip. */}
-                <div className="ti" title={place}>
-                  <span className="t">{app.title}</span>
-                  {app.location && (
-                    <>
-                      <span className="tsep" aria-hidden="true">
-                        ·
-                      </span>
-                      <span className="sr-only">, </span>
-                      <span className="loc">{app.location}</span>
-                    </>
-                  )}
-                </div>
+                <Place title={app.title} location={app.location} />
                 <div className="meta">{meta}</div>
                 {error && (
                   <div className="err" role="alert">

@@ -34,9 +34,10 @@ domain aren't covered.
    when you click Submit Application.
 3. A "Logged" notification appears for about five seconds, with Undo and
    Edit for a quick fix.
-4. The extension's popup lists your 20 most recent applications. From
-   there you can change an application's status or resume version, or
-   open the job posting. Changes are written to your sheet.
+4. The extension's popup lists your 20 most recent applications, plus any
+   still waiting to be saved. From there you can change an application's
+   status, resume version or note, or open the job posting. Changes are
+   written to your sheet.
 
 ## Features
 
@@ -47,9 +48,18 @@ domain aren't covered.
 - **The popup.** Each row shows the company, title, location, resume
   version and date, with the status from your sheet. A dropdown sets the
   status (Applied, Interview, Offer, Rejected, Cancelled), and the row's
-  ⋯ menu changes the resume version or opens the job posting. A row is
-  only written if its Company and Title still match, so a row you've
-  sorted or renamed by hand is never overwritten.
+  ⋯ menu changes the resume version, edits the row's note or opens the
+  job posting. A row is only written if its Company and Title still
+  match, so a row you've sorted or renamed by hand is never overwritten.
+  A line at the top counts this week's applications (Monday to Sunday)
+  and your interviews.
+- **Notes.** "Add note" opens the row's Notes cell, saves your edit back
+  to it, and refuses if that cell changed in your sheet since you opened
+  it, so a note you wrote there is never overwritten unseen.
+- **Applications still waiting** to be saved are listed too, at their
+  dates, with a Waiting chip and no actions until they land in the sheet.
+- **Dark mode.** The popup, Settings and the editors follow your system's
+  light or dark theme.
 - **The "Logged" notification.** Undo marks the row Cancelled rather than
   deleting it; Edit opens a small window for the resume version.
 - **A retry queue.** If a save fails (offline, or a lapsed sign-in), the
@@ -147,7 +157,8 @@ content script (per site)          background service worker           Google
 - **Internal messages** from the popup and Settings, over one contract
   checked against the extension's own origin: `CONNECT_PROVIDER`,
   `RECONNECT_PROVIDER`, `CREATE_NEW_SHEET`, `SET_STATUS`,
-  `SAVE_RESUME_VERSION`, `GET_LIVE_STATUSES` and `OPEN_SETTINGS`.
+  `SAVE_RESUME_VERSION`, `GET_LIVE_STATUSES`, `GET_NOTE`, `SAVE_NOTE` and
+  `OPEN_SETTINGS`.
 - **The offline queue** (`chrome.storage.local`) holds applications that
   couldn't be saved. A 5-minute alarm drains it; a row already in the
   sheet is recognised by its Log ID instead of being appended twice.

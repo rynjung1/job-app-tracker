@@ -17,9 +17,14 @@ export interface RecentApplication {
   status: string
   sheetName: string
   rowNumber: number
+  // The row's hidden Log ID (2026-09-15), so the popup can leave out a
+  // waiting application once its saved entry exists (lib/popupList.ts).
+  // Absent on entries logged before it and on rows of sheets without the
+  // column.
+  logId?: string
 }
 
-const MAX_RECENT = 20
+export const MAX_RECENT = 20
 
 export async function getRecentApplications(): Promise<RecentApplication[]> {
   const stored = await chrome.storage.local.get(RECENT_APPLICATIONS_KEY)
