@@ -1098,6 +1098,57 @@ succeed and then time out), 6 cases, plus the existing 60 still passing
 Not run live; the new sheet at the extension-ID switch is the first real
 one with the column.
 
+**Updated 2026-09-16 (decided by Ryan), a second change to this locked
+template: a "Summary" tab.** `createSheet` adds a second tab whose cells
+are formulas over the applications tab — totals by status, a Pace block
+(this week, last week, the 8-week average), and the last 8 weeks with a
+count and a bar. New sheets only: an existing sheet is never modified, and
+a user who deletes the tab loses nothing.
+- **It costs no extra API calls.** `createSheet` still makes three: the
+  create, the header write, and the formatting batch. The tab is requested
+  with an `addSheet` in that same batch (with a fixed `sheetId`, free on a
+  one-request-old spreadsheet, so the cell requests can name it without a
+  round trip to learn it), and its cells go in as `updateCells` with
+  `userEnteredValue.formulaValue`. The batch grows from about 18 requests
+  to 30. No value write anywhere becomes `USER_ENTERED`, so the RAW-only
+  formula-injection defence is untouched: only our own literals are ever
+  parsed as formulas.
+- **Formulas** take their column letters from the `templateColumns` passed
+  in, never hardcoded, and use open-ended ranges so rows added later count
+  themselves: `=COUNTIF('Sheet1'!$G$2:$G,"Applied")`,
+  `=COUNTA('Sheet1'!$B$2:$B)`, a week start of
+  `=TODAY()-WEEKDAY(TODAY(),3)-7*(ROW()-13)`, and a week count of
+  `=COUNTIFS(dates,">="&$A13,dates,"<"&$A13+7,statuses,"<>Cancelled")`.
+- **Cancelled is counted in the totals by status and left out of the
+  weekly numbers** (decided by Ryan), which matches the popup's summary
+  line. C10 and C12 say so on the sheet, and both cells carry the same
+  text as a note.
+- **The bar is `=REPT("█",MIN($B13,20))`**: a busy week doesn't paint a
+  bar across the sheet, and the count beside it stays exact.
+- **The applications tab stays first** — `createSheet` reads
+  `created.sheets[0]` for the name and id — and the hidden Log ID column
+  is irrelevant to the formulas, which name Date, Company and Status only.
+- **The spreadsheet's locale is pinned to `en_US` at creation**, so the
+  comma-separated arguments in those formulas parse as written whatever
+  the account's own locale is. The Date column's display format is set
+  explicitly either way.
+- **Nothing writes there again:** every other provider method addresses
+  `sheetRef.sheetName`, and a rename resolves through the applications
+  tab's numeric id. `tests/summaryTab.test.ts` asserts that: it drives
+  every other provider call and fails if any request names the tab.
+
+**Verified 2026-09-16 in Node only** (`tests/summaryTab.test.ts`, 8 cases):
+three requests, with the tab added and filled in the one batch; the status
+totals, the total, the Pace block and the week rows as written above; each
+week row addressing its own Monday; the bar capped at 20; the Cancelled
+labels and their notes; a reordered template moving every range; and no
+other provider call naming the tab.
+Not run live: the real-sheet check is `scripts/summary-check.js` (paste-ready,
+read-write on a throwaway sheet) — the formulas landing as formulas in the
+sheet's locale, appends updating the totals, weeks and bars, a Cancelled row
+counting in the totals but not the week, a renamed applications tab keeping
+the numbers, and deleting the Summary tab not breaking the next append.
+
 **Updated 2026-09-09:** `createSheet` applies visual formatting to
 the new sheet — `createSheet`-only, never touches an
 already-existing one. Column indices for all of the below are
