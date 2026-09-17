@@ -27,6 +27,11 @@ notifications justifications, the certification note and the
 Authentication information note now cover the Drive trash check and its
 flag.
 
+Updated 2026-09-17 (branch `new-sheet`; awaiting review): the description,
+the storage justification (both) and the Sheets host justification now
+cover Settings naming the connected sheet, "Start a new sheet" and the
+remembered previous sheet.
+
 Updated 2026-09-16 (branch `summary-tab`; awaiting review): the description
 and the Sheets host justification mention the Summary tab new sheets get.
 
@@ -59,7 +64,7 @@ Easy Apply detection is fully supported with LinkedIn set to English.
 
 No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected at a glance (every logged row starts as Applied), plus a Summary tab that counts your applications by status and by week.
 
-From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, change its status, resume version or note at any time, and open its job posting, without touching the spreadsheet by hand. The notification after each log also offers a quick Undo and Edit. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
+From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, change its status, resume version or note at any time, and open its job posting, without touching the spreadsheet by hand. Settings always names the sheet you're connected to, and can start a new one for a new search — the old sheet stays in your Drive, and you can switch back to it. The notification after each log also offers a quick Undo and Edit. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
 
 Privacy: the extension reads only the job page you apply on and its URL; it has no access to your other tabs or browsing history. It only talks to Google's own APIs: Sheets, to read and write your spreadsheet, and Drive, only to check whether that spreadsheet is in the trash; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
 ```
@@ -147,14 +152,14 @@ Automatically logs the job applications you submit on supported job sites (Linke
 `storage`:
 
 ```text
-Stores, only on this device: which Google Sheet you connected; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged or when the browser closes; after 30 minutes it's no longer used, and it's removed at the next Greenhouse Submit click or confirmation page); your 20 most recent logged applications (each with its row's random ID), shown in the popup so you can change their status, resume version or note; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and the error message from Chrome or Google, until you reconnect; if your sheet is moved to Google Drive's trash or deleted, which of the two and when, until it's restored or replaced; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
+Stores, only on this device: which Google Sheet you connected and its name, so Settings can show it; if you've started a new sheet, the identifier and name of the one it replaced, so Settings can offer to switch back to it; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged or when the browser closes; after 30 minutes it's no longer used, and it's removed at the next Greenhouse Submit click or confirmation page); your 20 most recent logged applications (each with its row's random ID), shown in the popup so you can change their status, resume version or note; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and the error message from Chrome or Google, until you reconnect; if your sheet is moved to Google Drive's trash or deleted, which of the two and when, until it's restored or replaced; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
 ```
 
 Shorter fallback, use if the dashboard rejects the long one (no
 documented limit was found for these fields):
 
 ```text
-Stores on this device only: the connected Google Sheet; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (unused after 30 minutes); the 20 most recent applications, for status, resume and note changes; the last resume version per role type; a sign-in-needed flag with the error from Chrome or Google; a sheet-in-trash-or-deleted flag; and the open Settings window's id (session).
+Stores on this device only: the connected Google Sheet and its name; the identifier and name of a sheet replaced by "Start a new sheet", to switch back to; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (unused after 30 minutes); the 20 most recent applications, for status, resume and note changes; the last resume version per role type; a sign-in-needed flag with the error from Chrome or Google; a sheet-in-trash-or-deleted flag; and the open Settings window's id (session).
 ```
 
 `identity`:
@@ -178,7 +183,7 @@ Shows a "Logged" notification after each automatic log, with Undo and Edit butto
 Host permission `https://sheets.googleapis.com/*`:
 
 ```text
-Through the Google Sheets API: creates and formats the sheet when you connect, including a Summary tab whose cells are formulas over your own rows (written once, at creation); writes each logged application as a row (with a random ID, used only to avoid duplicates) in the Google Sheet this extension created; updates one cell (Status, Resume Version or Notes) when you change an application's status, resume version or note in the popup, or use the Logged notification's Undo or Edit; reads the sheet's header row to find its columns, your recent rows' Company, Title, Status and hidden ID for the popup, a row before a popup change to check it still matches (and its Notes cell when you open its note), the hidden ID column when retrying a save, and the spreadsheet's tab names if you renamed the sheet's tab.
+Through the Google Sheets API: creates and formats the sheet when you connect, including a Summary tab whose cells are formulas over your own rows (written once, at creation); writes each logged application as a row (with a random ID, used only to avoid duplicates) in the Google Sheet this extension created; updates one cell (Status, Resume Version or Notes) when you change an application's status, resume version or note in the popup, or use the Logged notification's Undo or Edit; reads the sheet's header row to find its columns, your recent rows' Company, Title, Status and hidden ID for the popup, a row before a popup change to check it still matches (and its Notes cell when you open its note), the hidden ID column when retrying a save, the spreadsheet's name so Settings can show which sheet you're connected to, and the spreadsheet's tab names if you renamed the sheet's tab; and creates a new sheet if you start one from Settings (or if your sheet is in the trash or deleted).
 ```
 
 If the dashboard also asks about the content-script sites (they're

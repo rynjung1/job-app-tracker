@@ -1,5 +1,5 @@
 import type { SheetRef } from '../providers/types'
-import { SHEET_REF_KEY } from './storageKeys'
+import { PREVIOUS_SHEET_REF_KEY, SHEET_REF_KEY } from './storageKeys'
 import { withStorageLock } from './storageLock'
 
 // Extracted out of background/index.ts so background/messageRouter.ts can
@@ -25,5 +25,31 @@ export async function updateStoredSheetName(spreadsheetId: string, sheetName: st
     const stored = await getSheetRef()
     if (stored?.spreadsheetId !== spreadsheetId) return
     await chrome.storage.local.set({ [SHEET_REF_KEY]: { ...stored, sheetName } })
+  })
+}
+
+// The sheet connected before the last swap (2026-09-17). Remembered so a
+// mistaken "Start a new sheet" — or a replacement made while the old sheet
+// was only in the trash — has a way back inside the extension: `drive.file`
+// still covers that file, since this extension created it, but nothing else
+// stores its id. One level: switching back remembers the sheet it left.
+export async function getPreviousSheetRef(): Promise<SheetRef | undefined> {
+  const stored = await chrome.storage.local.get(PREVIOUS_SHEET_REF_KEY)
+  return stored[PREVIOUS_SHEET_REF_KEY] as SheetRef | undefined
+}
+
+export async function setPreviousSheetRef(sheetRef: SheetRef): Promise<void> {
+  await withStorageLock(() => chrome.storage.local.set({ [PREVIOUS_SHEET_REF_KEY]: sheetRef }))
+}
+
+// The spreadsheet's name, stored only if that spreadsheet is still the
+// connected one: a swap may have landed in between (2026-09-17).
+export async function updateStoredSheetTitle(spreadsheetId: string, title: string): Promise<SheetRef | undefined> {
+  return withStorageLock(async () => {
+    const stored = await getSheetRef()
+    if (stored?.spreadsheetId !== spreadsheetId) return stored
+    const updated = { ...stored, title }
+    await chrome.storage.local.set({ [SHEET_REF_KEY]: updated })
+    return updated
   })
 }

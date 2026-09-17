@@ -1,4 +1,9 @@
 export const SHEET_REF_KEY = 'sheetRef'
+// The sheet that was connected before the last swap (2026-09-17), so
+// Settings can offer "Switch back to the previous sheet" — see
+// lib/sheetRef.ts. One level of history: switching back remembers the sheet
+// it just left.
+export const PREVIOUS_SHEET_REF_KEY = 'previousSheetRef'
 export const OFFLINE_QUEUE_KEY = 'offlineQueue'
 export const RECENT_APPLICATIONS_KEY = 'recentApplications'
 // chrome.storage.session, not local — see lib/pendingApplications.ts.

@@ -69,6 +69,10 @@ export const ctl = {
   // taken to answer 404 everywhere (expected, not measured).
   trashedIds: new Set<string>(),
   goneIds: new Set<string>(),
+  // Each spreadsheet's name (2026-09-17), for readTitle. A create adds the
+  // name it asked for under the next id (new1, new2...); 'sheet1' is the
+  // pre-existing one every test starts connected to.
+  titles: { sheet1: 'Job Applications' } as Record<string, string>,
 }
 // The fake sheet: row values for readRow, and every successful cell write.
 export const sheet = { rows: {} as Record<number, string[]>, writes: [] as Array<{ range: string; values: unknown }> }
@@ -98,6 +102,8 @@ export function reset() {
   ctl.tabDeleted = false
   ctl.trashedIds.clear()
   ctl.goneIds.clear()
+  ctl.titles = { sheet1: 'Job Applications' }
+  created = 0
 }
 
 // fetchWithTimeout's 20s timer is left running when a request is aborted
@@ -182,6 +188,8 @@ Object.defineProperty(globalThis, 'navigator', { configurable: true, get: () => 
 // new spreadsheet for the create call; every successful PUT and batchUpdate
 // is recorded. ctl.fetchPlan scripts statuses call by call.
 let appendedRow = 1
+// Spreadsheets this fake has created in the current test: new1, new2...
+let created = 0
 // Google quotes a tab name in a returned range only when it has to.
 const googleQuoted = (name: string) => (/^[A-Za-z0-9_]+$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`)
 function columnValues(letter: string): string[] {
@@ -250,21 +258,31 @@ export const fakeResponse = (status: number, text: string) =>
   }
   const rowRead = u.match(/!(\d+):(\d+)(?:\?|$)/)
   const columnRead = u.match(/!([A-Z])2:\1(?:\?|$)/)
+  // A create names the new spreadsheet; each one gets the next id, so a test
+  // that creates twice can tell the sheets apart.
+  let createdId: string | undefined
+  if (u === 'https://sheets.googleapis.com/v4/spreadsheets' && init?.body) {
+    createdId = `new${++created}`
+    ctl.titles[createdId] = String(JSON.parse(String(init.body)).properties?.title ?? '')
+  }
+  const titleRead = u.match(/^https:\/\/sheets\.googleapis\.com\/v4\/spreadsheets\/([^/?]+)\?fields=properties\.title$/)
   const body =
-    u === 'https://sheets.googleapis.com/v4/spreadsheets'
-      ? { spreadsheetId: 'new1', sheets: [{ properties: { title: 'Sheet1', sheetId: 0 } }] }
-      : u.endsWith('?fields=sheets.properties')
-        ? { sheets: [{ properties: ctl.tabDeleted ? { title: 'Other', sheetId: 5 } : { title: ctl.sheetTitle, sheetId: 0 } }] }
-        : batchRanges.length
-          ? { valueRanges: batchRanges.map((m) => ({ values: [columnSlice(m[1], Number(m[2]), Number(m[3]))] })) }
-          : columnRead
-          ? { values: [columnValues(columnRead[1])] }
-          : rowRead && rowRead[1] === rowRead[2] && rowRead[1] !== '1'
-            ? { values: sheet.rows[Number(rowRead[1])] ? [sheet.rows[Number(rowRead[1])]] : [] }
-            : appended !== undefined
-              ? { updates: { updatedRange: `${googleQuoted(ctl.sheetTitle)}!A${appended}:I${appended}` } }
-              : u.includes('!1:1')
-                ? { values: [ctl.headers] }
-                : {}
+    createdId !== undefined
+      ? { spreadsheetId: createdId, sheets: [{ properties: { title: 'Sheet1', sheetId: 0 } }] }
+      : titleRead
+        ? { properties: { title: ctl.titles[titleRead[1]] ?? '' } }
+        : u.endsWith('?fields=sheets.properties')
+          ? { sheets: [{ properties: ctl.tabDeleted ? { title: 'Other', sheetId: 5 } : { title: ctl.sheetTitle, sheetId: 0 } }] }
+          : batchRanges.length
+            ? { valueRanges: batchRanges.map((m) => ({ values: [columnSlice(m[1], Number(m[2]), Number(m[3]))] })) }
+            : columnRead
+              ? { values: [columnValues(columnRead[1])] }
+              : rowRead && rowRead[1] === rowRead[2] && rowRead[1] !== '1'
+                ? { values: sheet.rows[Number(rowRead[1])] ? [sheet.rows[Number(rowRead[1])]] : [] }
+                : appended !== undefined
+                  ? { updates: { updatedRange: `${googleQuoted(ctl.sheetTitle)}!A${appended}:I${appended}` } }
+                  : u.includes('!1:1')
+                    ? { values: [ctl.headers] }
+                    : {}
   return fakeResponse(200, JSON.stringify(body))
 }

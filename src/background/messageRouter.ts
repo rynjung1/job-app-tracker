@@ -17,7 +17,8 @@
 import { getActiveProvider } from '../providers/activeProvider'
 import type { SheetRef } from '../providers/types'
 import { SHEET_TEMPLATE_COLUMNS } from '../lib/sheetTemplate'
-import { getSheetRef, setSheetRef } from '../lib/sheetRef'
+import { getPreviousSheetRef, getSheetRef, setPreviousSheetRef, setSheetRef, updateStoredSheetTitle } from '../lib/sheetRef'
+import { datedSheetTitle } from '../lib/sheetTitle'
 import { getRecentApplications, rowStillMatches, setApplicationStatus, updateRecentApplication } from '../lib/recentApplications'
 import { isStatusValue } from '../lib/sheetTemplate'
 import type { StatusValue } from '../lib/sheetTemplate'
@@ -41,7 +42,13 @@ export type BackgroundRequest =
     }
   | { type: 'SET_STATUS'; payload: { entryId: string; status: StatusValue } }
   | { type: 'GET_LIVE_STATUSES' }
-  | { type: 'CREATE_NEW_SHEET' }
+  // replaceHealthy (2026-09-17): Settings' "Start a new sheet" for a sheet
+  // that's perfectly fine. Absent — every other sender — keeps the
+  // SHEET_HEALTHY refusal below, which is what stops a flaky read from
+  // swapping out a good sheet.
+  | { type: 'CREATE_NEW_SHEET'; payload?: { replaceHealthy?: boolean } }
+  | { type: 'SWITCH_TO_PREVIOUS_SHEET' }
+  | { type: 'REFRESH_SHEET_TITLE' }
   | { type: 'OPEN_SETTINGS'; payload?: { reconnect?: boolean } }
   | { type: 'GET_NOTE'; payload: { entryId: string } }
   | { type: 'SAVE_NOTE'; payload: { entryId: string; note: string; expected: string } }
@@ -70,7 +77,11 @@ export interface ConnectResult extends ReconnectResult {
 // message, and the "needs reconnect" flag is already set by then.
 export type BackgroundResponse<T> =
   | { ok: true; data: T }
-  | { ok: false; error: string; code?: 'STALE_ROW' | 'AUTH_REQUIRED' | 'SHEET_UNAVAILABLE' | 'SHEET_HEALTHY' | 'NOTE_CHANGED' }
+  | {
+      ok: false
+      error: string
+      code?: 'STALE_ROW' | 'AUTH_REQUIRED' | 'SHEET_UNAVAILABLE' | 'SHEET_HEALTHY' | 'NOTE_CHANGED' | 'PREVIOUS_UNAVAILABLE'
+    }
 
 // SHEET_UNAVAILABLE (2026-09-14): the sheet is in Drive's trash or deleted
 // (lib/sheetStatus.ts), so the change wasn't written. SHEET_HEALTHY: "Create
@@ -89,6 +100,8 @@ const INTERNAL_MESSAGE_TYPES = [
   'CREATE_NEW_SHEET',
   'GET_NOTE',
   'SAVE_NOTE',
+  'SWITCH_TO_PREVIOUS_SHEET',
+  'REFRESH_SHEET_TITLE',
 ] as const
 
 export function isInternalMessage(message: unknown): message is BackgroundRequest {
@@ -125,7 +138,11 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
       case 'GET_LIVE_STATUSES':
         return await handleGetLiveStatuses()
       case 'CREATE_NEW_SHEET':
-        return await handleCreateNewSheet()
+        return await handleCreateNewSheet(message.payload?.replaceHealthy === true)
+      case 'SWITCH_TO_PREVIOUS_SHEET':
+        return await handleSwitchToPreviousSheet()
+      case 'REFRESH_SHEET_TITLE':
+        return await handleRefreshSheetTitle()
       case 'OPEN_SETTINGS':
         await openSettingsWindow({ reconnect: message.payload?.reconnect === true })
         return { ok: true, data: undefined }
@@ -176,32 +193,89 @@ function handleConnectProvider(): Promise<BackgroundResponse<ConnectResult>> {
 // and Settings offers Reconnect.
 let createInFlight: Promise<BackgroundResponse<ConnectResult>> | null = null
 
-function handleCreateNewSheet(): Promise<BackgroundResponse<ConnectResult>> {
-  createInFlight ??= oneAtATime(createNewSheet).finally(() => {
+function handleCreateNewSheet(replaceHealthy: boolean): Promise<BackgroundResponse<ConnectResult>> {
+  createInFlight ??= oneAtATime(() => createNewSheet(replaceHealthy)).finally(() => {
     createInFlight = null
   })
   return createInFlight
 }
 
-async function createNewSheet(): Promise<BackgroundResponse<ConnectResult>> {
+async function createNewSheet(replaceHealthy: boolean): Promise<BackgroundResponse<ConnectResult>> {
   const existing = await getSheetRef()
   if (!existing) return { ok: false, error: 'No sheet is connected yet: use Connect.' }
-  if ((await sheetHealth(existing)) === 'healthy') {
+  // The guard stays on unless the sender says, in as many words, that it
+  // means to replace a healthy sheet (Settings' "Start a new sheet", behind
+  // its own confirmation). Every other sender still gets SHEET_HEALTHY.
+  if (!replaceHealthy && (await sheetHealth(existing)) === 'healthy') {
     return { ok: false, code: 'SHEET_HEALTHY', error: 'Your sheet is still there and not in the trash, so it was kept.' }
   }
-  return { ok: true, data: await replaceSheet() }
+  return { ok: true, data: await replaceSheet(existing) }
 }
 
-// A new sheet in place of a trashed or deleted one: create it, connect it,
-// clear the flag, forget the recent list (its rows are in the old sheet), and
-// save the waiting applications into the new one.
-async function replaceSheet(): Promise<ConnectResult> {
+// A new sheet in place of the connected one — trashed, deleted, or perfectly
+// fine and being left behind on purpose. Create it (with the dated name,
+// since the old one is still in Drive under the old one), remember the sheet
+// we're leaving so Settings can offer a way back, connect the new one, clear
+// the flag, forget the recent list (its rows are in the old sheet), and save
+// the waiting applications into the new one. The old spreadsheet is never
+// touched: nothing here deletes, trashes or writes to it.
+async function replaceSheet(previous: SheetRef): Promise<ConnectResult> {
   const provider = await getActiveProvider()
-  const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS])
+  const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS], datedSheetTitle())
+  await setPreviousSheetRef(previous)
   await setSheetRef(sheetRef)
   await clearSheetProblem()
   await clearRecentApplications()
   return { sheetRef, ...(await drainAfterSignIn()) }
+}
+
+// "Switch back to the previous sheet" (2026-09-17): offered in Settings for
+// as long as a previous sheet is remembered, since a mistaken swap may only
+// be noticed days later. It refuses unless that sheet is reachable and not
+// in the trash — a deleted or trashed one can't take rows — and otherwise
+// mirrors a swap: the sheet being left becomes the remembered one, the
+// recent list is cleared (its rows are in the sheet we're leaving), and the
+// queue drains into the sheet we're returning to.
+let switchInFlight: Promise<BackgroundResponse<ConnectResult>> | null = null
+
+function handleSwitchToPreviousSheet(): Promise<BackgroundResponse<ConnectResult>> {
+  switchInFlight ??= oneAtATime(switchToPreviousSheet).finally(() => {
+    switchInFlight = null
+  })
+  return switchInFlight
+}
+
+async function switchToPreviousSheet(): Promise<BackgroundResponse<ConnectResult>> {
+  const previous = await getPreviousSheetRef()
+  if (!previous) return { ok: false, error: 'No previous sheet is remembered.' }
+  const health = await sheetHealth(previous)
+  if (health !== 'healthy') {
+    return {
+      ok: false,
+      code: 'PREVIOUS_UNAVAILABLE',
+      error:
+        health === 'trashed'
+          ? "The previous sheet is in Google Drive's trash. Restore it there, then switch back."
+          : 'The previous sheet was deleted, so there is nothing to switch back to.',
+    }
+  }
+  const leaving = await getSheetRef()
+  if (leaving) await setPreviousSheetRef(leaving)
+  await setSheetRef(previous)
+  await clearSheetProblem()
+  await clearRecentApplications()
+  return { ok: true, data: { sheetRef: previous, ...(await drainAfterSignIn()) } }
+}
+
+// The spreadsheet's name for Settings' card (2026-09-17): refs stored before
+// SheetRef carried one, and a file the user renamed in Drive. Stored only if
+// that spreadsheet is still the connected one.
+async function handleRefreshSheetTitle(): Promise<BackgroundResponse<SheetRef>> {
+  const sheetRef = await requireSheetRefOrThrow()
+  const provider = await getActiveProvider()
+  const title = await provider.readTitle(sheetRef)
+  if (!title || title === sheetRef.title) return { ok: true, data: sheetRef }
+  return { ok: true, data: (await updateStoredSheetTitle(sheetRef.spreadsheetId, title)) ?? sheetRef }
 }
 
 async function connect(): Promise<BackgroundResponse<ConnectResult>> {
@@ -222,7 +296,7 @@ async function connect(): Promise<BackgroundResponse<ConnectResult>> {
   // too (the flag is then set, and Settings offers to restore or replace
   // it); a deleted one is replaced (2026-09-14). Any other failure of the
   // check fails the Connect, and nothing is created.
-  if ((await sheetHealth(existing)) === 'missing') return { ok: true, data: await replaceSheet() }
+  if ((await sheetHealth(existing)) === 'missing') return { ok: true, data: await replaceSheet(existing) }
   const sheetRef = existing
   // Save what queued before a sheet was connected (the "Not connected"
   // notification's case) now, not at the next 5-minute alarm, the same way

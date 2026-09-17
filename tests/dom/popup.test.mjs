@@ -110,12 +110,14 @@ test('popup in headless Chrome', { skip: CHROME ? false : 'headless Chrome not f
   }
   // Settings at exactly its window's width: headless windows can't be
   // narrower than 500px, so the page runs in a 440px iframe, a real 440px
-  // viewport, and this page copies the stub's result from it.
+  // viewport. --dump-dom prints the outer document only, so this page copies
+  // every data-* the stub left on the iframe's body onto its own, once the
+  // stub's last one (data-sw) is there.
   fs.writeFileSync(
     path.join(site, 'frame.html'),
     `<!doctype html><html><head><style>html,body{margin:0}iframe{display:block;border:0;width:${SETTINGS_WIDTH}px;height:900px}</style></head><body><iframe id="f"></iframe><script>
 var f = document.getElementById('f'); f.src = new URLSearchParams(location.search).get('src')
-var t = setInterval(function () { try { var b = f.contentDocument && f.contentDocument.body; if (b && b.dataset.sw) { clearInterval(t); document.body.dataset.sw = b.dataset.sw } } catch (e) {} }, 50)
+var t = setInterval(function () { try { var b = f.contentDocument && f.contentDocument.body; if (b && b.dataset.sw) { clearInterval(t); for (var k in b.dataset) document.body.dataset[k] = b.dataset[k] } } catch (e) {} }, 50)
 </script></body></html>`,
   )
   const server = await serve(site)
@@ -192,12 +194,76 @@ var t = setInterval(function () { try { var b = f.contentDocument && f.contentDo
     const saved = await dumpBody(`${base}?w=368&do=notesave`, '500,700', profile('notesaved'))
     await t.test('Save note: the editor closes, back to the list', () => assert.equal(saved.editor, '0'))
 
+    // "Start a new sheet", and the way back (2026-09-17). Settings runs in
+    // the 440px iframe, so these read the stub's results through frame.html
+    // too — the iframe's own body carries them.
+    const settings = async (name, query) => {
+      const src = encodeURIComponent(`${origin}/src/options/index.html?${query}`)
+      return dumpBody(`${origin}/frame.html?src=${src}`, '500,900', profile(`settings-${name}`))
+    }
+
+    const healthy = await settings('healthy', 'scenario=ok')
+    await t.test('Settings names the connected sheet, and offers "Start a new sheet" under Reconnect', () => {
+      assert.equal(healthy.connected, 'Connected to Job Applications')
+      assert.equal(healthy.links, 'Reconnect|Start a new sheet')
+      assert.equal(healthy.back, '')
+    })
+
+    const lazy = await settings('notitle', 'scenario=notitle')
+    await t.test('a sheet connected before SheetRef carried a title: the name is filled in from REFRESH_SHEET_TITLE', () => {
+      assert.equal(lazy.connected, 'Connected to Job Applications')
+    })
+
+    const confirm = await settings('confirm', 'scenario=ok&do=newsheet')
+    await t.test('"Start a new sheet" opens the inline confirm: the question, what happens to the old sheet, and both buttons', () => {
+      assert.ok(confirm.confirm.startsWith('Start a new sheet?'), `confirm: ${confirm.confirm}`)
+      assert.ok(confirm.confirm.includes('stays in Google Drive, untouched'), `confirm: ${confirm.confirm}`)
+      assert.ok(confirm.confirm.includes('still waiting to be saved, go to the new sheet'), `confirm: ${confirm.confirm}`)
+      assert.ok(confirm.confirm.includes("recent list is cleared"), `confirm: ${confirm.confirm}`)
+      assert.equal(confirm.confirmacts, 'Start a new sheet|Cancel')
+    })
+
+    const cancelled = await settings('cancel', 'scenario=ok&do=cancel')
+    await t.test('Cancel closes the confirm and changes nothing', () => {
+      assert.equal(cancelled.confirm, '')
+      assert.equal(cancelled.connected, 'Connected to Job Applications')
+      assert.equal(cancelled.notice, '')
+    })
+
+    const started = await settings('started', 'scenario=ok&do=started')
+    await t.test('Confirming: the card names the new dated sheet and says what the swap saved', () => {
+      assert.equal(started.connected, 'Connected to Job Applications (from 2026-09-17)')
+      assert.ok(started.notice.startsWith('Started a new sheet: Job Applications (from 2026-09-17).'), `notice: ${started.notice}`)
+      assert.ok(started.notice.includes('Saved 2 waiting applications'), `notice: ${started.notice}`)
+    })
+
+    const withPrevious = await settings('previous', 'scenario=prev')
+    await t.test('while a previous sheet is remembered, Settings offers the way back to it by name', () => {
+      assert.equal(withPrevious.connected, 'Connected to Job Applications (from 2026-09-17)')
+      assert.equal(withPrevious.links, 'Reconnect|Start a new sheet|Switch back to the previous sheet')
+      assert.equal(withPrevious.back, 'Switch back to the previous sheetJob Applications is the one you were using before.')
+    })
+
+    const switched = await settings('switched', 'scenario=prev&do=switch')
+    await t.test('Switching back: the card names the old sheet again, and the queue drained into it', () => {
+      assert.equal(switched.connected, 'Connected to Job Applications')
+      assert.ok(switched.notice.startsWith('Switched back to Job Applications.'), `notice: ${switched.notice}`)
+      assert.equal(switched.alert, '')
+    })
+
+    const refused = await settings('prevgone', 'scenario=prevgone&do=switch')
+    await t.test('Switching back to a sheet since trashed: refused, with the reason, and the connected sheet unchanged', () => {
+      assert.equal(refused.alert, "The previous sheet is in Google Drive's trash. Restore it there, then switch back.")
+      assert.equal(refused.connected, 'Connected to Job Applications (from 2026-09-17)')
+      assert.equal(refused.notice, '')
+    })
+
     // Settings at its 440px window, every card state, both themes: no
     // horizontal scroll (scrollWidth <= clientWidth).
-    for (const scenario of ['ok', 'signedout', 'trashed']) {
+    for (const scenario of ['ok', 'signedout', 'trashed', 'prev']) {
       for (const theme of ['light', 'dark']) {
         const src = encodeURIComponent(`${origin}/src/options/index.html?scenario=${scenario}`)
-        const page = await dumpBody(`${origin}/frame.html?src=${src}`, '500,900', profile(`settings-${scenario}-${theme}`), theme)
+        const page = await dumpBody(`${origin}/frame.html?src=${src}`, '500,900', profile(`settings-scroll-${scenario}-${theme}`), theme)
         await t.test(`Settings at ${SETTINGS_WIDTH}px, ${scenario}, ${theme}: no horizontal scroll`, () => {
           const [scroll, client] = (page.sw ?? '').split('/').map(Number)
           assert.equal(client, SETTINGS_WIDTH, `clientWidth ${client}`)

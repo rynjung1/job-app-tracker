@@ -51,6 +51,16 @@
   ]
   var NOTE = 'Met their recruiter at the career fair. Follow up next week if no reply.'
   var signedOut = sc === 'signedout'
+  // "Start a new sheet" (2026-09-17): the connected sheet's name, and the
+  // sheet a swap left behind, which Settings offers a way back to. In
+  // 'prevgone' that sheet has since been trashed, so the switch is refused.
+  var DATED_TITLE = 'Job Applications (from 2026-09-17)'
+  var hasPrevious = sc === 'prev' || sc === 'prevgone'
+  var sheetRef = { spreadsheetId: 'placeholder', sheetName: 'Sheet1', sheetId: 0, title: hasPrevious ? DATED_TITLE : 'Job Applications' }
+  // 'notitle': a sheet connected before SheetRef carried a title, filled in
+  // lazily by REFRESH_SHEET_TITLE.
+  if (sc === 'notitle') delete sheetRef.title
+  var previousRef = { spreadsheetId: 'previous', sheetName: 'Sheet1', sheetId: 0, title: 'Job Applications' }
   // The connected sheet in Drive's trash, or deleted (2026-09-14).
   var sheetGone = sc === 'trashed' || sc === 'missing'
   var offline = sc === 'offline'
@@ -58,13 +68,20 @@
   window.close = function () { closed = true; document.body.dataset.closed = '1' }
   window.chrome = {
     storage: {
-      local: { get: function (key) {
-        if (key === 'sheetRef') return later({ sheetRef: { spreadsheetId: 'placeholder', sheetName: 'Sheet1', sheetId: 0 } })
-        if (key === 'authStatus') return later(signedOut ? { authStatus: { since: '2026-09-13T15:00:00Z', reason: 'placeholder' } } : {})
-        if (key === 'sheetStatus') return later(sheetGone ? { sheetStatus: { state: sc, since: '2026-09-14T15:00:00Z', reason: 'placeholder' } } : {})
-        if (key === 'offlineQueue') return later(signedOut || sheetGone || offline ? { offlineQueue: queue } : {})
-        if (key === 'lastResumeVersionByRoleType') return later({ lastResumeVersionByRoleType: { SWE: 'SWE v3', DE: 'DE v2' } })
-        return later({ recentApplications: apps })
+      // One key or a list of them, like the real API: Settings reads the
+      // connected and the previous sheet in one call.
+      local: { get: function (keys) {
+        var all = {}
+        all.sheetRef = sheetRef
+        if (hasPrevious) all.previousSheetRef = previousRef
+        if (signedOut) all.authStatus = { since: '2026-09-13T15:00:00Z', reason: 'placeholder' }
+        if (sheetGone) all.sheetStatus = { state: sc, since: '2026-09-14T15:00:00Z', reason: 'placeholder' }
+        if (signedOut || sheetGone || offline) all.offlineQueue = queue
+        all.lastResumeVersionByRoleType = { SWE: 'SWE v3', DE: 'DE v2' }
+        all.recentApplications = apps
+        var out = {}
+        ;(typeof keys === 'string' ? [keys] : keys).forEach(function (k) { if (all[k] !== undefined) out[k] = all[k] })
+        return later(out)
       } },
       onChanged: { addListener: function () {}, removeListener: function () {} }
     },
@@ -93,6 +110,23 @@
           return later({ ok: true, data: { note: m.payload.note } }, 120)
         }
         if (m.type === 'RECONNECT_PROVIDER') return later({ ok: true, data: { saved: 0, waiting: 0 } })
+        // Settings' sheet actions (2026-09-17).
+        if (m.type === 'REFRESH_SHEET_TITLE') {
+          sheetRef = Object.assign({}, sheetRef, { title: 'Job Applications' })
+          return later({ ok: true, data: sheetRef }, 80)
+        }
+        if (m.type === 'CREATE_NEW_SHEET') {
+          if (!m.payload || m.payload.replaceHealthy !== true) return later({ ok: false, error: 'kept', code: 'SHEET_HEALTHY' }, 120)
+          sheetRef = { spreadsheetId: 'newer', sheetName: 'Sheet1', sheetId: 0, title: DATED_TITLE }
+          return later({ ok: true, data: { sheetRef: sheetRef, saved: 2, waiting: 0 } }, 120)
+        }
+        if (m.type === 'SWITCH_TO_PREVIOUS_SHEET') {
+          if (sc === 'prevgone') {
+            return later({ ok: false, code: 'PREVIOUS_UNAVAILABLE', error: "The previous sheet is in Google Drive's trash. Restore it there, then switch back." }, 120)
+          }
+          sheetRef = previousRef
+          return later({ ok: true, data: { sheetRef: previousRef, saved: 1, waiting: 0 } }, 120)
+        }
         return later({ ok: true, data: undefined })
       }
     }
@@ -138,6 +172,10 @@
     await wait(0)
   }
   function q(s) { return document.querySelector(s) }
+  // Settings' quiet links are buttons, found by their own text.
+  function linkNamed(text) {
+    return [].find.call(document.querySelectorAll('.link-btn'), function (b) { return b.textContent.trim() === text })
+  }
   function chip(i) { return document.querySelectorAll('.chip-btn')[i] }
   function more(id) { return document.getElementById('more-' + id) }
   function name(el) { return el ? (el.getAttribute('aria-label') || el.textContent || el.id || el.tagName).trim().slice(0, 70) : null }
@@ -302,6 +340,24 @@
       await until('the note to load into the editor', function () { var t = q('#note'); return t && !t.readOnly })
       q('form.editor').requestSubmit()
     }
+    // Settings: the inline confirm, and the way back (2026-09-17).
+    if (act === 'newsheet' || act === 'started' || act === 'cancel') {
+      await until('the "Start a new sheet" link', function () { return linkNamed('Start a new sheet') })
+      linkNamed('Start a new sheet').click()
+      await until('the confirm to open', function () { return q('.confirm') })
+      if (act === 'started' || act === 'cancel') {
+        var button = [].find.call(document.querySelectorAll('.confirm .btn'), function (b) {
+          return b.textContent.trim() === (act === 'started' ? 'Start a new sheet' : 'Cancel')
+        })
+        button.click()
+        await until('the confirm to close', function () { return !q('.confirm') })
+      }
+    }
+    if (act === 'switch') {
+      await until('the "Switch back" link', function () { return linkNamed('Switch back to the previous sheet') })
+      linkNamed('Switch back to the previous sheet').click()
+      await until('the switch to answer', function () { return q('.alert') || q('.notice').textContent })
+    }
     if (p.get('kbtest')) await keyboardTest()
     await quiet()
     var data = document.body.dataset
@@ -330,5 +386,17 @@
     data.bg = getComputedStyle(document.body).backgroundColor
     var applied = q('.chip-applied'); data.chip = applied ? getComputedStyle(applied).backgroundColor + ' ' + getComputedStyle(applied).color : ''
     data.sw = document.documentElement.scrollWidth + '/' + document.documentElement.clientWidth
+    // Settings (2026-09-17): the card's status line (which sheet is
+    // connected), the confirm's question and lines, the way back, and the
+    // card's alert and notice.
+    var status = q('.status'); data.connected = status ? status.textContent.replace(/\s+/g, ' ').trim() : ''
+    var confirm = q('.confirm')
+    data.confirm = confirm ? confirm.textContent.replace(/\s+/g, ' ').trim() : ''
+    data.confirmacts = confirm ? [].map.call(confirm.querySelectorAll('.btn'), function (b) { return b.textContent.trim() }).join('|') : ''
+    data.links = [].map.call(document.querySelectorAll('.link-btn'), function (b) { return b.textContent.trim() }).join('|')
+    var back = linkNamed('Switch back to the previous sheet')
+    data.back = back ? back.closest('p').textContent.replace(/\s+/g, ' ').trim() : ''
+    var alert = q('.card .alert'); data.alert = alert ? alert.textContent.replace(/\s+/g, ' ').trim() : ''
+    var notice = q('.notice'); data.notice = notice ? notice.textContent.replace(/\s+/g, ' ').trim() : ''
   })
 })()
