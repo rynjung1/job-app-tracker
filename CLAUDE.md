@@ -1186,9 +1186,36 @@ own literal row then, with `Status: ''` — the same thing `buildRow` did, which
 is why the zeros matched the product's behaviour, but it means the run
 exercised the script's row, not `buildRow`. The script builds its rows through
 `buildRow` + `sanitizeRow` since 2026-09-17 (the earlier bundle contained
-neither function), so a re-run is what will show the totals summing: 3 Applied
-plus 1 Cancelled against `totalLogged` 4, with `thisWeek` 2. That re-run is
-pending.
+neither function), so the re-run below is what shows the totals summing.
+
+**Re-verified 2026-09-17 on a second throwaway sheet**, with the script
+appending what `buildRow` returns. Ryan's paste, trimmed of the sheet URL and
+the DONE lines:
+
+```
+1_formulas_landed: locale "en_US", tabs ["0:Sheet1","1:Summary"],
+ appliedCell =COUNTIF(Sheet1!$G$2:$G,"Applied"), weekCountCell
+ =COUNTIFS(Sheet1!$A$2:$A,">="&$A13,Sheet1!$A$2:$A,"<"&$A13+7,Sheet1!$G$2:$G,"<>Cancelled"),
+ barCell =REPT("█",MIN($B13,20)), appliedValue 0, weekCountValue 0,
+ verdict "PASS: stored as formulas and evaluating to numbers"
+2_appends_update: statusTotals {Applied 3, Interview 0, Offer 0,
+ Rejected 0, Cancelled 1}, totalLogged 4, thisWeek 2, weeks
+ [{46279,2,2},{46272,1,1},{46265,0,0}], statusTotalsSum 4, verdict
+ "PASS: totals sum to Total logged (3 Applied + 1 Cancelled), weeks
+ and bars moved"
+3_cancelled: cancelledInTotals 1, thisWeek 2, verdict "PASS"
+4_rename: appliedCell =COUNTIF('Bob''s Applications'!$G$2:$G,"Applied"),
+ totalLogged 4, thisWeek 2, verdict "PASS"
+5_delete_summary: deletedSheetId 1000001, appendedRow {"Bob's
+ Applications", row 6}, verdict "PASS"
+trashed: yes
+```
+
+So the By status block now sums to Total logged — three rows logged through
+the shipped path carry `Applied`, the fourth was set to `Cancelled` through
+`updateCell` — and `thisWeek` counts 2, the Cancelled row still left out. The
+formulas, the rename and the delete-tab checks passed again, and this sheet
+was trashed too.
 
 **Updated 2026-09-09:** `createSheet` applies visual formatting to
 the new sheet — `createSheet`-only, never touches an
