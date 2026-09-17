@@ -14,6 +14,7 @@ import { safeJobUrl } from '../src/lib/safeUrl'
 import { getActiveProvider } from '../src/providers/activeProvider'
 import { AuthRequiredError } from '../src/providers/types'
 import { ensureRetryAlarm } from '../src/background/offlineQueue'
+import { DEFAULT_SHEET_TITLE, datedSheetTitle } from '../src/lib/sheetTitle'
 import '../src/background/index'
 
 const REF = { spreadsheetId: 'sheet1', sheetName: 'Sheet1', sheetId: 0 }
@@ -279,6 +280,96 @@ test('background worker', async (t) => {
   ctl.trashedIds.add(REF.spreadsheetId)
   const connectTrashed = (await internal({ type: 'CONNECT_PROVIDER' })) as any
   await check('CONNECT_PROVIDER with the stored sheet deleted -> replaced by a new one; with it in the trash -> kept, and the flag says trashed', deletedResult.ok && deletedResult.creates === 1 && deletedResult.stored === 'new1' && !deletedResult.flag && connectTrashed.ok && spreadsheetCreates() === 0 && connectTrashed.data.sheetRef.spreadsheetId === REF.spreadsheetId && sheetFlag()?.state === 'trashed', { deletedResult, connectTrashed, flag: sheetFlag() })
+
+  // ---- "Start a new sheet" for a healthy sheet, and the way back
+  //      (2026-09-17). Every sheet after the first carries its creation
+  //      date, so two files in Drive are never both "Job Applications". ----
+  const storedRef = () => local.data.sheetRef as any
+  const previousRef = () => local.data.previousSheetRef as any
+  const dated = datedSheetTitle()
+
+  reset()
+  const firstConnect = (await internal({ type: 'CONNECT_PROVIDER' })) as any
+  await check('the first sheet keeps the plain name, and the ref carries it', firstConnect.ok && ctl.titles.new1 === DEFAULT_SHEET_TITLE && firstConnect.data.sheetRef.title === DEFAULT_SHEET_TITLE && storedRef()?.title === DEFAULT_SHEET_TITLE && !previousRef(), { created: ctl.titles.new1, ref: storedRef() })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE }, recentApplications: [oldEntry], offlineQueue: [qrow('Waiting For Newer Sheet', 12)] })
+  const started = (await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } })) as any
+  const touchedOld = log.fetches.filter((f) => f.includes(REF.spreadsheetId))
+  await check('CREATE_NEW_SHEET with replaceHealthy on a healthy sheet -> a dated new sheet, connected, the old one remembered and never touched, the recent list cleared, the queue saved into the new sheet', started.ok && spreadsheetCreates() === 1 && ctl.titles.new1 === dated && storedRef()?.spreadsheetId === 'new1' && storedRef()?.title === dated && previousRef()?.spreadsheetId === REF.spreadsheetId && previousRef()?.title === DEFAULT_SHEET_TITLE && touchedOld.length === 0 && queue() === 0 && started.data.saved === 1 && recent().length === 1 && recent()[0].company === 'Waiting For Newer Sheet', { started, titles: ctl.titles, previous: previousRef(), touchedOld, recent: recent().map((e) => e.company) })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  const noPayload = (await internal({ type: 'CREATE_NEW_SHEET' })) as any
+  const emptyPayload = (await internal({ type: 'CREATE_NEW_SHEET', payload: {} })) as any
+  const notTrue = (await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: 'yes' } })) as any
+  await check('CREATE_NEW_SHEET on a healthy sheet without replaceHealthy: true (absent, empty, or a non-boolean) -> still refused (SHEET_HEALTHY), nothing created', [noPayload, emptyPayload, notTrue].every((r) => !r.ok && r.code === 'SHEET_HEALTHY') && spreadsheetCreates() === 0 && storedRef()?.spreadsheetId === REF.spreadsheetId && !previousRef(), { noPayload, emptyPayload, notTrue, creates: spreadsheetCreates() })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  const [startA, startB] = (await Promise.all([
+    internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } }),
+    internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } }),
+  ])) as any[]
+  await check('two "Start a new sheet" at once (a stale Settings page) -> exactly one spreadsheet created, both answered with it, one sheet remembered', startA.ok && startB.ok && spreadsheetCreates() === 1 && startA.data.sheetRef.spreadsheetId === 'new1' && startB.data.sheetRef.spreadsheetId === 'new1' && storedRef()?.spreadsheetId === 'new1' && previousRef()?.spreadsheetId === REF.spreadsheetId, { startA, startB, creates: spreadsheetCreates() })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  ctl.trashedIds.add(REF.spreadsheetId)
+  const recovered = (await internal({ type: 'CREATE_NEW_SHEET' })) as any
+  await check('the trashed/deleted recovery path gets the dated name too, and remembers the sheet it replaced', recovered.ok && ctl.titles.new1 === dated && storedRef()?.title === dated && previousRef()?.spreadsheetId === REF.spreadsheetId, { recovered, titles: ctl.titles, previous: previousRef() })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE }, recentApplications: [oldEntry] })
+  await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } })
+  await local.set({ recentApplications: [{ ...oldEntry, id: 'new-sheet-row', company: 'Logged In The New Sheet' }], offlineQueue: [qrow('Waiting For The Old Sheet', 13)] })
+  const fetchesBeforeSwitch = log.fetches.length
+  const switched = (await internal({ type: 'SWITCH_TO_PREVIOUS_SHEET' })) as any
+  const switchFetches = log.fetches.slice(fetchesBeforeSwitch)
+  await check('SWITCH_TO_PREVIOUS_SHEET with the old sheet healthy -> connected back to it, the sheet being left is remembered, the recent list cleared, the queue drained into the old sheet', switched.ok && switched.data.sheetRef.spreadsheetId === REF.spreadsheetId && storedRef()?.spreadsheetId === REF.spreadsheetId && storedRef()?.title === DEFAULT_SHEET_TITLE && previousRef()?.spreadsheetId === 'new1' && previousRef()?.title === dated && spreadsheetCreates() === 1 && switched.data.saved === 1 && queue() === 0 && recent().length === 1 && recent()[0].company === 'Waiting For The Old Sheet' && switchFetches.some((f) => f.startsWith(`/${REF.spreadsheetId}/values/`)), { switched, previous: previousRef(), recent: recent().map((e) => e.company), switchFetches })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } })
+  await local.set({ recentApplications: [{ ...oldEntry, id: 'kept', company: 'Still In The New Sheet' }] })
+  ctl.trashedIds.add(REF.spreadsheetId)
+  const trashedBack = (await internal({ type: 'SWITCH_TO_PREVIOUS_SHEET' })) as any
+  await check('SWITCH_TO_PREVIOUS_SHEET when the previous sheet is in the trash -> refused (PREVIOUS_UNAVAILABLE) saying so, nothing swapped, the recent list kept', !trashedBack.ok && trashedBack.code === 'PREVIOUS_UNAVAILABLE' && trashedBack.error.includes("Drive's trash") && storedRef()?.spreadsheetId === 'new1' && previousRef()?.spreadsheetId === REF.spreadsheetId && recent().length === 1 && recent()[0].company === 'Still In The New Sheet', { trashedBack, stored: storedRef()?.spreadsheetId, previous: previousRef()?.spreadsheetId })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } })
+  ctl.goneIds.add(REF.spreadsheetId)
+  const deletedBack = (await internal({ type: 'SWITCH_TO_PREVIOUS_SHEET' })) as any
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  const nothingBack = (await internal({ type: 'SWITCH_TO_PREVIOUS_SHEET' })) as any
+  await check('SWITCH_TO_PREVIOUS_SHEET when the previous sheet was deleted -> refused, saying it was deleted; with nothing remembered -> refused, nothing swapped', !deletedBack.ok && deletedBack.code === 'PREVIOUS_UNAVAILABLE' && deletedBack.error.includes('deleted') && !nothingBack.ok && !nothingBack.code && storedRef()?.spreadsheetId === REF.spreadsheetId, { deletedBack, nothingBack, stored: storedRef()?.spreadsheetId })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } })
+  await internal({ type: 'SWITCH_TO_PREVIOUS_SHEET' })
+  const startedAgain = (await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } })) as any
+  await check('new sheet -> switch back -> new sheet again: the second new sheet is dated too, and the way back points at the sheet just left', startedAgain.ok && spreadsheetCreates() === 2 && ctl.titles.new2 === dated && storedRef()?.spreadsheetId === 'new2' && previousRef()?.spreadsheetId === REF.spreadsheetId, { startedAgain, titles: ctl.titles, stored: storedRef(), previous: previousRef() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  const filled = (await internal({ type: 'REFRESH_SHEET_TITLE' })) as any
+  const titleReads = () => log.fetches.filter((f) => f.endsWith('?fields=properties.title')).length
+  const afterFill = { reads: titleReads(), stored: storedRef()?.title }
+  ctl.titles.sheet1 = 'Job Applications (renamed by hand)'
+  const renamed = (await internal({ type: 'REFRESH_SHEET_TITLE' })) as any
+  await check('REFRESH_SHEET_TITLE fills a ref stored before titles existed, in one read, and picks up a sheet renamed in Drive', filled.ok && filled.data.title === DEFAULT_SHEET_TITLE && afterFill.stored === DEFAULT_SHEET_TITLE && afterFill.reads === 1 && renamed.ok && renamed.data.title === 'Job Applications (renamed by hand)' && storedRef()?.title === 'Job Applications (renamed by hand)', { filled, afterFill, renamed, reads: titleReads(), stored: storedRef() })
+
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  ctl.goneIds.add(REF.spreadsheetId)
+  const titleFailed = (await internal({ type: 'REFRESH_SHEET_TITLE' })) as any
+  await check('REFRESH_SHEET_TITLE when the read fails -> an error, and the stored title is left alone (Settings keeps showing what it has)', !titleFailed.ok && storedRef()?.title === DEFAULT_SHEET_TITLE, { titleFailed, stored: storedRef() })
+
+  const then = new Date(2026, 0, 5, 9, 30)
+  await check('datedSheetTitle: the plain name plus the local creation date, zero-padded', datedSheetTitle(then) === 'Job Applications (from 2026-01-05)' && dated.startsWith(`${DEFAULT_SHEET_TITLE} (from `) && /^Job Applications \(from \d{4}-\d{2}-\d{2}\)$/.test(dated), { then: datedSheetTitle(then), dated })
 
   reset()
   await local.set({ sheetRef: REF })
