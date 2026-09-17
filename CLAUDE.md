@@ -1964,6 +1964,32 @@ or a re-add; no header row: a failed one).
   fetchable, multi-company evidence available immediately. Revisit
   when there's appetite for a parser built entirely from live
   browser inspection with no pre-verification step at all.
+  **Retried 2026-09-16 with headless Chrome** (the renderer the DOM tests
+  use), and it changes nothing: the search page, `viewjob`, `ca.indeed.com`
+  and `smartapply.indeed.com` all answer `HTTP/2 403` from Cloudflare's
+  edge, before any page renders, serving a static `PAGE_TYPE:"waf_block"`
+  page titled "Blocked - Indeed.com" ("Your request has been blocked.").
+  It's a WAF block, not a solvable challenge, and not headless detection.
+  `job-boards.greenhouse.io` and `jobs.lever.co` resolved from the same
+  machine in the same minutes, so it's Indeed, not the network. Nothing
+  was proxied around the block. So still **zero selectors confirmed**;
+  the ones in third-party scraping guides are hearsay, which is what the
+  working agreement rejects. Four unknowns block a parser: every
+  title/company/location/`jk` selector and whether the DOM is hashed;
+  whether Apply navigates, opens a modal or iframes smartapply; whether
+  `/beta/indeedapply/form/post-apply` (publicly indexed as the
+  post-submission step) is a real navigation or an SPA pushState, which
+  decides whether a content script can see it at all; and that the click
+  would be on `www.indeed.com` while the confirmation is on
+  `smartapply.indeed.com` — cross-origin two-phase logging, which
+  `lib/pendingApplications.ts` can't express today (it scopes pending
+  entries by origin), so that's an architecture change, not a new parser
+  file. Indeed's `robots.txt` also disallows `/viewjob?` and
+  `/applystart` for all agents. The only honest way in is a read-only DOM
+  dump Ryan captures himself in his own Chrome on one public posting,
+  which sidesteps the IP block; even then the final submit control and
+  the confirmation signal stay unverifiable until a real application, the
+  same residual gap Greenhouse had.
 - **appendRow isn't idempotent (logged 2026-09-11):** if `appendRow`
   succeeds on Google's side but the client times out
   (`lib/fetchWithTimeout.ts`, 30s then, 20s since 2026-09-14), `handleJobApplicationLogged`'s catch
