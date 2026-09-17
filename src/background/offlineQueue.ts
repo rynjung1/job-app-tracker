@@ -10,6 +10,7 @@ import type { AppendedRow } from '../providers/types'
 import { OFFLINE_QUEUE_KEY } from '../lib/storageKeys'
 import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { getSheetRef } from '../lib/sheetRef'
+import { sheetSwapInProgress } from './sheetSwap'
 import { getSheetStatus } from '../lib/sheetStatus'
 import { withStorageLock } from '../lib/storageLock'
 import { addRecentApplications } from '../lib/recentApplications'
@@ -145,6 +146,15 @@ export async function drainOfflineQueue(): Promise<number> {
     let drainedCount = 0
     const saved: RecentApplication[] = []
     for (const row of queue) {
+      // The connected sheet can change under a drain — each append is a real
+      // round trip, and a swap only has to land between two of them (audit
+      // finding, 2026-09-17). Stop rather than write the rest into the
+      // spreadsheet the user just left; what's left stays queued for the
+      // next pass, which the swap's own drain usually is.
+      if (sheetSwapInProgress() || (await getSheetRef())?.spreadsheetId !== sheetRef.spreadsheetId) {
+        console.log('[job-app-tracker] the connected sheet changed mid-drain; the rest waits for the new sheet')
+        break
+      }
       const logId = row[LOG_ID_COLUMN]
       const loggedAt = logId ? loggedIds?.get(logId) : undefined
       if (loggedAt !== undefined) {

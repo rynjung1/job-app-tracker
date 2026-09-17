@@ -56,6 +56,11 @@
   // 'prevgone' that sheet has since been trashed, so the switch is refused.
   var DATED_TITLE = 'Job Applications (from 2026-09-17)'
   var hasPrevious = sc === 'prev' || sc === 'prevgone'
+  // 'disconnected': nothing connected yet, so Settings shows Connect and the
+  // disclosure above it. 'killed': the background creates the sheet and then
+  // dies, so the request rejects although the swap already happened
+  // (2026-09-17, audit).
+  var disconnected = sc === 'disconnected'
   var sheetRef = { spreadsheetId: 'placeholder', sheetName: 'Sheet1', sheetId: 0, title: hasPrevious ? DATED_TITLE : 'Job Applications' }
   // 'notitle': a sheet connected before SheetRef carried a title, filled in
   // lazily by REFRESH_SHEET_TITLE.
@@ -72,7 +77,7 @@
       // connected and the previous sheet in one call.
       local: { get: function (keys) {
         var all = {}
-        all.sheetRef = sheetRef
+        if (!disconnected) all.sheetRef = sheetRef
         if (hasPrevious) all.previousSheetRef = previousRef
         if (signedOut) all.authStatus = { since: '2026-09-13T15:00:00Z', reason: 'placeholder' }
         if (sheetGone) all.sheetStatus = { state: sc, since: '2026-09-14T15:00:00Z', reason: 'placeholder' }
@@ -118,6 +123,14 @@
         if (m.type === 'CREATE_NEW_SHEET') {
           if (!m.payload || m.payload.replaceHealthy !== true) return later({ ok: false, error: 'kept', code: 'SHEET_HEALTHY' }, 120)
           sheetRef = { spreadsheetId: 'newer', sheetName: 'Sheet1', sheetId: 0, title: DATED_TITLE }
+          // The worker was killed after it had stored the new sheet: the
+          // page's request rejects, but storage has already moved on.
+          if (sc === 'killed') {
+            pending++
+            return new Promise(function (_, reject) {
+              setTimeout(function () { pending--; reject(new Error('The message port closed before a response was received.')) }, 120)
+            })
+          }
           return later({ ok: true, data: { sheetRef: sheetRef, saved: 2, waiting: 0 } }, 120)
         }
         if (m.type === 'SWITCH_TO_PREVIOUS_SHEET') {
@@ -397,6 +410,11 @@
     var back = linkNamed('Switch back to the previous sheet')
     data.back = back ? back.closest('p').textContent.replace(/\s+/g, ' ').trim() : ''
     var alert = q('.card .alert'); data.alert = alert ? alert.textContent.replace(/\s+/g, ' ').trim() : ''
+    // Everything the card says, and the supported-sites footnote: the
+    // disclosure of what the extension reads has to be in the product
+    // (2026-09-17, audit).
+    var card = q('.card'); data.card = card ? card.textContent.replace(/\s+/g, ' ').trim() : ''
+    var sitesNote = q('.sites-note'); data.sitesnote = sitesNote ? sitesNote.textContent.replace(/\s+/g, ' ').trim() : ''
     var notice = q('.notice'); data.notice = notice ? notice.textContent.replace(/\s+/g, ' ').trim() : ''
   })
 })()

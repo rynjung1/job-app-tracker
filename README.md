@@ -80,8 +80,9 @@ a new row.
   banded rows, a date format, per-column widths, and a Status column with
   a dropdown and colour rules. A hidden "Log ID" column holds a random id
   per row, used only so a retry can't save the same application twice.
-- **A Summary tab**, also created with the sheet: totals by status, this
-  week and last week, and the last 8 weeks with a small bar. It's made of
+- **A Summary tab**, also created with the sheet: a total logged and the
+  totals by status, this week, last week and the 8-week average, and the
+  last 8 weeks with a count and a small bar. It's made of
   formulas over your applications, so it keeps itself up to date as rows
   arrive, and the extension never writes to it. Delete it if you don't
   want it — nothing else depends on it.
@@ -162,9 +163,9 @@ content script (per site)          background service worker           Google
   writes the row.
 - **Internal messages** from the popup and Settings, over one contract
   checked against the extension's own origin: `CONNECT_PROVIDER`,
-  `RECONNECT_PROVIDER`, `CREATE_NEW_SHEET`, `SET_STATUS`,
-  `SAVE_RESUME_VERSION`, `GET_LIVE_STATUSES`, `GET_NOTE`, `SAVE_NOTE` and
-  `OPEN_SETTINGS`.
+  `RECONNECT_PROVIDER`, `CREATE_NEW_SHEET`, `SWITCH_TO_PREVIOUS_SHEET`,
+  `REFRESH_SHEET_TITLE`, `SET_STATUS`, `SAVE_RESUME_VERSION`,
+  `GET_LIVE_STATUSES`, `GET_NOTE`, `SAVE_NOTE` and `OPEN_SETTINGS`.
 - **The offline queue** (`chrome.storage.local`) holds applications that
   couldn't be saved. A 5-minute alarm drains it; a row already in the
   sheet is recognised by its Log ID instead of being appended twice.

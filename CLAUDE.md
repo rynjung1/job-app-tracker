@@ -2117,6 +2117,105 @@ Which path made the second sheet isn't known; the 8:07 PM sheet's contents
 would tell (formatted with headers: a completed Connect, from a stale page
 or a re-add; no header row: a failed one).
 
+**Fixed 2026-09-17 (four-agent audit of `9a215e8`).** Findings 1-6 of that
+audit, in the order they were fixed. Each has a Node or headless test that
+fails without its fix (checked by reverting the fix and re-running):
+- **Checking another sheet flagged the connected one** (the high one, and a
+  real bug reachable from the UI). `getActiveProvider()`'s wrapper sets and
+  clears `sheetStatus`, which describes *the connected sheet*, for whatever
+  sheet the call was made on — so a switch back to a previous sheet that had
+  been trashed marked the sheet the user was actually using as trashed:
+  writes froze, `SET_STATUS`/`SAVE_NOTE` were refused and a notification and
+  banner fired, until the next 5-minute tick cleared it. `sheetHealth` now
+  takes `{ connected }`, and a check on any other sheet goes through
+  `otherSheetProvider` (`providers/activeProvider.ts`), which reports a
+  sign-in failure — that's account-wide — and nothing else.
+- **A swap in flight could send a row to the abandoned spreadsheet.** A
+  write picks its sheet and then spends a real round trip on it; a swap
+  landing in that window wrote the row to the file the user had just left,
+  with its recent-list entry pointing at a row number there, while Settings
+  said "saved 0". Now `background/sheetSwap.ts` marks a swap in progress and
+  both writers check it and the stored id before appending: a direct log
+  queues the row (the drain writes it to the new sheet), and a drain stops
+  the pass and leaves the rest queued. Known remaining window, recorded in
+  that file: a writer already past the check can still have a swap complete
+  during its append.
+- **A failing Drive call broke three features.** `sheetHealth` threw
+  anything that wasn't a 404, so an unreachable Drive (a 500, a timeout)
+  failed Connect, "Create a new sheet" and the switch back entirely. A
+  failure of the trash check alone now reads as healthy — trash detection is
+  what's lost for that call, not the feature, and the next check notices.
+  A failure to *reach* the sheet still throws, so nothing is replaced on a
+  network failure, and a sign-in failure still throws, since Settings offers
+  Reconnect for it.
+- **Crash-safety around a swap.** `previousSheetRef` was written before
+  `sheetRef`, so a worker killed between the two writes came back with
+  previous === connected, and Settings offered a "switch back" that would
+  clear the recent list to arrive where it already was. Both refs now move
+  in one `chrome.storage.local.set` with the new sheet first
+  (`setSwappedSheetRefs`), a switch to the sheet already connected is
+  refused, and a Settings request that fails re-reads storage before
+  offering "Try again": if a sheet is connected now, the card shows it
+  instead. **That last one is the likely cause of the two sheets of
+  2026-09-14** above: a Connect that created a sheet and then lost its
+  answer (a killed worker answers with a rejected `sendMessage`) left
+  Settings showing an error whose "Try again" created a second one.
+  Still open: a worker killed *inside* `createSheet`, between the create
+  call and the header write, leaves an orphan sheet nothing knows about.
+- **The Summary tab's grid id was hardcoded and sent blind.** `addSheet`
+  fails the whole batch if the id is taken, which would take the header row
+  and formatting with it; the id is now derived from the id the
+  applications tab actually came back with (`summarySheetIdFor`).
+- **`CREATE_NEW_SHEET`'s in-flight sharing ignored `replaceHealthy`,** so a
+  plain request — which must be refused while the sheet is healthy — could
+  be answered with a deliberate swap's brand new sheet. The run is now
+  shared only with a request that asked for the same thing.
+
+**Also 2026-09-17, from the same audit:**
+- **The notification Edit window's skipped identity check expires.** That
+  window is opened from a notification that lives about five seconds, but
+  nothing closes the window, and its Save skipped the Company/Title check
+  forever — a blind positional write to a row the user may have sorted
+  since. The skip is now honoured only within 10 minutes of the application
+  being logged; past that the write still goes through, it just has to
+  prove the row first.
+- **Settings discloses what the extension reads, in the product.** One line
+  above Connect ("the job's title, company, location and link from the page
+  you apply on"), and the same under Supported sites once connected:
+  Google's Limited Use guidance wants that disclosure where access is
+  granted, not only in the privacy policy.
+- **The store summary is derived from the supported sites.**
+  `manifest.config.ts` builds the description's site list from the
+  `SITES` array that also defines the content scripts, and
+  `scripts/package.mjs` fails a build whose description names a site with
+  no matching content script (or a name it has no host for). The audit
+  found `ats-lever-ashby`'s manifest promising Workday, which that branch
+  doesn't implement; the check is on `main` so every branch inherits it.
+- **Store screenshots rebuilt full bleed** (`store-assets/listing.md` has
+  how): the page fills 1280x800 with no card, border, shadow or margin.
+
+**Two of the audit's low findings were considered and not taken:**
+- **Verifying the tab's title by `sheetId` before every write.** With a
+  second tab in the spreadsheet, a user who renames the applications tab
+  *and* gives its old name to the Summary tab would have rows written into
+  the Summary tab, silently — the rename recovery only fires on a 400 that
+  no longer happens once some tab answers to the stored name. Not fixed:
+  it needs the tab list read before writes (an extra API call per apply, or
+  a per-session cache and a new storage key), the precondition is two
+  deliberate renames that swap two names, and the damage is visible in the
+  sheet and recoverable (the Summary tab is disposable by design). Recorded
+  under Deferred.
+- **Dropping `locale: 'en_US'` from the created spreadsheet.** It's pinned
+  so the Summary tab's comma-separated formula arguments parse as written,
+  and it also forces US dates and decimals on the user's own file. Whether
+  `userEnteredValue.formulaValue` is locale-independent isn't something
+  this project can settle without a real API run in a non-US-locale
+  account, and Ryan has declined the real-sheet runs. Kept, with the
+  trade-off recorded under Deferred: the cost is a US default in a file the
+  user can change themselves (our Date column carries its own explicit
+  format), and the risk of guessing wrong is broken formulas in every new
+  sheet.
+
 ---
 
 ## Build phases (propose and confirm each before starting)
@@ -2186,6 +2285,21 @@ or a re-add; no header row: a failed one).
    lists what changes at the merge.
 
 **Deferred, not abandoned:**
+- **A write can land in the wrong tab after two deliberate renames
+  (2026-09-17, audit):** every range names `sheetRef.sheetName`, and the
+  recovery that re-reads the tab's title by `sheetId` only fires on the
+  400 a name that matches nothing produces. Rename the applications tab and
+  give its old name to the Summary tab and writes go to the Summary tab
+  with no error. The fix is verifying the title by `sheetId` before a write
+  — one extra API call per apply, or a per-session cache with a new storage
+  key. Not done: the precondition is two deliberate renames, and the damage
+  is visible and recoverable.
+- **`locale: 'en_US'` on the user's new spreadsheet (2026-09-17, audit):**
+  pinned at creation so the Summary tab's formulas parse, and it also sets
+  US dates and decimals in a file that's the user's own. To settle it:
+  create two throwaway sheets from a non-US-locale account, one pinned and
+  one not, and see whether the Summary formulas land in both. Until then
+  the pin stays.
 - **The background test fake only answers open-ended column ranges
   (2026-09-17):** its `columnRead` matches `!X2:X`, while `readCells` asks
   for a bounded range (`B2:B2` for a single row), so a live-status read

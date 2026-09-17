@@ -59,6 +59,22 @@ function App() {
   const [switching, setSwitching] = useState(false)
   const [switchError, setSwitchError] = useState('')
 
+  // A request can fail after the background has already done the work — a
+  // killed worker answers with a rejected sendMessage, and a Connect that
+  // created a sheet and then died would leave "Try again" creating a second
+  // one (audit finding, 2026-09-17; the likely cause of the two sheets of
+  // 2026-09-14). So every failure re-reads storage first: if a sheet is
+  // connected now, the card shows it and the error is only a notice.
+  async function connectedAfterFailure(before: SheetRef | undefined): Promise<SheetRef | undefined> {
+    try {
+      const stored = await chrome.storage.local.get(SHEET_REF_KEY)
+      const sheetRef = stored[SHEET_REF_KEY] as SheetRef | undefined
+      return sheetRef && sheetRef.spreadsheetId !== before?.spreadsheetId ? sheetRef : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   async function loadPreviousRef() {
     const stored = await chrome.storage.local.get(PREVIOUS_SHEET_REF_KEY)
     setPreviousRef(stored[PREVIOUS_SHEET_REF_KEY] as SheetRef | undefined)
@@ -85,7 +101,18 @@ function App() {
       const created = replaceHealthy ? 'Started a new sheet' : 'Created a new sheet'
       setNotice(`${created}: ${sheetTitleOf(response.data.sheetRef)}. ${savedNotice(response.data)}`.trim())
     } catch (err) {
-      setCreateError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      const connected = await connectedAfterFailure(state.status === 'connected' ? state.sheetRef : undefined)
+      if (connected) {
+        // The swap happened; only the answer was lost. Close the confirm and
+        // show the sheet that's connected now.
+        setState({ status: 'connected', sheetRef: connected })
+        setConfirming(false)
+        setNotice(`Connected to ${sheetTitleOf(connected)}. The last step didn't finish: ${message}`)
+        await loadPreviousRef()
+      } else {
+        setCreateError(message)
+      }
     } finally {
       setCreating(false)
     }
@@ -117,6 +144,7 @@ function App() {
 
   async function handleConnect() {
     setNotice('')
+    const before = state.status === 'connected' ? state.sheetRef : undefined
     setState({ status: 'connecting' })
     try {
       // authenticate()/createSheet() run in the background worker — this
@@ -130,8 +158,19 @@ function App() {
       setState({ status: 'connected', sheetRef: response.data.sheetRef })
       // Applications made before connecting are saved right away.
       setNotice(savedNotice(response.data))
+      await loadPreviousRef()
     } catch (err) {
-      setState({ status: 'error', message: err instanceof Error ? err.message : String(err) })
+      const message = err instanceof Error ? err.message : String(err)
+      const connected = await connectedAfterFailure(before)
+      if (connected) {
+        // The sheet was created before the failure: show it rather than
+        // offering a "Try again" that would create a second one.
+        setState({ status: 'connected', sheetRef: connected })
+        setNotice(`Connected to ${sheetTitleOf(connected)}. The last step didn't finish: ${message}`)
+        await loadPreviousRef()
+        return
+      }
+      setState({ status: 'error', message })
     }
   }
 
@@ -252,6 +291,14 @@ function App() {
                 <span className="pill" aria-hidden="true" />
                 Not connected
               </div>
+              {/* Before Connect, in the product itself (2026-09-17, audit):
+                  Google's Limited Use guidance wants what's read disclosed
+                  where the user grants access, not only in the policy. */}
+              <p className="muted">
+                When you apply on a supported site, the extension reads that job's title, company, location and link
+                from the page you apply on, and writes them to your sheet. Nothing else is read, and nothing is sent
+                anywhere but your Google Sheet.
+              </p>
               <p className="muted">
                 Connecting creates a new, formatted sheet in your Google Drive. The extension can only access files it
                 creates.
@@ -478,6 +525,11 @@ function App() {
             </div>
           </li>
         </ul>
+        {/* The same disclosure once connected, where the Connect card's copy
+            is no longer on screen. */}
+        <p className="quiet sites-note">
+          Only these sites, and only the job's title, company, location and link from the page you apply on.
+        </p>
       </section>
 
       <footer className="foot">

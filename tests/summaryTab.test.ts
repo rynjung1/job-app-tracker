@@ -4,7 +4,7 @@
 import { ctl, HEADERS_WITH_LOG_ID, log, reset, sheet } from './fakes/background-env'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { googleSheetsProvider } from '../src/providers/googleSheets'
+import { googleSheetsProvider, summarySheetIdFor } from '../src/providers/googleSheets'
 import { SHEET_TEMPLATE_COLUMNS } from '../src/lib/sheetTemplate'
 
 const REF = { spreadsheetId: 'sheet1', sheetName: 'Sheet1', sheetId: 0 }
@@ -72,6 +72,25 @@ test('the Summary tab', async (t) => {
     assert.equal(formula(5, 2), '=COUNTIF(\'Sheet1\'!$A$2:$A,"Applied")')
     assert.equal(formula(10, 2), "=COUNTA('Sheet1'!$B$2:$B)")
     assert.equal(formula(13, 2).startsWith('=COUNTIFS(\'Sheet1\'!$C$2:$C'), true, formula(13, 2))
+  })
+
+  // Audit finding, 2026-09-17: the Summary tab's grid id used to be a
+  // hardcoded 1000001 sent blind. addSheet fails the whole batch if that id
+  // is taken, which would take the header formatting down with it.
+  await t.test("the Summary tab's grid id is never the applications tab's own id", async () => {
+    reset()
+    ctl.createdSheetId = 1000001
+    const created = await googleSheetsProvider.createSheet([...SHEET_TEMPLATE_COLUMNS])
+    const added = batch()[0]?.addSheet?.properties
+    assert.equal(created.sheetId, 1000001)
+    assert.notEqual(added.sheetId, created.sheetId)
+    assert.equal(summaryCells().range.sheetId, added.sheetId)
+    for (const request of batch().filter((r) => r.updateDimensionProperties)) {
+      const range = request.updateDimensionProperties.range
+      if (range.dimension === 'COLUMNS' && range.sheetId !== created.sheetId) assert.equal(range.sheetId, added.sheetId)
+    }
+    assert.equal(summarySheetIdFor(0), 1000001)
+    assert.notEqual(summarySheetIdFor(1000001), 1000001)
   })
 
   await t.test('no provider call other than createSheet ever names the Summary tab', async () => {
