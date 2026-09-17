@@ -8,6 +8,7 @@ import { alarms, ctl, HEADERS_WITH_LOG_ID, listeners, local, log, reset, session
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildRow } from '../src/lib/buildRow'
+import { matchLiveStatuses } from '../src/lib/liveStatuses'
 import { sanitizeRow } from '../src/lib/sanitize'
 import { safeJobUrl } from '../src/lib/safeUrl'
 import { getActiveProvider } from '../src/providers/activeProvider'
@@ -611,6 +612,29 @@ test('background worker', async (t) => {
   const directRowId = rowsOf('Log Id Direct Co')[0]?.[1][8]
   await check('recent entries carry the row\'s Log ID: a direct log and a drained row', !!directEntry?.logId && directEntry.logId === directRowId && drainedEntry?.logId === queuedRow['Log ID'] && queue() === 0, { direct: directEntry?.logId, directRowId, drained: drainedEntry?.logId, queued: queuedRow['Log ID'] })
 
+  // ---- Status starts at 'Applied' (2026-09-17), so a logged row carries one
+  // of the five values the sheet's dropdown and colour rules know. ----
+  reset()
+  ctl.headers = HEADERS_WITH_LOG_ID
+  await local.set({ sheetRef: REF })
+  apply('Status Direct Co')
+  await settle()
+  const directStatusRow = rowsOf('Status Direct Co')[0]?.[1]
+  const queuedStatusRow = sanitizeRow(buildRow({ title: 'Engineer', company: 'Status Queued Co', location: null, url: 'https://www.linkedin.com/jobs/view/992/' }, 'SWE v1'))
+  await local.set({ offlineQueue: [queuedStatusRow] })
+  await internal({ type: 'RECONNECT_PROVIDER' })
+  const drainedStatusRow = rowsOf('Status Queued Co')[0]?.[1]
+  const statusEntries = recent().map((e) => e.status)
+  await check("Status starts at 'Applied': buildRow writes it, a direct log and a drained queued row both land with it, Notes stays blank, and the cached entries agree", buildRow({ title: 'T', company: 'C', location: null, url: 'https://example.com' }, 'SWE v1').Status === 'Applied' && directStatusRow?.[6] === 'Applied' && queuedStatusRow.Status === 'Applied' && drainedStatusRow?.[6] === 'Applied' && directStatusRow?.[7] === '' && statusEntries.every((s) => s === 'Applied'), { direct: directStatusRow?.[6], drained: drainedStatusRow?.[6], notes: directStatusRow?.[7], entries: statusEntries })
+
+  // The popup's live chip now reads the same value back: matchLiveStatuses
+  // skips a blank Status cell, so before this change a fresh row's live read
+  // returned nothing and the popup fell back to its cached "Applied".
+  const liveEntry = { id: 'ls1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 2 }
+  const liveRow = (status: string) => ({ Company: 'Acme', Title: 'SWE Intern', Status: status })
+  const liveApplied = matchLiveStatuses([liveEntry], [liveRow('Applied')])
+  const liveBlank = matchLiveStatuses([liveEntry], [liveRow('')])
+  await check("the live chip reads a logged row back as Applied, where a blank Status cell was skipped", liveApplied.ls1 === 'Applied' && liveBlank.ls1 === undefined, { liveApplied, liveBlank })
   // ---- Lever and Ashby (2026-09-15): messages from their own origins log,
   // and a lookalike origin is refused by the sender-origin check. ----
   reset()
