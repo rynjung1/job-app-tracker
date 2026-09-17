@@ -1071,9 +1071,21 @@ of 217; 12 Node cases and 8 headless ones added):
   confirming naming the new dated sheet, the way back named after the
   previous sheet, a successful switch, and the refusal's reason shown
   in the card.
-Not run live yet: `scripts/new-sheet-check.ts` is the real-sheet check
-(the two names as Drive holds them, rows following the swap and the switch
-back, the trashed check behind the refusal, and a rename read back).
+**Not verified against the real API. Ryan declined the real-sheet run
+(2026-09-17),** as with the step-6 live checks above. `scripts/new-sheet-check.ts`
+stays in the repo and is paste-ready for whenever it's run; until then these
+five are unverified, not passed:
+- the plain name and the dated name as **Drive** stores them (the Node tests
+  only see the title we send in the create call);
+- two distinct files, with the first one still there, still named
+  `Job Applications` and not trashed after the second is created;
+- rows landing in the new sheet after a swap, with the old sheet unchanged;
+- switching back: rows landing in the first sheet again, with Drive's
+  `trashed` flag — the check that gates the switch — answering false, and
+  answering true once that sheet is in the trash, which is what makes the
+  refusal;
+- `readTitle` picking up a file renamed by hand in Drive, the lazy fill
+  behind Settings' "Connected to ...".
 
 Test waits on main (2026-09-14, review): the background tests' fixed
 `settle()` wait (60 ms) is replaced by five event-loop turns, and the fake
