@@ -8,6 +8,11 @@ export interface SheetRef {
   // never previously captured since nothing needed it before createSheet
   // formatting (Phase: new-sheet formatting).
   sheetId?: number
+  // The spreadsheet's own name (2026-09-17), so Settings can say which sheet
+  // is connected — "Job Applications", or "Job Applications (from
+  // 2026-09-17)" for one made later. A flagged addition to the contract.
+  // Absent on refs stored before this; Settings fills it in with readTitle.
+  title?: string
 }
 
 // Identifies exactly which row appendRow just wrote — CLAUDE.md's original
@@ -47,7 +52,9 @@ export class SheetMissingError extends Error {
 
 export interface SpreadsheetProvider {
   authenticate(): Promise<void>
-  createSheet(templateColumns: string[]): Promise<SheetRef>
+  // title (2026-09-17): the spreadsheet's name. Defaults to the first-time
+  // name; the caller passes a dated one for every sheet after that.
+  createSheet(templateColumns: string[], title?: string): Promise<SheetRef>
   readHeaders(sheetRef: SheetRef): Promise<string[]>
   appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow>
   // NOT in CLAUDE.md's original locked interface — added for Phase 4's
@@ -81,4 +88,8 @@ export interface SpreadsheetProvider {
   // storage's trash (Google Drive's), which changes nothing the Sheets API
   // answers. Throws SheetMissingError when it's gone altogether.
   isTrashed(sheetRef: SheetRef): Promise<boolean>
+
+  // The spreadsheet's current name (2026-09-17), for a ref stored before
+  // SheetRef carried one, and after the user renames the file in Drive.
+  readTitle(sheetRef: SheetRef): Promise<string>
 }

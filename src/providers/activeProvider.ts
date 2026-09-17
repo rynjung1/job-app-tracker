@@ -41,7 +41,7 @@ const provider = googleSheetsProvider
 // SpreadsheetProvider is a type error here until it's tracked too.
 const trackedProvider: SpreadsheetProvider = {
   authenticate: () => tracked(() => provider.authenticate()),
-  createSheet: (templateColumns) => tracked(() => provider.createSheet(templateColumns)),
+  createSheet: (templateColumns, title) => tracked(() => provider.createSheet(templateColumns, title)),
   readHeaders: (sheetRef) => tracked(() => provider.readHeaders(sheetRef), true),
   appendRow: (sheetRef, row) => tracked(() => provider.appendRow(sheetRef, row), true),
   updateCell: (sheetRef, rowNumber, columnName, value) =>
@@ -50,6 +50,7 @@ const trackedProvider: SpreadsheetProvider = {
   readCells: (sheetRef, rowNumbers, columnNames) =>
     tracked(() => provider.readCells(sheetRef, rowNumbers, columnNames), true),
   readLogIds: (sheetRef) => tracked(() => provider.readLogIds(sheetRef), true),
+  readTitle: (sheetRef) => tracked(() => provider.readTitle(sheetRef), true),
   isTrashed: (sheetRef) =>
     tracked(async () => {
       const trashed = await provider.isTrashed(sheetRef)

@@ -21,7 +21,8 @@ a new row.
 ## How it works
 
 1. Open Settings and connect Google Sheets. The extension creates a new,
-   formatted "Job Applications" sheet in your Google Drive.
+   formatted "Job Applications" sheet in your Google Drive. Settings names
+   the sheet you're connected to from then on.
 2. Apply as usual. On LinkedIn the row is logged when you click Easy
    Apply; on Greenhouse, once the site confirms your application was
    submitted, so an attempt the form rejects isn't logged.
@@ -67,6 +68,14 @@ a new row.
   writing, tells you, and Settings offers "Open Drive's trash" and
   "Create a new sheet". Restoring the sheet clears the warning and the
   waiting applications land.
+- **Which sheet you're connected to, and starting a new one.** Settings
+  names the connected sheet and links to it. "Start a new sheet" (behind a
+  confirmation) leaves the current one untouched in your Drive and logs
+  future applications to a fresh sheet named with its date, for example
+  "Job Applications (from 2026-09-17)"; the popup's recent list is cleared,
+  since those rows are in the old sheet. While a previous sheet is
+  remembered, Settings offers "Switch back to the previous sheet", which
+  checks it's still there and not in the trash first.
 - **The sheet itself** is formatted on creation: a frozen blue header,
   banded rows, a date format, per-column widths, and a Status column with
   a dropdown and colour rules. A hidden "Log ID" column holds a random id
@@ -114,8 +123,9 @@ https://rynjung1.github.io/job-app-tracker/privacy.html
   applications; the last resume version you used for each type of role;
   while Google sign-in is needed, when that happened and the error message
   from Chrome or Google; if your sheet is moved to Google Drive's trash or
-  deleted, which of the two and when; and, while Settings is open, its window's number
-  (session storage). No sign-in credential: Chrome keeps the Google token.
+  deleted, which of the two and when; the sheet a "Start a new sheet"
+  replaced, so you can switch back to it; and, while Settings is open, its
+  window's number (session storage). No sign-in credential: Chrome keeps the Google token.
 - `identity`: signs you in to Google, with access limited to files the
   extension creates.
 - `alarms`: retries saving applications after a network or sign-in

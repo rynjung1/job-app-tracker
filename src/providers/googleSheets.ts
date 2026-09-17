@@ -6,6 +6,7 @@ import { fetchWithTimeout } from '../lib/fetchWithTimeout'
 import { withSheetAppendLock } from '../lib/sheetAppendLock'
 import { updateStoredSheetName } from '../lib/sheetRef'
 import { LOG_ID_COLUMN, STATUS_VALUES } from '../lib/sheetTemplate'
+import { DEFAULT_SHEET_TITLE } from '../lib/sheetTitle'
 import type { StatusValue } from '../lib/sheetTemplate'
 
 const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets'
@@ -577,13 +578,13 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     await getToken(true)
   },
 
-  async createSheet(templateColumns: string[]): Promise<SheetRef> {
+  async createSheet(templateColumns: string[], title: string = DEFAULT_SHEET_TITLE): Promise<SheetRef> {
     const created = (await withAuth((token) =>
       apiFetch('', token, {
         method: 'POST',
         // locale pinned (2026-09-16): the Summary tab's formulas are written
         // with comma-separated arguments, which is how en_US parses them.
-        body: JSON.stringify({ properties: { title: 'Job Applications', locale: 'en_US' } }),
+        body: JSON.stringify({ properties: { title, locale: 'en_US' } }),
       }),
     )) as { spreadsheetId: string; sheets?: Array<{ properties?: { title?: string; sheetId?: number } }> }
 
@@ -627,7 +628,16 @@ export const googleSheetsProvider: SpreadsheetProvider = {
       }),
     )
 
-    return { spreadsheetId, sheetName, sheetId }
+    return { spreadsheetId, sheetName, sheetId, title }
+  },
+
+  // The spreadsheet's own name, for Settings (2026-09-17). Cheap: one read
+  // of a single field, and no tab name involved, so no withSheetRef retry.
+  async readTitle(sheetRef: SheetRef): Promise<string> {
+    const meta = (await withAuth((token) =>
+      apiFetch(`/${sheetRef.spreadsheetId}?fields=properties.title`, token),
+    )) as { properties?: { title?: string } }
+    return meta.properties?.title ?? ''
   },
 
   async readHeaders(sheetRef: SheetRef): Promise<string[]> {

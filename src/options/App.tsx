@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { SheetRef } from '../providers/types'
-import { SHEET_REF_KEY } from '../lib/storageKeys'
+import { PREVIOUS_SHEET_REF_KEY, SHEET_REF_KEY } from '../lib/storageKeys'
 import { applicationCount } from '../lib/authStatus'
 import { sheetProblemMessage, sheetProblemTitle } from '../lib/sheetStatus'
 import type { BackgroundResponse, ConnectResult, ReconnectResult } from '../background/messageRouter'
@@ -27,6 +27,13 @@ const PRIVACY_POLICY_URL = 'https://rynjung1.github.io/job-app-tracker/privacy.h
 let autoReconnect: 'pending' | 'started' | 'none' =
   new URLSearchParams(window.location.search).get('reconnect') === '1' ? 'pending' : 'none'
 
+// The spreadsheet's name for the card. Refs stored before SheetRef carried a
+// title, and a title read that failed, fall back rather than showing nothing.
+function sheetTitleOf(sheetRef: SheetRef, fallback = 'your sheet'): string {
+  const title = sheetRef.title?.trim()
+  return title ? title : fallback
+}
+
 function savedNotice({ saved, waiting }: ReconnectResult): string {
   const parts: string[] = []
   if (saved > 0) parts.push(`Saved ${saved} waiting application${saved === 1 ? '' : 's'} to your sheet.`)
@@ -44,24 +51,67 @@ function App() {
   // "Create a new sheet" (2026-09-14): running, and its error if it failed.
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
+  // "Start a new sheet" (2026-09-17): the inline confirm step for a healthy
+  // sheet, and the sheet left behind by the last swap, so the card can offer
+  // a way back to it.
+  const [confirming, setConfirming] = useState(false)
+  const [previousRef, setPreviousRef] = useState<SheetRef | undefined>(undefined)
+  const [switching, setSwitching] = useState(false)
+  const [switchError, setSwitchError] = useState('')
 
-  // Replaces the connected sheet when it's in Drive's trash or deleted; the
-  // background refuses while it's healthy (CREATE_NEW_SHEET).
-  async function handleCreateNewSheet() {
+  async function loadPreviousRef() {
+    const stored = await chrome.storage.local.get(PREVIOUS_SHEET_REF_KEY)
+    setPreviousRef(stored[PREVIOUS_SHEET_REF_KEY] as SheetRef | undefined)
+  }
+
+  // Replaces the connected sheet: with replaceHealthy, the deliberate "Start
+  // a new sheet" behind its confirm; without it, the recovery path for a
+  // sheet in Drive's trash or deleted, which the background refuses while
+  // the sheet is healthy (CREATE_NEW_SHEET).
+  async function handleCreateNewSheet(replaceHealthy = false) {
     setNotice('')
     setCreateError('')
+    setSwitchError('')
     setCreating(true)
     try {
       const response = (await chrome.runtime.sendMessage({
         type: 'CREATE_NEW_SHEET',
+        payload: { replaceHealthy },
       })) as BackgroundResponse<ConnectResult>
       if (!response.ok) throw new Error(response.error)
       setState({ status: 'connected', sheetRef: response.data.sheetRef })
-      setNotice(`Created a new sheet. ${savedNotice(response.data)}`.trim())
+      setConfirming(false)
+      await loadPreviousRef()
+      const created = replaceHealthy ? 'Started a new sheet' : 'Created a new sheet'
+      setNotice(`${created}: ${sheetTitleOf(response.data.sheetRef)}. ${savedNotice(response.data)}`.trim())
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : String(err))
     } finally {
       setCreating(false)
+    }
+  }
+
+  // Back to the sheet the last swap left behind. The background checks that
+  // sheet is reachable and not in the trash first, and refuses with
+  // PREVIOUS_UNAVAILABLE otherwise — the reason is shown as it comes back.
+  async function handleSwitchToPrevious() {
+    setNotice('')
+    setCreateError('')
+    setSwitchError('')
+    setSwitching(true)
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        type: 'SWITCH_TO_PREVIOUS_SHEET',
+      })) as BackgroundResponse<ConnectResult>
+      if (!response.ok) throw new Error(response.error)
+      setState({ status: 'connected', sheetRef: response.data.sheetRef })
+      setConfirming(false)
+      await loadPreviousRef()
+      setNotice(`Switched back to ${sheetTitleOf(response.data.sheetRef)}. ${savedNotice(response.data)}`.trim())
+    } catch (err) {
+      setSwitchError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSwitching(false)
     }
   }
 
@@ -106,8 +156,9 @@ function App() {
   }
 
   useEffect(() => {
-    chrome.storage.local.get(SHEET_REF_KEY).then((stored) => {
+    chrome.storage.local.get([SHEET_REF_KEY, PREVIOUS_SHEET_REF_KEY]).then((stored) => {
       const sheetRef = stored[SHEET_REF_KEY] as SheetRef | undefined
+      setPreviousRef(stored[PREVIOUS_SHEET_REF_KEY] as SheetRef | undefined)
       if (autoReconnect === 'started') return
       if (sheetRef && autoReconnect === 'pending') {
         autoReconnect = 'started'
@@ -121,10 +172,62 @@ function App() {
     // Runs once on load.
   }, [])
 
+  // Lazy title fill (2026-09-17): a sheet connected before SheetRef carried a
+  // title, or one the user renamed in Drive. One spreadsheets.get, only when
+  // the stored ref has no title, and only while the sheet looks healthy — a
+  // failure just leaves the "your sheet" fallback, so nothing is shown twice.
+  const connectedId = state.status === 'connected' ? state.sheetRef.spreadsheetId : undefined
+  const titleMissing = state.status === 'connected' && !state.sheetRef.title
+  useEffect(() => {
+    if (!connectedId || !titleMissing) return
+    let cancelled = false
+    chrome.runtime
+      .sendMessage({ type: 'REFRESH_SHEET_TITLE' })
+      .then((response: BackgroundResponse<SheetRef>) => {
+        if (cancelled || !response?.ok || !response.data.title) return
+        setState((current) =>
+          current.status === 'connected' && current.sheetRef.spreadsheetId === response.data.spreadsheetId
+            ? { status: 'connected', sheetRef: response.data }
+            : current,
+        )
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [connectedId, titleMissing])
+
   const busy = state.status === 'loading' || state.status === 'connecting'
   const needsReconnect = state.status === 'connected' && authStatus !== undefined
   // Sign-in comes first: the sheet can't be checked or replaced without it.
   const sheetProblem = state.status === 'connected' && !needsReconnect ? sheetStatus : undefined
+
+  // The way back, offered for as long as a previous sheet is remembered: a
+  // swap made by mistake may only be noticed days later. The background
+  // checks that sheet first and refuses if it's been trashed or deleted
+  // since, and its reason is shown as it comes back.
+  const switchBack = previousRef ? (
+    <>
+      {switchError && (
+        <div className="alert" role="alert">
+          <WarnIcon size={16} />
+          <span>{switchError}</span>
+        </div>
+      )}
+      <p className="quiet">
+        {switching ? (
+          <button type="button" className="link-btn" disabled>
+            Switching back…
+          </button>
+        ) : (
+          <button type="button" className="link-btn" onClick={handleSwitchToPrevious}>
+            Switch back to the previous sheet
+          </button>
+        )}
+        <span className="note">{sheetTitleOf(previousRef, 'The sheet')} is the one you were using before.</span>
+      </p>
+    </>
+  ) : null
 
   return (
     <div className="page">
@@ -140,7 +243,7 @@ function App() {
 
       <section className="sec" aria-labelledby="spreadsheet-heading">
         <h2 id="spreadsheet-heading">Spreadsheet</h2>
-        <div className={needsReconnect || sheetProblem ? 'card warn' : 'card'} aria-busy={busy || creating || undefined}>
+        <div className={needsReconnect || sheetProblem ? 'card warn' : 'card'} aria-busy={busy || creating || switching || undefined}>
           {state.status === 'loading' && <p className="muted">Checking your connection…</p>}
 
           {state.status === 'disconnected' && (
@@ -226,7 +329,7 @@ function App() {
                     Creating…
                   </button>
                 ) : (
-                  <button type="button" className="btn primary lg" onClick={handleCreateNewSheet}>
+                  <button type="button" className="btn primary lg" onClick={() => handleCreateNewSheet()}>
                     Create a new sheet
                   </button>
                 )}
@@ -237,6 +340,10 @@ function App() {
                   </a>
                 )}
               </div>
+              {/* Also offered here: if the sheet a swap created is the one
+                  that's gone, switching back is the recovery that keeps the
+                  old rows, and creating another would forget this way back. */}
+              {switchBack}
             </>
           )}
 
@@ -244,9 +351,9 @@ function App() {
             <>
               <div className="status">
                 <span className="pill ok" aria-hidden="true" />
-                Connected to Google Sheets
+                Connected to {sheetTitleOf(state.sheetRef)}
               </div>
-              <p className="muted">Applications are logged to your Job Applications sheet.</p>
+              <p className="muted">Applications are logged to this sheet in your Google Drive.</p>
               {queued > 0 && !notice && (
                 <p className="muted">
                   {applicationCount(queued)} waiting to be saved; retried automatically every 5 minutes.
@@ -271,6 +378,59 @@ function App() {
                   Reconnect
                 </button>
               </p>
+
+              {/* Start a new sheet (2026-09-17): below a hairline, away from
+                  Reconnect — Reconnect fixes access to this sheet, this one
+                  deliberately leaves it behind. A quiet link, because it's
+                  rare and consequential, and it never fires on one click:
+                  the card expands into the confirm below. */}
+              <hr className="hair" />
+              {createError && (
+                <div className="alert" role="alert">
+                  <WarnIcon size={16} />
+                  <span>Couldn't start a new sheet: {createError}</span>
+                </div>
+              )}
+              {confirming ? (
+                <div className="confirm">
+                  <p className="confirm-q">Start a new sheet?</p>
+                  <ul className="confirm-list">
+                    <li>Your current sheet stays in Google Drive, untouched — nothing is deleted or moved.</li>
+                    <li>New applications, and anything still waiting to be saved, go to the new sheet.</li>
+                    <li>
+                      The popup's recent list is cleared, because those rows live in the old sheet. You can reopen it
+                      from Drive at any time.
+                    </li>
+                  </ul>
+                  <div className="acts">
+                    {creating ? (
+                      <button type="button" className="btn primary lg" disabled>
+                        Starting…
+                      </button>
+                    ) : (
+                      <button type="button" className="btn primary lg" onClick={() => handleCreateNewSheet(true)}>
+                        Start a new sheet
+                      </button>
+                    )}
+                    <button type="button" className="btn lg" onClick={() => setConfirming(false)} disabled={creating}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="quiet">
+                  <button type="button" className="link-btn" onClick={() => setConfirming(true)}>
+                    Start a new sheet
+                  </button>
+                  <span className="note">Keeps this one in Drive and logs future applications to a fresh sheet.</span>
+                </p>
+              )}
+
+              {/* The way back, offered for as long as a previous sheet is
+                  remembered: a swap made by mistake may only be noticed days
+                  later. The background checks that sheet first and refuses
+                  if it's been trashed or deleted since. */}
+              {switchBack}
             </>
           )}
 
