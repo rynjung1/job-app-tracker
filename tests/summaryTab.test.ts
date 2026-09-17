@@ -79,7 +79,7 @@ test('the Summary tab', async (t) => {
     ctl.headers = HEADERS_WITH_LOG_ID
     sheet.rows[2] = ['46277.5', 'Acme', 'SWE Intern', 'Remote', 'https://example.com/1', 'SWE v3', 'Applied', '', 'id-1']
     await googleSheetsProvider.readHeaders(REF)
-    await googleSheetsProvider.appendRow(REF, { Date: '2026-09-16T10:00:00.000Z', Company: 'Acme', Title: 'SWE Intern', Location: '', URL: '', 'Resume Version': 'SWE v3', Status: '', Notes: '', 'Log ID': 'id-2' })
+    await googleSheetsProvider.appendRow(REF, { Date: '2026-09-16T10:00:00.000Z', Company: 'Acme', Title: 'SWE Intern', Location: '', URL: '', 'Resume Version': 'SWE v3', Status: 'Applied', Notes: '', 'Log ID': 'id-2' })
     await googleSheetsProvider.readRow(REF, 2)
     await googleSheetsProvider.readCells(REF, [2], ['Company', 'Title', 'Status'])
     await googleSheetsProvider.readLogIds(REF)

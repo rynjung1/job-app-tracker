@@ -52,7 +52,7 @@ Job Application Tracker eliminates the copy-paste step of a job search. When you
 
 Easy Apply detection is fully supported with LinkedIn set to English.
 
-No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected at a glance, plus a Summary tab that counts your applications by status and by week.
+No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected at a glance (every logged row starts as Applied), plus a Summary tab that counts your applications by status and by week.
 
 From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, change its status, resume version or note at any time, and open its job posting, without touching the spreadsheet by hand. The notification after each log also offers a quick Undo and Edit. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
 

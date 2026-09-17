@@ -1098,6 +1098,10 @@ succeed and then time out), 6 cases, plus the existing 60 still passing
 Not run live; the new sheet at the extension-ID switch is the first real
 one with the column.
 
+**Updated 2026-09-17:** a logged row's Status cell starts at `Applied`
+rather than blank — see Status field for the reasoning and what it doesn't
+change.
+
 **Updated 2026-09-16 (decided by Ryan), a second change to this locked
 template: a "Summary" tab.** `createSheet` adds a second tab whose cells
 are formulas over the applications tab — totals by status, a Pace block
@@ -1143,11 +1147,28 @@ totals, the total, the Pace block and the week rows as written above; each
 week row addressing its own Monday; the bar capped at 20; the Cancelled
 labels and their notes; a reordered template moving every range; and no
 other provider call naming the tab.
-Not run live: the real-sheet check is `scripts/summary-check.js` (paste-ready,
-read-write on a throwaway sheet) — the formulas landing as formulas in the
-sheet's locale, appends updating the totals, weeks and bars, a Cancelled row
-counting in the totals but not the week, a renamed applications tab keeping
-the numbers, and deleting the Summary tab not breaking the next append.
+**Verified 2026-09-16 on a real throwaway sheet** (Ryan ran
+`scripts/summary-check.ts` in the extension's service worker; the reviewer
+relayed its JSON). All five checks passed:
+- the cells hold formulas, not text, and the sheet's locale (`en_US`, pinned
+  at creation) parses them: B5 read back as
+  `=COUNTIF('Sheet1'!$G$2:$G,"Applied")`, B13 as
+  `=COUNTIFS('Sheet1'!$A$2:$A,">="&$A13,'Sheet1'!$A$2:$A,"<"&$A13+7,'Sheet1'!$G$2:$G,"<>Cancelled")`,
+  C13 as `=REPT("█",MIN($B13,20))` and A13 as
+  `=TODAY()-WEEKDAY(TODAY(),3)-7*(ROW()-13)`, each evaluating to a number;
+- four rows appended through the real `appendRow` (two dated this week, one
+  of them then set to Cancelled, one nine days back) moved the totals, the
+  week counts and the bars;
+- the Cancelled row counted in the totals by status and not in the week;
+- renaming the applications tab to `Bob's Applications` rewrote the
+  references and left every number unchanged;
+- deleting the Summary tab broke nothing: the next `appendRow` still landed.
+The throwaway sheet was moved to Drive's trash at the end of the run.
+
+That same run exposed the blank-Status gap the next note fixes: it reported
+`totalLogged: 4` with every status total 0, so the By status block couldn't
+sum to the total. The check is worth re-running after that change, and the
+evidence then should show the totals summing.
 
 **Updated 2026-09-09:** `createSheet` applies visual formatting to
 the new sheet — `createSheet`-only, never touches an
@@ -1353,6 +1374,31 @@ clicks Undo on the toast notification within its ~5-second window.
 **Updated 2026-09-14:** the popup's status dropdown can set any of the
 five values (`SET_STATUS`, with the Company/Title check). It's still
 manual: nothing detects a status change on its own.
+
+**Updated 2026-09-17 (decided by Ryan), a flagged change to the rule
+above: a logged row starts at `Applied`,** where `buildRow` used to write
+an empty Status. Why: a blank cell showed no colour and no dropdown value
+until the user set one; the Summary tab's totals by status couldn't sum to
+Total logged (the 2026-09-16 real-sheet run read `totalLogged: 4` with
+every status 0); and the popup already showed those same entries as
+Applied from its cached list, so the sheet and the popup disagreed.
+- It stays manual in the sense that matters: nothing detects a status
+  change, and the cell is an ordinary editable one. `Applied` is one of
+  the five values the strict dropdown accepts, and the sheet's `TEXT_EQ`
+  rule colours it, so a logged row now looks the same as one the user set
+  by hand.
+- Nothing read a blank Status: `matchLiveStatuses` skips a falsy cell (so
+  a fresh row's live read used to return nothing and the popup fell back
+  to its cached Applied — now they agree), `recentEntryFor` already
+  defaulted `row.Status || 'Applied'`, and `SET_STATUS` and the popup's
+  chip never depended on it.
+- A queued row keeps it: the row is built once and appended later, so a
+  drained application lands with `Applied` too.
+- Notes stays blank.
+- **Rows already logged with a blank Status are left exactly as they are.**
+  Nothing rewrites existing rows; those cells stay empty until the user
+  picks a value, and the Summary tab's totals will be short by that many
+  until then.
 
 ---
 

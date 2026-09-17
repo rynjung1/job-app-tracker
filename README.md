@@ -39,7 +39,8 @@ a new row.
   page on Greenhouse.
 - **The popup.** Each row shows the company, title, location, resume
   version and date, with the status from your sheet. A dropdown sets the
-  status (Applied, Interview, Offer, Rejected, Cancelled), and the row's
+  status (Applied, Interview, Offer, Rejected, Cancelled) — every logged
+  row starts as Applied — and the row's
   ⋯ menu changes the resume version, edits the row's note or opens the
   job posting. A row is only written if its Company and Title still
   match, so a row you've sorted or renamed by hand is never overwritten.
