@@ -110,6 +110,50 @@
   cursor: pointer;
 }
 
+/* "Start a new sheet" and "Switch back to the previous sheet" (2026-09-17):
+   quiet links with one line of explanation, below a hairline that separates
+   them from Reconnect — that fixes access to this sheet, these two leave it. */
+.hair {
+  margin: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.quiet .note {
+  display: block;
+  margin-top: 2px;
+}
+
+.link-btn:disabled {
+  color: var(--muted);
+  text-decoration: none;
+  cursor: default;
+}
+
+/* The inline confirm "Start a new sheet" expands into, rather than a modal:
+   the Settings window is small, and the card keeps its context. */
+.confirm {
+  margin-top: 12px;
+}
+
+.confirm-q {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.confirm-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.confirm-list li {
+  margin-top: 4px;
+}
+
 /* "Saved 3 waiting applications." after a Reconnect. */
 .notice {
   margin: 10px 0 0;

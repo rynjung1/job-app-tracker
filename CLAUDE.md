@@ -1002,6 +1002,91 @@ says trashed, and a deleted one answers 404):
 Not run live: the trash, restore and "Create a new sheet" flow is in
 web-store-deploy step 6.
 
+**Updated 2026-09-17 (decided by Ryan): "Start a new sheet", the way back,
+and one flagged change to `SheetRef` and the sheet's naming.** Settings
+could neither say which sheet was connected nor replace a healthy one, so
+a new job search meant hand-editing storage. Now, in the healthy card and
+below a hairline that keeps it away from Reconnect (that fixes access to
+*this* sheet; this leaves it behind):
+- **Which sheet is connected.** The card reads "Connected to {name}", with
+  the existing Open sheet link. `SheetRef` gained `title?: string`, a
+  flagged addition to the provider contract, set by `createSheet`, which
+  already knows it. A ref stored before this (and a file renamed in Drive)
+  is filled in lazily on the next Settings open by `REFRESH_SHEET_TITLE`
+  (one `spreadsheets.get?fields=properties.title`, through the new
+  `readTitle`), stored only if that spreadsheet is still the connected one;
+  a failed read leaves the card saying "your sheet". Nothing else depends
+  on the field.
+- **Naming, a change to the locked sheet template's name.** The first
+  sheet is still `Job Applications`. Every sheet after it — "Start a new
+  sheet" *and* the trashed/deleted recovery path — is
+  `Job Applications (from YYYY-MM-DD)`, the date taken at creation in
+  local time (`lib/sheetTitle.ts`). Both paths leave a second file in
+  Drive, so neither can reuse the plain name.
+- **"Start a new sheet"** is a quiet link with an inline confirm (no
+  modal: the Settings window is small), saying the old sheet stays in
+  Drive untouched, that new and waiting applications go to the new one,
+  and that the popup's recent list is cleared. Confirming sends
+  `CREATE_NEW_SHEET` with `payload.replaceHealthy: true`, the only way to
+  get past the `SHEET_HEALTHY` guard — absent, or anything but `true`, and
+  the guard still refuses, so a flaky read can never swap out a good
+  sheet. It then does exactly what the recovery path does: create, connect,
+  clear the flag, empty the recent list, drain the queue into the new
+  sheet. The old spreadsheet is never deleted, trashed or written to.
+- **The way back.** The sheet being left is remembered
+  (`previousSheetRef`, id, tab, `sheetId` and title), and Settings offers
+  "Switch back to the previous sheet" for as long as one is remembered —
+  permanently, not just right after the swap, since a mistaken swap may
+  only be noticed days later, and it costs one storage key. It's offered
+  in the trashed/deleted card too, where it's a recovery that keeps the
+  old rows. `SWITCH_TO_PREVIOUS_SHEET` checks that sheet is reachable and
+  not in the trash first and refuses with `PREVIOUS_UNAVAILABLE` (wording
+  per state) otherwise; a successful switch mirrors a swap — the sheet
+  being left becomes the remembered one, the recent list is cleared, and
+  the queue drains into the sheet returned to. Both new messages run one
+  at a time with Connect, with overlapping requests sharing one run.
+
+**Verified 2026-09-17 in Node and headless Chrome only** (`npm test` 217
+of 217; 12 Node cases and 8 headless ones added):
+- naming: the first Connect creates "Job Applications" and the ref carries
+  it; a swap and the trashed recovery path both create the dated name;
+  swap -> switch back -> swap again dates the second new sheet too;
+- `CREATE_NEW_SHEET` with `replaceHealthy: true` on a healthy sheet: a
+  dated new sheet connected, the old one remembered, **no request sent to
+  the old spreadsheet at all**, the recent list cleared and the queue
+  saved into the new sheet; without it (absent, `{}`, or the string
+  `'yes'`) still `SHEET_HEALTHY` with nothing created; two at once create
+  exactly one sheet;
+- `SWITCH_TO_PREVIOUS_SHEET`: with the old sheet healthy, connected back
+  to it, the sheet left remembered, the list cleared and the queue drained
+  into the old sheet; with it in the trash or deleted, refused
+  (`PREVIOUS_UNAVAILABLE`) saying which, nothing swapped and the list
+  kept; with nothing remembered, refused;
+- `REFRESH_SHEET_TITLE`: fills a ref stored before titles existed in one
+  read, picks up a rename, and on a failed read leaves the stored title
+  alone;
+- Settings, rendered headless at its 440px width in both themes: the card
+  names the connected sheet (and the lazily filled one), the confirm's
+  question, its three lines and both buttons, Cancel changing nothing,
+  confirming naming the new dated sheet, the way back named after the
+  previous sheet, a successful switch, and the refusal's reason shown
+  in the card.
+**Not verified against the real API. Ryan declined the real-sheet run
+(2026-09-17),** as with the step-6 live checks above. `scripts/new-sheet-check.ts`
+stays in the repo and is paste-ready for whenever it's run; until then these
+five are unverified, not passed:
+- the plain name and the dated name as **Drive** stores them (the Node tests
+  only see the title we send in the create call);
+- two distinct files, with the first one still there, still named
+  `Job Applications` and not trashed after the second is created;
+- rows landing in the new sheet after a swap, with the old sheet unchanged;
+- switching back: rows landing in the first sheet again, with Drive's
+  `trashed` flag — the check that gates the switch — answering false, and
+  answering true once that sheet is in the trash, which is what makes the
+  refusal;
+- `readTitle` picking up a file renamed by hand in Drive, the lazy fill
+  behind Settings' "Connected to ...".
+
 Test waits on main (2026-09-14, review): the background tests' fixed
 `settle()` wait (60 ms) is replaced by five event-loop turns, and the fake
 Sheets API answers with plain promise-based objects (`fakeResponse`)
@@ -1809,7 +1894,8 @@ popup mid-request killed the in-flight call along with it.
   (`CONNECT_PROVIDER`, `RECONNECT_PROVIDER`, `SAVE_RESUME_VERSION`,
   `SET_STATUS` (which replaced `CANCEL_APPLICATION` on 2026-09-14),
   `GET_LIVE_STATUSES`, `GET_NOTE` and `SAVE_NOTE` (the note editor,
-  2026-09-15), and `OPEN_SETTINGS`, which
+  2026-09-15), `SWITCH_TO_PREVIOUS_SHEET` and `REFRESH_SHEET_TITLE`
+  (Settings' sheet actions, 2026-09-17), and `OPEN_SETTINGS`, which
   opens the Settings window rather than calling a provider) and envelope shape (`{ ok: true, data } |
   { ok: false, error, code? }`). Two other fields were tried first and
   found not to actually test this, confirmed live against a real
