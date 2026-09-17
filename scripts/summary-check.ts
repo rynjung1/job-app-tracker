@@ -3,9 +3,10 @@
 // only see the requests we send, not what Sheets does with them:
 //   1. the formulas land as formulas, not text, and this sheet's locale
 //      parses their comma-separated arguments as written;
-//   2. rows appended through the real appendRow update the totals, the week
-//      counts and the bars, for a row in the current week and one in an
-//      earlier week;
+//   2. rows built by the shipped path (buildRow + sanitizeRow) and appended
+//      through the real appendRow update the totals, the week counts and the
+//      bars, for a row in the current week and one in an earlier week — the
+//      status totals should sum to Total logged, 3 Applied + 1 Cancelled;
 //   3. a Cancelled row counts in the totals by status but not in the weekly
 //      numbers;
 //   4. renaming the applications tab rewrites the references and the numbers
@@ -24,12 +25,15 @@
 // the sheet's URL — open that URL before the run ends if you want the
 // screenshot, since the last step trashes it.
 //
-// Real shipped code only: createSheet, appendRow and updateCell, called on
+// Real shipped code only: buildRow, sanitizeRow, createSheet, appendRow and
+// updateCell, called on
 // googleSheetsProvider directly rather than through getActiveProvider()'s
 // wrapper, so it writes nothing to extension storage (no sheetRef, recent
 // list, queue or sign-in flag) and touches no sheet of yours. Placeholder
 // data only. Not part of the extension build (Vite only bundles src/).
 import { googleSheetsProvider } from '../src/providers/googleSheets'
+import { buildRow } from '../src/lib/buildRow'
+import { sanitizeRow } from '../src/lib/sanitize'
 import { SHEET_TEMPLATE_COLUMNS } from '../src/lib/sheetTemplate'
 
 type Json = Record<string, unknown>
@@ -72,17 +76,21 @@ async function summary(spreadsheetId: string, tab = 'Summary') {
   }
 }
 const iso = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString()
-const row = (company: string, date: string) => ({
-  Date: date,
-  Company: company,
-  Title: 'Placeholder Engineer',
-  Location: 'Remote',
-  URL: 'https://jobs.example.com/placeholder',
-  'Resume Version': 'SWE v1',
-  Status: '',
-  Notes: '',
-  'Log ID': crypto.randomUUID(),
-})
+// The shipped path, the same two calls handleJobApplicationLogged makes:
+// buildRow then sanitizeRow. Writing a literal row here instead would prove
+// nothing about what the extension actually appends — in particular about
+// the Status a logged row starts with (2026-09-17). Only Date is
+// overridden, and only to place a row in an earlier week, which is what a
+// row logged days ago or drained from the queue looks like.
+const shippedRow = (company: string, daysAgo = 0) => {
+  const built = sanitizeRow(
+    buildRow(
+      { title: 'Placeholder Engineer', company, location: 'Remote', url: 'https://jobs.example.com/placeholder' },
+      'SWE v1',
+    ),
+  )
+  return daysAgo === 0 ? built : { ...built, Date: iso(daysAgo) }
+}
 
 async function run() {
   const out: Record<string, unknown> = {}
@@ -110,18 +118,25 @@ async function run() {
   }
 
   // 2 and 3. Appends update the numbers; Cancelled counts in the totals only.
-  await googleSheetsProvider.appendRow(sheetRef, row('This Week Co A', iso(0)))
-  await googleSheetsProvider.appendRow(sheetRef, row('This Week Co B', iso(1)))
-  const cancelled = await googleSheetsProvider.appendRow(sheetRef, row('Cancelled Co', iso(0)))
+  await googleSheetsProvider.appendRow(sheetRef, shippedRow('This Week Co A'))
+  await googleSheetsProvider.appendRow(sheetRef, shippedRow('This Week Co B', 1))
+  const cancelled = await googleSheetsProvider.appendRow(sheetRef, shippedRow('Cancelled Co'))
   await googleSheetsProvider.updateCell(sheetRef, cancelled.rowNumber, 'Status', 'Cancelled')
-  await googleSheetsProvider.appendRow(sheetRef, row('Earlier Week Co', iso(9)))
+  await googleSheetsProvider.appendRow(sheetRef, shippedRow('Earlier Week Co', 9))
   const afterAppends = await summary(sheetRef.spreadsheetId)
   out['2_appends_update'] = {
     statusTotals: afterAppends.statusTotals,
     totalLogged: afterAppends.totalLogged,
     thisWeek: afterAppends.thisWeek,
     weeks: afterAppends.weeks,
-    verdict: afterAppends.totalLogged === 4 && afterAppends.weeks[0].count >= 2 ? 'PASS: totals, weeks and bars moved' : 'CHECK the numbers above',
+    statusTotalsSum: Object.values(afterAppends.statusTotals).reduce((sum, n) => sum + (typeof n === 'number' ? n : 0), 0),
+    verdict:
+      afterAppends.totalLogged === 4 &&
+      Object.values(afterAppends.statusTotals).reduce((sum, n) => sum + (typeof n === 'number' ? n : 0), 0) === 4 &&
+      afterAppends.statusTotals['Applied'] === 3 &&
+      afterAppends.weeks[0].count >= 2
+        ? 'PASS: totals sum to Total logged (3 Applied + 1 Cancelled), weeks and bars moved'
+        : 'CHECK the numbers above',
   }
   out['3_cancelled'] = {
     cancelledInTotals: afterAppends.statusTotals['Cancelled'],
@@ -152,7 +167,7 @@ async function run() {
   const summaryId = (tabs.sheets as TabProperties[]).find((tab) => tab.properties.title === 'Summary')?.properties.sheetId
   await api(`/${sheetRef.spreadsheetId}:batchUpdate`, { method: 'POST', body: JSON.stringify({ requests: [{ deleteSheet: { sheetId: summaryId } }] }) })
   const renamedRef = { ...sheetRef, sheetName: renamed }
-  const appendedAfterDelete = await googleSheetsProvider.appendRow(renamedRef, row('After Delete Co', iso(0)))
+  const appendedAfterDelete = await googleSheetsProvider.appendRow(renamedRef, shippedRow('After Delete Co'))
   out['5_delete_summary'] = {
     deletedSheetId: summaryId,
     appendedRow: appendedAfterDelete,

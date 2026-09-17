@@ -1147,28 +1147,48 @@ totals, the total, the Pace block and the week rows as written above; each
 week row addressing its own Monday; the bar capped at 20; the Cancelled
 labels and their notes; a reordered template moving every range; and no
 other provider call naming the tab.
-**Verified 2026-09-16 on a real throwaway sheet** (Ryan ran
-`scripts/summary-check.ts` in the extension's service worker; the reviewer
-relayed its JSON). All five checks passed:
-- the cells hold formulas, not text, and the sheet's locale (`en_US`, pinned
-  at creation) parses them: B5 read back as
-  `=COUNTIF('Sheet1'!$G$2:$G,"Applied")`, B13 as
-  `=COUNTIFS('Sheet1'!$A$2:$A,">="&$A13,'Sheet1'!$A$2:$A,"<"&$A13+7,'Sheet1'!$G$2:$G,"<>Cancelled")`,
-  C13 as `=REPT("█",MIN($B13,20))` and A13 as
-  `=TODAY()-WEEKDAY(TODAY(),3)-7*(ROW()-13)`, each evaluating to a number;
-- four rows appended through the real `appendRow` (two dated this week, one
-  of them then set to Cancelled, one nine days back) moved the totals, the
-  week counts and the bars;
-- the Cancelled row counted in the totals by status and not in the week;
-- renaming the applications tab to `Bob's Applications` rewrote the
-  references and left every number unchanged;
-- deleting the Summary tab broke nothing: the next `appendRow` still landed.
-The throwaway sheet was moved to Drive's trash at the end of the run.
+**Verified 2026-09-16 on a real throwaway sheet.** Ryan ran
+`scripts/summary-check.ts` in the extension's service worker; his paste,
+trimmed only of the sheet URL and the DONE lines:
 
-That same run exposed the blank-Status gap the next note fixes: it reported
-`totalLogged: 4` with every status total 0, so the By status block couldn't
-sum to the total. The check is worth re-running after that change, and the
-evidence then should show the totals summing.
+```
+1_formulas_landed: locale "en_US", tabs ["0:Sheet1","1:Summary"],
+ appliedCell =COUNTIF(Sheet1!$G$2:$G,"Applied"),
+ weekCountCell =COUNTIFS(Sheet1!$A$2:$A,">="&$A13,Sheet1!$A$2:$A,"<"&$A13+7,Sheet1!$G$2:$G,"<>Cancelled"),
+ barCell =REPT("█",MIN($B13,20)), appliedValue 0, weekCountValue 0,
+ verdict "PASS: stored as formulas and evaluating to numbers"
+2_appends_update: statusTotals {Applied 0, Interview 0, Offer 0,
+ Rejected 0, Cancelled 1}, totalLogged 4, thisWeek 2,
+ weeks [{46279,2,2},{46272,1,1},{46265,0,0}],
+ verdict "PASS: totals, weeks and bars moved"
+3_cancelled: cancelledInTotals 1, thisWeek 2, verdict "PASS"
+4_rename: appliedCell =COUNTIF('Bob''s Applications'!$G$2:$G,"Applied"),
+ totalLogged 4, thisWeek 2, verdict "PASS: references rewritten,
+ numbers unchanged"
+5_delete_summary: deletedSheetId 1000001, appendedRow {"Bob's
+ Applications", row 6}, verdict "PASS: append still works with no
+ Summary tab"
+trashed: yes
+```
+
+So: the cells hold formulas, not text, and the sheet's locale (`en_US`,
+pinned at creation) parses them; four appends moved the totals, the week
+counts and the bars; the Cancelled row counted in the totals and not in the
+week; renaming the applications tab rewrote the references with every number
+unchanged; deleting the Summary tab left the next append working; and the
+throwaway sheet went to Drive's trash.
+
+**The zero status totals in that run are what exposed the blank-Status gap**
+(Status field, 2026-09-17): every total was 0 except the one Cancelled cell
+`updateCell` had set, so the By status block couldn't sum to `totalLogged: 4`.
+Note what that run does and doesn't prove about the fix: the script wrote its
+own literal row then, with `Status: ''` — the same thing `buildRow` did, which
+is why the zeros matched the product's behaviour, but it means the run
+exercised the script's row, not `buildRow`. The script builds its rows through
+`buildRow` + `sanitizeRow` since 2026-09-17 (the earlier bundle contained
+neither function), so a re-run is what will show the totals summing: 3 Applied
+plus 1 Cancelled against `totalLogged` 4, with `thisWeek` 2. That re-run is
+pending.
 
 **Updated 2026-09-09:** `createSheet` applies visual formatting to
 the new sheet — `createSheet`-only, never touches an
@@ -2053,6 +2073,13 @@ or a re-add; no header row: a failed one).
    lists what changes at the merge.
 
 **Deferred, not abandoned:**
+- **The background test fake only answers open-ended column ranges
+  (2026-09-17):** its `columnRead` matches `!X2:X`, while `readCells` asks
+  for a bounded range (`B2:B2` for a single row), so a live-status read
+  through the message router comes back empty in tests. That's why the
+  Status-default check asserts on `matchLiveStatuses` directly rather than
+  through `GET_LIVE_STATUSES`. Teaching the fake to answer bounded ranges
+  would let those paths be tested end to end; noted, not fixed.
 - **Indeed parser (2026-09-01):** every fetch attempt (curl and
   WebFetch) was blocked outright by Cloudflare bot-detection, unlike
   LinkedIn and Greenhouse — meaning literally zero pre-implementation
