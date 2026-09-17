@@ -105,6 +105,15 @@ description: Steps and status for publishing this extension to the Chrome Web St
        are in CLAUDE.md (Deployment path).
      - Rebuild `dist/` from main once Ryan's checks are done, so his
        daily build matches what ships.
+     **Declined 2026-09-16 (Ryan): the checks below were not run.** He
+     chose not to run the remaining live checks — the popup's status and
+     resume changes, the stale-row refusal, the notification's Edit
+     window, the 24-hour repeat skip, the sheet trash/restore/create
+     flow, the sign-in-lost flow and offline. They stay on this list and
+     stay **unverified live**: each is verified in Node and headless
+     renders only. Don't mark them passed. Step 8's post-install check
+     covers the same ground on the store build, so they get a second
+     chance there.
      Also check live:
      - `scripts/health-check.js` in the new ID's service-worker console,
        after Connect: the new extension ID and version, a spreadsheet
@@ -248,7 +257,12 @@ description: Steps and status for publishing this extension to the Chrome Web St
      and the privacy-practices tab; R submits, but only after step 6 has
      passed. The new popup UI, the status dropdown and "needs reconnect"
      have never run live, and the step 2 draft build can't sign in (its
-     new ID isn't the OAuth client's Item ID until step 5). In the
+     new ID isn't the OAuth client's Item ID until step 5). After the
+     install, run the step 6 checks Ryan declined on 2026-09-16 (the
+     popup's status and resume changes, the stale-row refusal, the
+     notification's Edit window, the 24-hour repeat skip, the sheet
+     trash/restore/create flow, the sign-in-lost flow, offline): on the
+     store build they're still the first live run those paths get. In the
      dashboard, R also:
      - chooses to publish manually after approval, not automatically;
      - picks the publisher display name;

@@ -43,7 +43,8 @@ a new row.
   page on Greenhouse.
 - **The popup.** Each row shows the company, title, location, resume
   version and date, with the status from your sheet. A dropdown sets the
-  status (Applied, Interview, Offer, Rejected, Cancelled), and the row's
+  status (Applied, Interview, Offer, Rejected, Cancelled) — every logged
+  row starts as Applied — and the row's
   ⋯ menu changes the resume version, edits the row's note or opens the
   job posting. A row is only written if its Company and Title still
   match, so a row you've sorted or renamed by hand is never overwritten.
@@ -74,6 +75,11 @@ a new row.
   banded rows, a date format, per-column widths, and a Status column with
   a dropdown and colour rules. A hidden "Log ID" column holds a random id
   per row, used only so a retry can't save the same application twice.
+- **A Summary tab**, also created with the sheet: totals by status, this
+  week and last week, and the last 8 weeks with a small bar. It's made of
+  formulas over your applications, so it keeps itself up to date as rows
+  arrive, and the extension never writes to it. Delete it if you don't
+  want it — nothing else depends on it.
 
 ## Why didn't it log?
 

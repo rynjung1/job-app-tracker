@@ -27,6 +27,9 @@ notifications justifications, the certification note and the
 Authentication information note now cover the Drive trash check and its
 flag.
 
+Updated 2026-09-16 (branch `summary-tab`; awaiting review): the description
+and the Sheets host justification mention the Summary tab new sheets get.
+
 Updated 2026-09-15 (branch `ui-polish`; awaiting review): the description,
 test instruction 3, the storage justification (both) and the Sheets host
 justification now cover the popup's note editor and the recent entries'
@@ -54,7 +57,7 @@ Job Application Tracker eliminates the copy-paste step of a job search. When you
 
 Easy Apply detection is fully supported with LinkedIn set to English.
 
-No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected at a glance.
+No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected at a glance (every logged row starts as Applied), plus a Summary tab that counts your applications by status and by week.
 
 From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, change its status, resume version or note at any time, and open its job posting, without touching the spreadsheet by hand. The notification after each log also offers a quick Undo and Edit. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
 
@@ -175,7 +178,7 @@ Shows a "Logged" notification after each automatic log, with Undo and Edit butto
 Host permission `https://sheets.googleapis.com/*`:
 
 ```text
-Through the Google Sheets API: creates and formats the sheet when you connect; writes each logged application as a row (with a random ID, used only to avoid duplicates) in the Google Sheet this extension created; updates one cell (Status, Resume Version or Notes) when you change an application's status, resume version or note in the popup, or use the Logged notification's Undo or Edit; reads the sheet's header row to find its columns, your recent rows' Company, Title, Status and hidden ID for the popup, a row before a popup change to check it still matches (and its Notes cell when you open its note), the hidden ID column when retrying a save, and the spreadsheet's tab names if you renamed the sheet's tab.
+Through the Google Sheets API: creates and formats the sheet when you connect, including a Summary tab whose cells are formulas over your own rows (written once, at creation); writes each logged application as a row (with a random ID, used only to avoid duplicates) in the Google Sheet this extension created; updates one cell (Status, Resume Version or Notes) when you change an application's status, resume version or note in the popup, or use the Logged notification's Undo or Edit; reads the sheet's header row to find its columns, your recent rows' Company, Title, Status and hidden ID for the popup, a row before a popup change to check it still matches (and its Notes cell when you open its note), the hidden ID column when retrying a save, and the spreadsheet's tab names if you renamed the sheet's tab.
 ```
 
 If the dashboard also asks about the content-script sites (they're

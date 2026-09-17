@@ -263,6 +263,134 @@ function toDateCellValue(value: string | undefined): string | number {
 // never hardcoded — self-correcting the same way readHeaders-driven
 // column order already is elsewhere in this file, in case the template
 // ever changes shape.
+// The Summary tab (2026-09-16, decided by Ryan; a change to the locked sheet
+// template, new sheets only — CLAUDE.md, Sheet setup). A second tab whose
+// cells are formulas over the applications tab: totals by status, this week
+// / last week / the 8-week average, and the last 8 weeks with a bar. The
+// extension writes it once, in createSheet's own batch, and never touches it
+// again: every other method addresses sheetRef.sheetName.
+const SUMMARY_TAB_TITLE = 'Summary'
+// A fixed grid id, requested in the same batchUpdate that fills the tab. The
+// spreadsheet is one request old and holds only its default sheet, so this
+// id is free, and asking for it lets the formatting requests below name it
+// without a second round trip to learn what id Google picked.
+const SUMMARY_SHEET_ID = 1000001
+const SUMMARY_WEEKS = 8
+// 1-based: the first "Week of" row, which the week formulas address.
+const SUMMARY_FIRST_WEEK_ROW = 13
+// A busy week shouldn't paint a bar across the sheet; the count beside it
+// stays exact (decided by Ryan, 2026-09-16).
+const SUMMARY_BAR_CAP = 20
+const SUMMARY_GREY = hexToRgb('#5F6368')
+
+const summaryText = (value: string, format?: Record<string, unknown>, note?: string) => ({
+  userEnteredValue: { stringValue: value },
+  ...(format ? { userEnteredFormat: format } : {}),
+  ...(note ? { note } : {}),
+})
+const summaryFormula = (value: string, format?: Record<string, unknown>, note?: string) => ({
+  userEnteredValue: { formulaValue: value },
+  ...(format ? { userEnteredFormat: format } : {}),
+  ...(note ? { note } : {}),
+})
+const SUMMARY_BOLD = { textFormat: { bold: true, fontFamily: FONT_FAMILY } }
+const SUMMARY_TITLE_FORMAT = { textFormat: { bold: true, fontSize: 13, fontFamily: FONT_FAMILY } }
+const SUMMARY_MUTED = { textFormat: { foregroundColorStyle: { rgbColor: SUMMARY_GREY }, fontFamily: FONT_FAMILY } }
+const SUMMARY_DATE_FORMAT = { numberFormat: { type: 'DATE', pattern: 'yyyy-mm-dd' } }
+const SUMMARY_AVERAGE_FORMAT = { numberFormat: { type: 'NUMBER', pattern: '0.0' } }
+
+// Column letters come from the template passed in, never hardcoded, so a
+// change to the column order can't silently misaddress these (the same rule
+// the formatting requests follow).
+function buildSummaryRequests(applicationsTitle: string, templateColumns: string[]): unknown[] {
+  const letterOf = (column: string) => columnIndexToLetter(templateColumns.indexOf(column))
+  const tab = quoteSheetName(applicationsTitle)
+  const column = (name: string) => {
+    const letter = letterOf(name)
+    // Open-ended, from row 2 down: rows added later count themselves.
+    return `${tab}!$${letter}$2:$${letter}`
+  }
+  const dates = column('Date')
+  const companies = column('Company')
+  const statuses = column('Status')
+  // Cancelled is left out of the weekly numbers and kept in the totals
+  // above (decided by Ryan, 2026-09-16); the labels in C10 and C12 say so.
+  const weekCount = (row: number) =>
+    `=COUNTIFS(${dates},">="&$A${row},${dates},"<"&$A${row}+7,${statuses},"<>Cancelled")`
+  // Each row's own Monday: the first row is this week's, and every row below
+  // steps back a week, so the block moves with the calendar on its own.
+  const weekStart = () => `=TODAY()-WEEKDAY(TODAY(),3)-7*(ROW()-${SUMMARY_FIRST_WEEK_ROW})`
+  const lastWeekRow = SUMMARY_FIRST_WEEK_ROW + 1
+  const lastRow = SUMMARY_FIRST_WEEK_ROW + SUMMARY_WEEKS - 1
+
+  const rows: Array<{ values: unknown[] }> = [
+    { values: [summaryText('Summary', SUMMARY_TITLE_FORMAT)] },
+    { values: [summaryText('Updates itself as rows are added. The extension never writes here.', SUMMARY_MUTED)] },
+    { values: [] },
+    { values: [summaryText('By status', SUMMARY_BOLD), {}, {}, summaryText('Pace', SUMMARY_BOLD)] },
+  ]
+  // One row per status, in the sheet's own order, then the total.
+  STATUS_VALUES.forEach((status, i) => {
+    const pace = [
+      [summaryText('This week'), summaryFormula(weekCount(SUMMARY_FIRST_WEEK_ROW))],
+      [summaryText('Last week'), summaryFormula(weekCount(lastWeekRow))],
+      [
+        summaryText(`Weekly average (${SUMMARY_WEEKS} wks)`),
+        summaryFormula(`=ROUND(AVERAGE($B$${SUMMARY_FIRST_WEEK_ROW}:$B$${lastRow}),1)`, SUMMARY_AVERAGE_FORMAT),
+      ],
+    ][i] ?? []
+    rows.push({
+      values: [summaryText(status), summaryFormula(`=COUNTIF(${statuses},"${status}")`), {}, ...pace],
+    })
+  })
+  rows.push({
+    values: [
+      summaryText('Total logged', SUMMARY_BOLD),
+      summaryFormula(`=COUNTA(${companies})`, SUMMARY_BOLD),
+      summaryText('includes Cancelled', SUMMARY_MUTED, 'Every logged row, Cancelled ones included.'),
+    ],
+  })
+  rows.push({ values: [] })
+  rows.push({
+    values: [
+      summaryText(`Last ${SUMMARY_WEEKS} weeks`, SUMMARY_BOLD),
+      summaryText('count', SUMMARY_MUTED),
+      summaryText(
+        `Cancelled not counted; bars cap at ${SUMMARY_BAR_CAP}`,
+        SUMMARY_MUTED,
+        `Weeks run Monday to Sunday. Cancelled applications aren't counted here. The bar stops at ${SUMMARY_BAR_CAP} blocks; the count beside it is exact.`,
+      ),
+    ],
+  })
+  for (let week = 0; week < SUMMARY_WEEKS; week++) {
+    const row = SUMMARY_FIRST_WEEK_ROW + week
+    rows.push({
+      values: [
+        summaryFormula(weekStart(), SUMMARY_DATE_FORMAT),
+        summaryFormula(weekCount(row)),
+        summaryFormula(`=REPT("█",MIN($B${row},${SUMMARY_BAR_CAP}))`),
+      ],
+    })
+  }
+
+  return [
+    {
+      updateCells: {
+        range: { sheetId: SUMMARY_SHEET_ID, startRowIndex: 0, startColumnIndex: 0 },
+        rows,
+        fields: 'userEnteredValue,userEnteredFormat,note',
+      },
+    },
+    ...[170, 70, 170, 170, 70].map((pixelSize, i) => ({
+      updateDimensionProperties: {
+        range: { sheetId: SUMMARY_SHEET_ID, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
+        properties: { pixelSize },
+        fields: 'pixelSize',
+      },
+    })),
+  ]
+}
+
 function buildFormattingRequests(sheetId: number, templateColumns: string[]): unknown[] {
   // The hidden Log ID column (kept last in the template) gets no banding;
   // it's hidden at the end of this function.
@@ -453,7 +581,9 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     const created = (await withAuth((token) =>
       apiFetch('', token, {
         method: 'POST',
-        body: JSON.stringify({ properties: { title: 'Job Applications' } }),
+        // locale pinned (2026-09-16): the Summary tab's formulas are written
+        // with comma-separated arguments, which is how en_US parses them.
+        body: JSON.stringify({ properties: { title: 'Job Applications', locale: 'en_US' } }),
       }),
     )) as { spreadsheetId: string; sheets?: Array<{ properties?: { title?: string; sheetId?: number } }> }
 
@@ -476,7 +606,24 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     await withAuth((token) =>
       apiFetch(`/${spreadsheetId}:batchUpdate`, token, {
         method: 'POST',
-        body: JSON.stringify({ requests: buildFormattingRequests(sheetId, templateColumns) }),
+        body: JSON.stringify({
+          requests: [
+            // The Summary tab is added and filled in this same batch, so
+            // createSheet still makes exactly three requests.
+            {
+              addSheet: {
+                properties: {
+                  sheetId: SUMMARY_SHEET_ID,
+                  title: SUMMARY_TAB_TITLE,
+                  index: 1,
+                  gridProperties: { rowCount: 40, columnCount: 6 },
+                },
+              },
+            },
+            ...buildFormattingRequests(sheetId, templateColumns),
+            ...buildSummaryRequests(sheetName, templateColumns),
+          ],
+        }),
       }),
     )
 

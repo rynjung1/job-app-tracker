@@ -1098,6 +1098,125 @@ succeed and then time out), 6 cases, plus the existing 60 still passing
 Not run live; the new sheet at the extension-ID switch is the first real
 one with the column.
 
+**Updated 2026-09-17:** a logged row's Status cell starts at `Applied`
+rather than blank — see Status field for the reasoning and what it doesn't
+change.
+
+**Updated 2026-09-16 (decided by Ryan), a second change to this locked
+template: a "Summary" tab.** `createSheet` adds a second tab whose cells
+are formulas over the applications tab — totals by status, a Pace block
+(this week, last week, the 8-week average), and the last 8 weeks with a
+count and a bar. New sheets only: an existing sheet is never modified, and
+a user who deletes the tab loses nothing.
+- **It costs no extra API calls.** `createSheet` still makes three: the
+  create, the header write, and the formatting batch. The tab is requested
+  with an `addSheet` in that same batch (with a fixed `sheetId`, free on a
+  one-request-old spreadsheet, so the cell requests can name it without a
+  round trip to learn it), and its cells go in as `updateCells` with
+  `userEnteredValue.formulaValue`. The batch grows from about 18 requests
+  to 30. No value write anywhere becomes `USER_ENTERED`, so the RAW-only
+  formula-injection defence is untouched: only our own literals are ever
+  parsed as formulas.
+- **Formulas** take their column letters from the `templateColumns` passed
+  in, never hardcoded, and use open-ended ranges so rows added later count
+  themselves: `=COUNTIF('Sheet1'!$G$2:$G,"Applied")`,
+  `=COUNTA('Sheet1'!$B$2:$B)`, a week start of
+  `=TODAY()-WEEKDAY(TODAY(),3)-7*(ROW()-13)`, and a week count of
+  `=COUNTIFS(dates,">="&$A13,dates,"<"&$A13+7,statuses,"<>Cancelled")`.
+- **Cancelled is counted in the totals by status and left out of the
+  weekly numbers** (decided by Ryan), which matches the popup's summary
+  line. C10 and C12 say so on the sheet, and both cells carry the same
+  text as a note.
+- **The bar is `=REPT("█",MIN($B13,20))`**: a busy week doesn't paint a
+  bar across the sheet, and the count beside it stays exact.
+- **The applications tab stays first** — `createSheet` reads
+  `created.sheets[0]` for the name and id — and the hidden Log ID column
+  is irrelevant to the formulas, which name Date, Company and Status only.
+- **The spreadsheet's locale is pinned to `en_US` at creation**, so the
+  comma-separated arguments in those formulas parse as written whatever
+  the account's own locale is. The Date column's display format is set
+  explicitly either way.
+- **Nothing writes there again:** every other provider method addresses
+  `sheetRef.sheetName`, and a rename resolves through the applications
+  tab's numeric id. `tests/summaryTab.test.ts` asserts that: it drives
+  every other provider call and fails if any request names the tab.
+
+**Verified 2026-09-16 in Node only** (`tests/summaryTab.test.ts`, 8 cases):
+three requests, with the tab added and filled in the one batch; the status
+totals, the total, the Pace block and the week rows as written above; each
+week row addressing its own Monday; the bar capped at 20; the Cancelled
+labels and their notes; a reordered template moving every range; and no
+other provider call naming the tab.
+**Verified 2026-09-16 on a real throwaway sheet.** Ryan ran
+`scripts/summary-check.ts` in the extension's service worker; his paste,
+trimmed only of the sheet URL and the DONE lines:
+
+```
+1_formulas_landed: locale "en_US", tabs ["0:Sheet1","1:Summary"],
+ appliedCell =COUNTIF(Sheet1!$G$2:$G,"Applied"),
+ weekCountCell =COUNTIFS(Sheet1!$A$2:$A,">="&$A13,Sheet1!$A$2:$A,"<"&$A13+7,Sheet1!$G$2:$G,"<>Cancelled"),
+ barCell =REPT("█",MIN($B13,20)), appliedValue 0, weekCountValue 0,
+ verdict "PASS: stored as formulas and evaluating to numbers"
+2_appends_update: statusTotals {Applied 0, Interview 0, Offer 0,
+ Rejected 0, Cancelled 1}, totalLogged 4, thisWeek 2,
+ weeks [{46279,2,2},{46272,1,1},{46265,0,0}],
+ verdict "PASS: totals, weeks and bars moved"
+3_cancelled: cancelledInTotals 1, thisWeek 2, verdict "PASS"
+4_rename: appliedCell =COUNTIF('Bob''s Applications'!$G$2:$G,"Applied"),
+ totalLogged 4, thisWeek 2, verdict "PASS: references rewritten,
+ numbers unchanged"
+5_delete_summary: deletedSheetId 1000001, appendedRow {"Bob's
+ Applications", row 6}, verdict "PASS: append still works with no
+ Summary tab"
+trashed: yes
+```
+
+So: the cells hold formulas, not text, and the sheet's locale (`en_US`,
+pinned at creation) parses them; four appends moved the totals, the week
+counts and the bars; the Cancelled row counted in the totals and not in the
+week; renaming the applications tab rewrote the references with every number
+unchanged; deleting the Summary tab left the next append working; and the
+throwaway sheet went to Drive's trash.
+
+**The zero status totals in that run are what exposed the blank-Status gap**
+(Status field, 2026-09-17): every total was 0 except the one Cancelled cell
+`updateCell` had set, so the By status block couldn't sum to `totalLogged: 4`.
+Note what that run does and doesn't prove about the fix: the script wrote its
+own literal row then, with `Status: ''` — the same thing `buildRow` did, which
+is why the zeros matched the product's behaviour, but it means the run
+exercised the script's row, not `buildRow`. The script builds its rows through
+`buildRow` + `sanitizeRow` since 2026-09-17 (the earlier bundle contained
+neither function), so the re-run below is what shows the totals summing.
+
+**Re-verified 2026-09-17 on a second throwaway sheet**, with the script
+appending what `buildRow` returns. Ryan's paste, trimmed of the sheet URL and
+the DONE lines:
+
+```
+1_formulas_landed: locale "en_US", tabs ["0:Sheet1","1:Summary"],
+ appliedCell =COUNTIF(Sheet1!$G$2:$G,"Applied"), weekCountCell
+ =COUNTIFS(Sheet1!$A$2:$A,">="&$A13,Sheet1!$A$2:$A,"<"&$A13+7,Sheet1!$G$2:$G,"<>Cancelled"),
+ barCell =REPT("█",MIN($B13,20)), appliedValue 0, weekCountValue 0,
+ verdict "PASS: stored as formulas and evaluating to numbers"
+2_appends_update: statusTotals {Applied 3, Interview 0, Offer 0,
+ Rejected 0, Cancelled 1}, totalLogged 4, thisWeek 2, weeks
+ [{46279,2,2},{46272,1,1},{46265,0,0}], statusTotalsSum 4, verdict
+ "PASS: totals sum to Total logged (3 Applied + 1 Cancelled), weeks
+ and bars moved"
+3_cancelled: cancelledInTotals 1, thisWeek 2, verdict "PASS"
+4_rename: appliedCell =COUNTIF('Bob''s Applications'!$G$2:$G,"Applied"),
+ totalLogged 4, thisWeek 2, verdict "PASS"
+5_delete_summary: deletedSheetId 1000001, appendedRow {"Bob's
+ Applications", row 6}, verdict "PASS"
+trashed: yes
+```
+
+So the By status block now sums to Total logged — three rows logged through
+the shipped path carry `Applied`, the fourth was set to `Cancelled` through
+`updateCell` — and `thisWeek` counts 2, the Cancelled row still left out. The
+formulas, the rename and the delete-tab checks passed again, and this sheet
+was trashed too.
+
 **Updated 2026-09-14 (decided by Ryan, a behaviour change; on the
 `workday` branch): the popup's identity check uses the Log ID.**
 `SAVE_RESUME_VERSION` and `SET_STATUS` now check `rowStillMatches`
@@ -1326,6 +1445,31 @@ clicks Undo on the toast notification within its ~5-second window.
 **Updated 2026-09-14:** the popup's status dropdown can set any of the
 five values (`SET_STATUS`, with the Company/Title check). It's still
 manual: nothing detects a status change on its own.
+
+**Updated 2026-09-17 (decided by Ryan), a flagged change to the rule
+above: a logged row starts at `Applied`,** where `buildRow` used to write
+an empty Status. Why: a blank cell showed no colour and no dropdown value
+until the user set one; the Summary tab's totals by status couldn't sum to
+Total logged (the 2026-09-16 real-sheet run read `totalLogged: 4` with
+every status 0); and the popup already showed those same entries as
+Applied from its cached list, so the sheet and the popup disagreed.
+- It stays manual in the sense that matters: nothing detects a status
+  change, and the cell is an ordinary editable one. `Applied` is one of
+  the five values the strict dropdown accepts, and the sheet's `TEXT_EQ`
+  rule colours it, so a logged row now looks the same as one the user set
+  by hand.
+- Nothing read a blank Status: `matchLiveStatuses` skips a falsy cell (so
+  a fresh row's live read used to return nothing and the popup fell back
+  to its cached Applied — now they agree), `recentEntryFor` already
+  defaulted `row.Status || 'Applied'`, and `SET_STATUS` and the popup's
+  chip never depended on it.
+- A queued row keeps it: the row is built once and appended later, so a
+  drained application lands with `Applied` too.
+- Notes stays blank.
+- **Rows already logged with a blank Status are left exactly as they are.**
+  Nothing rewrites existing rows; those cells stay empty until the user
+  picks a value, and the Summary tab's totals will be short by that many
+  until then.
 
 ---
 
@@ -2017,6 +2161,16 @@ loads the unpacked extension from there. Lesson: while Ryan runs a build
 from this directory, builds and tests run in a separate copy, and `dist/`
 is rebuilt from main on purpose, not as a side effect.
 
+**Declined 2026-09-16 (Ryan): the rest of step 6's live checks weren't
+run.** He chose not to run the popup's status and resume changes, the
+stale-row refusal, the notification's Edit window, the 24-hour repeat
+skip, the sheet trash/restore/create flow, the sign-in-lost flow, or
+offline. So those paths are **verified in Node and headless renders only**
+— not live — and this file's notes on them say as much where they were
+written. They stay on web-store-deploy's step 6 list rather than being
+struck off, and step 8 runs them again on the installed store build,
+which is the first live run they would get.
+
 **Fixed 2026-09-14 (one sheet per Connect):** two "Job Applications"
 sheets were created that day, 20 minutes apart. Checked every path: a
 double click on Connect in one Settings page can't send two (the click
@@ -2104,6 +2258,13 @@ or a re-add; no header row: a failed one).
    lists what changes at the merge.
 
 **Deferred, not abandoned:**
+- **The background test fake only answers open-ended column ranges
+  (2026-09-17):** its `columnRead` matches `!X2:X`, while `readCells` asks
+  for a bounded range (`B2:B2` for a single row), so a live-status read
+  through the message router comes back empty in tests. That's why the
+  Status-default check asserts on `matchLiveStatuses` directly rather than
+  through `GET_LIVE_STATUSES`. Teaching the fake to answer bounded ranges
+  would let those paths be tested end to end; noted, not fixed.
 - **Indeed parser (2026-09-01):** every fetch attempt (curl and
   WebFetch) was blocked outright by Cloudflare bot-detection, unlike
   LinkedIn and Greenhouse — meaning literally zero pre-implementation
@@ -2112,6 +2273,32 @@ or a re-add; no header row: a failed one).
   fetchable, multi-company evidence available immediately. Revisit
   when there's appetite for a parser built entirely from live
   browser inspection with no pre-verification step at all.
+  **Retried 2026-09-16 with headless Chrome** (the renderer the DOM tests
+  use), and it changes nothing: the search page, `viewjob`, `ca.indeed.com`
+  and `smartapply.indeed.com` all answer `HTTP/2 403` from Cloudflare's
+  edge, before any page renders, serving a static `PAGE_TYPE:"waf_block"`
+  page titled "Blocked - Indeed.com" ("Your request has been blocked.").
+  It's a WAF block, not a solvable challenge, and not headless detection.
+  `job-boards.greenhouse.io` and `jobs.lever.co` resolved from the same
+  machine in the same minutes, so it's Indeed, not the network. Nothing
+  was proxied around the block. So still **zero selectors confirmed**;
+  the ones in third-party scraping guides are hearsay, which is what the
+  working agreement rejects. Four unknowns block a parser: every
+  title/company/location/`jk` selector and whether the DOM is hashed;
+  whether Apply navigates, opens a modal or iframes smartapply; whether
+  `/beta/indeedapply/form/post-apply` (publicly indexed as the
+  post-submission step) is a real navigation or an SPA pushState, which
+  decides whether a content script can see it at all; and that the click
+  would be on `www.indeed.com` while the confirmation is on
+  `smartapply.indeed.com` — cross-origin two-phase logging, which
+  `lib/pendingApplications.ts` can't express today (it scopes pending
+  entries by origin), so that's an architecture change, not a new parser
+  file. Indeed's `robots.txt` also disallows `/viewjob?` and
+  `/applystart` for all agents. The only honest way in is a read-only DOM
+  dump Ryan captures himself in his own Chrome on one public posting,
+  which sidesteps the IP block; even then the final submit control and
+  the confirmation signal stay unverifiable until a real application, the
+  same residual gap Greenhouse had.
 - **appendRow isn't idempotent (logged 2026-09-11):** if `appendRow`
   succeeds on Google's side but the client times out
   (`lib/fetchWithTimeout.ts`, 30s then, 20s since 2026-09-14), `handleJobApplicationLogged`'s catch
