@@ -33,8 +33,8 @@ test('the Summary tab', async (t) => {
 
   await t.test('totals by status name the applications tab, with open-ended ranges from row 2', () => {
     assert.equal(text(5, 1), 'Applied')
-    assert.equal(formula(5, 2), '=COUNTIF(\'Sheet1\'!$G$2:$G,"Applied")')
-    assert.equal(formula(9, 2), '=COUNTIF(\'Sheet1\'!$G$2:$G,"Cancelled")')
+    assert.equal(formula(5, 2), '=COUNTIF(\'Sheet1\'!$F$2:$F,"Applied")')
+    assert.equal(formula(9, 2), '=COUNTIF(\'Sheet1\'!$F$2:$F,"Cancelled")')
     assert.equal(formula(10, 2), "=COUNTA('Sheet1'!$B$2:$B)")
   })
 
@@ -42,7 +42,7 @@ test('the Summary tab', async (t) => {
     assert.equal(formula(13, 1), '=TODAY()-WEEKDAY(TODAY(),3)-7*(ROW()-13)')
     assert.equal(
       formula(13, 2),
-      '=COUNTIFS(\'Sheet1\'!$A$2:$A,">="&$A13,\'Sheet1\'!$A$2:$A,"<"&$A13+7,\'Sheet1\'!$G$2:$G,"<>Cancelled")',
+      '=COUNTIFS(\'Sheet1\'!$A$2:$A,">="&$A13,\'Sheet1\'!$A$2:$A,"<"&$A13+7,\'Sheet1\'!$F$2:$F,"<>Cancelled")',
     )
     assert.equal(formula(14, 2).includes('$A14'), true, formula(14, 2))
     assert.equal(formula(13, 3), '=REPT("█",MIN($B13,20))')
@@ -98,7 +98,7 @@ test('the Summary tab', async (t) => {
     ctl.headers = HEADERS_WITH_LOG_ID
     sheet.rows[2] = ['46277.5', 'Acme', 'SWE Intern', 'Remote', 'https://example.com/1', 'SWE v3', 'Applied', '', 'id-1']
     await googleSheetsProvider.readHeaders(REF)
-    await googleSheetsProvider.appendRow(REF, { Date: '2026-09-16T10:00:00.000Z', Company: 'Acme', Title: 'SWE Intern', Location: '', URL: '', 'Resume Version': 'SWE v3', Status: 'Applied', Notes: '', 'Log ID': 'id-2' })
+    await googleSheetsProvider.appendRow(REF, { Date: '2026-09-16T10:00:00.000Z', Company: 'Acme', Title: 'SWE Intern', Location: '', URL: '', Status: 'Applied', Notes: '', 'Log ID': 'id-2' })
     await googleSheetsProvider.readRow(REF, 2)
     await googleSheetsProvider.readCells(REF, [2], ['Company', 'Title', 'Status'])
     await googleSheetsProvider.readLogIds(REF)

@@ -25,14 +25,14 @@ declare const copy: ((s: string) => void) | undefined
 // would after two weeks of real logging. Times are Toronto local time. The
 // store popup screenshot shows the newest four with these statuses.
 const ROWS = [
-  { at: '2026-08-31T09:12:00-04:00', company: 'Maple Street Data', title: 'Data Analyst Intern', location: 'Chicago, IL', resume: 'DE v1', status: 'Rejected' },
-  { at: '2026-09-01T16:05:00-04:00', company: 'Arclight Systems', title: 'Backend Software Engineer', location: 'Seattle, WA', resume: 'SWE v3', status: 'Offer' },
-  { at: '2026-09-03T11:30:00-04:00', company: 'Bluefin Labs', title: 'Machine Learning Engineer Intern', location: 'New York, NY', resume: 'SWE v2', status: 'Applied' },
-  { at: '2026-09-05T14:48:00-04:00', company: 'Quartzline', title: 'Site Reliability Engineer Intern', location: 'Toronto, ON', resume: 'SWE v3', status: 'Applied' },
-  { at: '2026-09-08T10:22:00-04:00', company: 'Cedar Grove Analytics', title: 'Data Engineering Intern', location: 'Remote', resume: 'DE v2', status: 'Interview', note: 'Recruiter call Tue 3pm. Take-home due Friday.' },
-  { at: '2026-09-10T13:07:00-04:00', company: 'Harborview Health', title: 'Full Stack Developer', location: 'Boston, MA', resume: 'SWE v3', status: 'Cancelled' },
-  { at: '2026-09-11T15:41:00-04:00', company: 'Juniper & Co', title: 'Product Engineer Intern', location: 'San Francisco, CA', resume: 'SWE v1', status: 'Interview' },
-  { at: '2026-09-12T09:56:00-04:00', company: 'Northwind Robotics', title: 'Software Engineer Intern', location: 'Austin, TX', resume: 'SWE v3', status: 'Applied' },
+  { at: '2026-08-31T09:12:00-04:00', company: 'Maple Street Data', title: 'Data Analyst Intern', location: 'Chicago, IL', status: 'Rejected' },
+  { at: '2026-09-01T16:05:00-04:00', company: 'Arclight Systems', title: 'Backend Software Engineer', location: 'Seattle, WA', status: 'Offer' },
+  { at: '2026-09-03T11:30:00-04:00', company: 'Bluefin Labs', title: 'Machine Learning Engineer Intern', location: 'New York, NY', status: 'Applied' },
+  { at: '2026-09-05T14:48:00-04:00', company: 'Quartzline', title: 'Site Reliability Engineer Intern', location: 'Toronto, ON', status: 'Applied' },
+  { at: '2026-09-08T10:22:00-04:00', company: 'Cedar Grove Analytics', title: 'Data Engineering Intern', location: 'Remote', status: 'Interview', note: 'Recruiter call Tue 3pm. Take-home due Friday.' },
+  { at: '2026-09-10T13:07:00-04:00', company: 'Harborview Health', title: 'Full Stack Developer', location: 'Boston, MA', status: 'Cancelled' },
+  { at: '2026-09-11T15:41:00-04:00', company: 'Juniper & Co', title: 'Product Engineer Intern', location: 'San Francisco, CA', status: 'Interview' },
+  { at: '2026-09-12T09:56:00-04:00', company: 'Northwind Robotics', title: 'Software Engineer Intern', location: 'Austin, TX', status: 'Applied' },
 ]
 
 ;(async () => {
@@ -45,7 +45,7 @@ const ROWS = [
       const url = `https://jobs.example.com/${slug}`
       const date = new Date(r.at).toISOString()
       // Status and Notes blank on append, like a real log (buildRow).
-      const appended = await googleSheetsProvider.appendRow(ref, { Date: date, Company: r.company, Title: r.title, Location: r.location, URL: url, 'Resume Version': r.resume, Status: '', Notes: '' })
+      const appended = await googleSheetsProvider.appendRow(ref, { Date: date, Company: r.company, Title: r.title, Location: r.location, URL: url, Status: '', Notes: '' })
       logged.push({ ...r, date, url, rowNumber: appended.rowNumber })
     }
     for (const r of logged) {
@@ -54,7 +54,7 @@ const ROWS = [
     }
     Object.assign(summary, {
       url: `https://docs.google.com/spreadsheets/d/${ref.spreadsheetId}/edit`,
-      rows: logged.map(({ company, title, location, resume, status, date, url, rowNumber }) => ({ rowNumber, date, company, title, location, url, resume, status })),
+      rows: logged.map(({ company, title, location, status, date, url, rowNumber }) => ({ rowNumber, date, company, title, location, url, status })),
     })
   } catch (e) {
     summary.error = String(e)

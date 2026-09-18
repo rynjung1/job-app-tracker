@@ -17,7 +17,6 @@ export interface WaitingApplication {
   location: string | null
   url: string
   date: string
-  resumeVersion: string
   logId?: string
 }
 
@@ -31,7 +30,6 @@ export function waitingFromQueue(queue: Record<string, string>[]): WaitingApplic
     location: row.Location || null,
     url: row.URL ?? '',
     date: row.Date ?? '',
-    resumeVersion: row['Resume Version'] ?? '',
     logId: row[LOG_ID_COLUMN] || undefined,
   }))
 }

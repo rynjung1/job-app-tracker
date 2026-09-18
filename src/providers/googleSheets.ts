@@ -238,7 +238,6 @@ const COLUMN_WIDTHS: Record<string, number> = {
   Title: 280,
   Location: 170,
   URL: 200,
-  'Resume Version': 140,
   Status: 120,
   Notes: 280,
 }

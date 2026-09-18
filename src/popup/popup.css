@@ -2,11 +2,6 @@ body {
   width: 368px;
 }
 
-/* The notification's Edit window: this page showing only the resume editor. */
-body.in-window {
-  width: auto;
-}
-
 .hdr {
   display: flex;
   align-items: center;
@@ -303,14 +298,9 @@ a.co:hover {
   line-height: 1.35;
 }
 
-/* Change resume version: the popup's editor view and the whole Edit window
-   (ResumeVersionEditor.tsx). */
+/* The note editor's panel (NoteEditor.tsx), which replaces the list. */
 .editor {
   padding: 16px 16px 14px;
-}
-
-body.in-window .editor {
-  padding: 18px 20px 16px;
 }
 
 .editor h2 {
@@ -423,17 +413,6 @@ body.in-window .editor {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
-}
-
-.window-note {
-  margin: 0;
-  padding: 20px;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.window-note p {
-  margin: 0 0 12px;
 }
 
 .empty {
