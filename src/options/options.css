@@ -154,6 +154,11 @@
   margin-top: 4px;
 }
 
+/* The what-we-read line under the supported sites (2026-09-17). */
+.sites-note {
+  margin-top: 10px;
+}
+
 /* "Saved 3 waiting applications." after a Reconnect. */
 .notice {
   margin: 10px 0 0;

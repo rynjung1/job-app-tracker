@@ -22,6 +22,7 @@ import { openSettingsWindow } from './settingsWindow'
 import { drainOfflineQueue, ensureRetryAlarm, getOfflineQueue, queueRow, RETRY_ALARM_NAME } from './offlineQueue'
 import { getSheetStatus, SHEET_PROBLEM_NOTIFICATION_ID, showSheetProblemNotification } from '../lib/sheetStatus'
 import { checkSheetInTrash } from './sheetHealth'
+import { sheetSwapInProgress } from './sheetSwap'
 
 const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 // This extension's own pages (popup, options) — used to distinguish an
@@ -167,6 +168,17 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
   if (await getSheetStatus()) {
     await queueRow(row)
     await showSheetProblemNotification()
+    return
+  }
+
+  // A swap can land between reading the sheet above and the append below,
+  // which is a real network round trip (audit finding, 2026-09-17): the row
+  // would go to the spreadsheet the user just left, and its recent-list
+  // entry would point at a row number there. Queue it instead; the drain
+  // writes it to the sheet that's actually connected.
+  if (sheetSwapInProgress() || (await getSheetRef())?.spreadsheetId !== sheetRef.spreadsheetId) {
+    console.log('[job-app-tracker] the connected sheet changed while logging; queuing this row for the new sheet')
+    await queueRow(row)
     return
   }
 

@@ -35,7 +35,35 @@ async function tracked<T>(call: () => Promise<T>, reachesSheet = false): Promise
   return result
 }
 
+// Sign-in only (2026-09-17): for a sheet that ISN'T the connected one — the
+// previous sheet, checked before a switch back. `tracked` sets and clears
+// `sheetStatus`, which describes the *connected* sheet, so checking another
+// sheet through it marked the connected one trashed or cleared a real
+// 'missing' flag (audit finding, 2026-09-17: writes froze, SET_STATUS and
+// SAVE_NOTE were refused and a false notification fired until the next tick).
+// Whether Google will let us in at all is account-wide, not per-sheet, so
+// that half of the tracking stays.
+async function trackedAuthOnly<T>(call: () => Promise<T>): Promise<T> {
+  let result: T
+  try {
+    result = await call()
+  } catch (err) {
+    if (err instanceof AuthRequiredError) await reportAuthRequired(err.message).catch(warn('record sign-in needed'))
+    throw err
+  }
+  await reportAuthOk().catch(warn('clear sign-in needed'))
+  return result
+}
+
 const provider = googleSheetsProvider
+
+// The two reads a health check makes, for a sheet other than the connected
+// one. Deliberately not a full SpreadsheetProvider: nothing else may be
+// called on a sheet we aren't connected to.
+export const otherSheetProvider: Pick<SpreadsheetProvider, 'readHeaders' | 'isTrashed'> = {
+  readHeaders: (sheetRef) => trackedAuthOnly(() => provider.readHeaders(sheetRef)),
+  isTrashed: (sheetRef) => trackedAuthOnly(() => provider.isTrashed(sheetRef)),
+}
 
 // Listed method by method (not a Proxy), so adding a method to
 // SpreadsheetProvider is a type error here until it's tracked too.

@@ -57,9 +57,9 @@ Job Application Tracker eliminates the copy-paste step of a job search. When you
 
 Easy Apply detection is fully supported with LinkedIn set to English.
 
-No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected at a glance (every logged row starts as Applied), plus a Summary tab that counts your applications by status and by week.
+No setup beyond connecting your Google account: the extension creates a new, formatted Google Sheet on first use, with a Status column, dropdown, and color-coded statuses so you can track Applied / Interview / Offer / Rejected / Cancelled at a glance (every logged row starts as Applied), plus a Summary tab that counts your applications by status and by week.
 
-From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, change its status, resume version or note at any time, and open its job posting, without touching the spreadsheet by hand. Settings always names the sheet you're connected to, and can start a new one for a new search — the old sheet stays in your Drive, and you can switch back to it. The notification after each log also offers a quick Undo and Edit. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
+From the extension's popup you can see each of your 20 most recent applications with its current status from your sheet, change its status, resume version or note at any time, and open its job posting, without touching the spreadsheet by hand. Settings names the sheet you're connected to, and can start a new one for a new search — the old sheet stays in your Drive, and you can switch back to it. The notification after each log also offers a quick Undo and Edit. If your Google sign-in ever lapses, the extension tells you, keeps your applications waiting, and saves them as soon as you reconnect.
 
 Privacy: the extension reads only the job page you apply on and its URL; it has no access to your other tabs or browsing history. It only talks to Google's own APIs: Sheets, to read and write your spreadsheet, and Drive, only to check whether that spreadsheet is in the trash; there is no other server, no analytics, and no third-party data sharing. OAuth access is scoped to files the extension itself creates (Google drive.file) — it cannot see your other files. Full privacy policy: https://rynjung1.github.io/job-app-tracker/privacy.html
 ```
@@ -96,31 +96,51 @@ any Google account, but it points a reviewer at the flow):
 
 ## Screenshots (1280×800, 24-bit PNG, no alpha)
 
-Each screenshot shows the real page as a card (1px border, soft shadow)
-centred on a plain `#F5F7FB` background; they aren't full-bleed captures.
-All data shown is placeholder: fake companies and `jobs.example.com` URLs.
-Rebuilt 2026-09-14 for the polished popup and Settings; the older
-popup-over-sheet and sheet screenshots were removed (old UI, old sheet
-formatting). Upload in this order:
+Each screenshot is 1280x800 of real rendered product: two of the
+extension's own surfaces side by side, each at its own scale, butted
+together edge to edge so the frame is full bleed — no card, border,
+shadow, margin or backdrop, and nothing scaled so far up that a single
+fragment fills the frame. The two-panel layout is a full-bleed
+composition of two real rendered pages, not a page shown as a card on a
+background: the panels meet at a 1px line and both run to the edges of
+the frame. Chrome asks for both: full bleed with no
+padding, and screenshots that demonstrate the actual user experience.
+All data shown is placeholder: fake companies and `jobs.example.com`
+URLs. Rebuilt 2026-09-18 from `main` plus the `audit-fixes` branch; the
+2026-09-14 pair showed each page as a card on a plain background (that's
+the padding the requirement rules out), and the first rebuild filled the
+frame with a 3.5x blow-up of the popup's top (full bleed, but a fragment
+rather than the product). Upload in this order:
 
-1. `screenshots/1-popup.png`: the popup's recent-applications list, with
-   each row's status dropdown and ⋯ menu.
-2. `screenshots/2-settings.png`: the Settings window's page, connected to
-   Google Sheets, with the quiet Reconnect link and the supported sites.
+1. `screenshots/1-popup-and-settings.png`: the popup's list on the left —
+   the "N this week · M interviews" summary line, the banner for
+   applications still waiting, two waiting rows among the saved ones,
+   status chips and each row's ⋯ menu — and Settings on the right,
+   connected and naming the sheet, with Open sheet, the quiet Reconnect
+   link, "Start a new sheet", the supported sites and what's read from
+   them.
+2. `screenshots/2-popup-actions.png`: what you can do from the popup —
+   the status dropdown open on a row, with all five statuses and their
+   colours, and the note editor with that row's Notes cell.
 
-How both were made: each is the real built page (the popup and the
-options page) from the production build (`npm run build`) of commit
-`574cfdf`,
-rendered in headless Chrome at 2x with a stand-in for the extension's
-storage and background messages that supplies the placeholder data. The
-code and styles are the shipped ones; only the data source is
-substituted. Each render was cropped to the page, scaled down from the
-2x render to 1.5× its true size (552×672 and 660×672; the store shows
-screenshots at about half size, so true-size text would be too small to
-read) and centred on a plain `#F5F7FB` 1280×800 background with a 1px
-border and a soft shadow. No browser chrome or
-text was added, and nothing was retouched. The popup's chips show the
-placeholder applications' statuses as its live statuses would.
+How both were made: every panel is the real built page (the popup and
+the options page) from the production build (`npm run build`) of commit
+`f978ec2` — the `audit-fixes` branch's changes on top of `main`'s
+`9a215e8` — rendered in headless Chrome with a
+stand-in for the extension's storage and background messages that
+supplies the placeholder data. The code and styles are the shipped ones;
+only the data source is substituted. Each panel is rendered at the page's
+own width — 368 CSS px for the popup, 500 for Settings (headless Chrome
+won't open a window narrower than 500, so Settings renders at 500 rather
+than its 440px window width) — with the device scale chosen so the panel
+comes out at the width it occupies and, where the page is short enough,
+its whole height: 1.50x and 1.456x for the first screenshot (552 + 728 =
+1280), 1.674x and 1.804x for the second (616 + 664 = 1280). Nothing is
+scaled non-uniformly, retouched or added, and no text or browser chrome
+was drawn on: the only pixels that aren't page renders are the 1px
+divider between the two panels, in the app's own border colour
+(`#E5E7EB`). Saved as 24-bit RGB PNG with no alpha. The popup's chips
+show the placeholder applications' statuses as its live statuses would.
 
 Optional, to add later: a screenshot of the auto-created sheet.
 `scripts/screenshot-sheet.ts` builds one on a throwaway sheet through the
@@ -138,7 +158,7 @@ the matching field.
 ### Single purpose
 
 ```text
-Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply and Greenhouse-hosted job postings) as rows in a Google Sheet you own.
+Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply and Greenhouse-hosted job postings) as rows in a Google Sheet you own, and lets you review and update those logged applications and manage the sheet they're logged to.
 ```
 
 ### Permission justifications
@@ -146,14 +166,14 @@ Automatically logs the job applications you submit on supported job sites (Linke
 `storage`:
 
 ```text
-Stores, only on this device: which Google Sheet you connected and its name, so Settings can show it; if you've started a new sheet, the identifier and name of the one it replaced, so Settings can offer to switch back to it; a queue of applications waiting to be written if the network or sign-in fails, so none are lost; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged or when the browser closes; after 30 minutes it's no longer used, and it's removed at the next Greenhouse Submit click or confirmation page); your 20 most recent logged applications (each with its row's random ID), shown in the popup so you can change their status, resume version or note; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and the error message from Chrome or Google, until you reconnect; if your sheet is moved to Google Drive's trash or deleted, which of the two and when, until it's restored or replaced; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
+Stores, only on this device: which Google Sheet you connected and its name, so Settings can show it; whenever a new sheet replaces it — through "Start a new sheet", or when the old one is in the trash or deleted — the identifier and name of the one it replaced, so Settings can offer to switch back to it; a queue of applications waiting to be written if the network or sign-in fails, so none are lost, each kept until it's saved; briefly, for a Greenhouse application, the job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms the submission (deleted when it's logged or when the browser closes; after 30 minutes it's no longer used, and it's removed at the next Greenhouse Submit click or confirmation page); your 20 most recent logged applications (each with its row's random ID), shown in the popup so you can change their status, resume version or note; the last resume version you used for each type of role; if Google sign-in lapses, when that happened and the error message from Chrome or Google, until you reconnect; if your sheet is moved to Google Drive's trash or deleted, which of the two and when, until it's restored or replaced; and, while the Settings window is open, its window id in session storage. No sign-in credential is stored: Chrome caches the Google token itself.
 ```
 
 Shorter fallback, use if the dashboard rejects the long one (no
 documented limit was found for these fields):
 
 ```text
-Stores on this device only: the connected Google Sheet and its name; the identifier and name of a sheet replaced by "Start a new sheet", to switch back to; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (unused after 30 minutes); the 20 most recent applications, for status, resume and note changes; the last resume version per role type; a sign-in-needed flag with the error from Chrome or Google; a sheet-in-trash-or-deleted flag; and the open Settings window's id (session).
+Stores on this device only: the connected Google Sheet and its name; the identifier and name of any sheet it replaced, to switch back to; a queue of applications waiting to be written if the network or sign-in fails; briefly, a Greenhouse job's title, company, location and URL from the Submit click, in session storage until Greenhouse confirms (unused after 30 minutes); the 20 most recent applications, for status, resume and note changes; the last resume version per role type; a sign-in-needed flag with the error from Chrome or Google; a sheet-in-trash-or-deleted flag; and the open Settings window's id (session).
 ```
 
 `identity`:

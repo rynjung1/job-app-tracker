@@ -1,14 +1,73 @@
 import { defineManifest } from '@crxjs/vite-plugin'
 import pkg from './package.json'
 
+// One entry per supported site: the name the store summary calls it, and the
+// content script that actually covers it. The summary is built from this
+// list (2026-09-17, audit finding): it used to be a hand-written string, and
+// on a branch that had added a site's name but not its content script the
+// store summary promised a site the build didn't support.
+// scripts/package.mjs re-checks the built manifest the same way.
+const SITES = [
+  {
+    name: 'LinkedIn',
+    contentScript: {
+      // Scoped to www.linkedin.com specifically, NOT *.linkedin.com — LinkedIn
+      // doesn't use per-locale subdomains for the main product, everything is
+      // www.linkedin.com/<locale-path>. This is deliberate narrowing, not an
+      // oversight — don't "fix" it into a wildcard without re-checking that.
+      //
+      // Every www.linkedin.com page, not just /jobs/* (2026-09-14, flagged in
+      // CLAUDE.md, Site parsers): LinkedIn is a single-page app, and going from
+      // /feed/ to /jobs/ in the app is a pushState, not a page load, so a
+      // script matched only to /jobs/* was never injected there. The script
+      // acts only on job pages: it does nothing until an Easy Apply click, and
+      // the parser's detect() checks the path is /jobs/ at that moment. The
+      // install warning names the same host as before (www.linkedin.com), and
+      // host_permissions is unchanged. https only, like the Greenhouse match.
+      matches: ['https://www.linkedin.com/*'],
+      js: ['src/content/linkedin.ts'],
+      run_at: 'document_idle',
+    },
+  },
+  {
+    name: 'Greenhouse',
+    contentScript: {
+      // job-boards.greenhouse.io only, not boards.greenhouse.io — the
+      // latter unconditionally 301-redirects there before any page ever
+      // renders (confirmed via curl -v), so a content script matched
+      // against it would never get a chance to run. See CLAUDE.md Site
+      // parsers, Greenhouse scoping decision, for the coverage gap this
+      // leaves (custom-domain-embedded boards aren't reachable at all).
+      // https only (2026-09-14): the background accepts messages only from
+      // https origins anyway (TRUSTED_ORIGINS).
+      matches: ['https://job-boards.greenhouse.io/*/jobs/*'],
+      js: ['src/content/greenhouse.ts'],
+      run_at: 'document_idle',
+    },
+  },
+]
+
+// "A", "A or B", "A, B or C" — the form the approved store summary uses.
+function siteList(names: readonly string[]): string {
+  if (names.length < 2) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+}
+
+// The Chrome Web Store's summary comes from this field (plain text, 132
+// characters max), so it's the approved short description from
+// store-assets/listing.md, word for word, with the site list built from
+// SITES above. Keep the two identical.
+const description = `Automatically logs job applications to Google Sheets when you apply on ${siteList(
+  SITES.map((site) => site.name),
+)} — no manual data entry.`
+if (description.length > 132) {
+  throw new Error(`manifest description is ${description.length} characters, over Chrome's 132: ${description}`)
+}
+
 export default defineManifest({
   manifest_version: 3,
   name: 'Job Application Tracker',
-  // The Chrome Web Store's summary comes from this field (plain text, 132
-  // characters max), so it's the approved short description from
-  // store-assets/listing.md, word for word.
-  description:
-    'Automatically logs job applications to Google Sheets when you apply on LinkedIn or Greenhouse — no manual data entry.',
+  description,
   version: pkg.version,
   // Added 2026-09-13: chrome.action.setBadgeTextColor, used by the "sign-in
   // needed" badge (lib/authStatus.ts), needs Chrome 110. On older Chrome it
@@ -70,37 +129,5 @@ export default defineManifest({
     client_id: '735296444178-9g9p4hq4abfslhhsd33cjobtsptiqlbn.apps.googleusercontent.com',
     scopes: ['https://www.googleapis.com/auth/drive.file'],
   },
-  content_scripts: [
-    {
-      // Scoped to www.linkedin.com specifically, NOT *.linkedin.com — LinkedIn
-      // doesn't use per-locale subdomains for the main product, everything is
-      // www.linkedin.com/<locale-path>. This is deliberate narrowing, not an
-      // oversight — don't "fix" it into a wildcard without re-checking that.
-      //
-      // Every www.linkedin.com page, not just /jobs/* (2026-09-14, flagged in
-      // CLAUDE.md, Site parsers): LinkedIn is a single-page app, and going from
-      // /feed/ to /jobs/ in the app is a pushState, not a page load, so a
-      // script matched only to /jobs/* was never injected there. The script
-      // acts only on job pages: it does nothing until an Easy Apply click, and
-      // the parser's detect() checks the path is /jobs/ at that moment. The
-      // install warning names the same host as before (www.linkedin.com), and
-      // host_permissions is unchanged. https only, like the Greenhouse match.
-      matches: ['https://www.linkedin.com/*'],
-      js: ['src/content/linkedin.ts'],
-      run_at: 'document_idle',
-    },
-    {
-      // job-boards.greenhouse.io only, not boards.greenhouse.io — the
-      // latter unconditionally 301-redirects there before any page ever
-      // renders (confirmed via curl -v), so a content script matched
-      // against it would never get a chance to run. See CLAUDE.md Site
-      // parsers, Greenhouse scoping decision, for the coverage gap this
-      // leaves (custom-domain-embedded boards aren't reachable at all).
-      // https only (2026-09-14): the background accepts messages only from
-      // https origins anyway (TRUSTED_ORIGINS).
-      matches: ['https://job-boards.greenhouse.io/*/jobs/*'],
-      js: ['src/content/greenhouse.ts'],
-      run_at: 'document_idle',
-    },
-  ],
+  content_scripts: SITES.map((site) => site.contentScript),
 })

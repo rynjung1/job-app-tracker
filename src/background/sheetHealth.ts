@@ -1,5 +1,5 @@
-import { getActiveProvider } from '../providers/activeProvider'
-import { SheetMissingError } from '../providers/types'
+import { getActiveProvider, otherSheetProvider } from '../providers/activeProvider'
+import { AuthRequiredError, SheetMissingError } from '../providers/types'
 import type { SheetRef } from '../providers/types'
 import { getSheetRef } from '../lib/sheetRef'
 
@@ -20,18 +20,35 @@ export async function checkSheetInTrash(): Promise<void> {
 }
 
 // Healthy means reachable (its header row reads) and not in Drive's trash.
-// Used before Connect keeps a stored sheet and before "Create a new sheet"
-// replaces one. Errors other than a deleted sheet are thrown, so nothing is
-// replaced on, say, a network failure.
+// Used before Connect keeps a stored sheet, before "Create a new sheet"
+// replaces one, and before a switch back adopts the previous one.
+//
+// A failure to *reach* the sheet that isn't a 404 is still thrown, so
+// nothing is replaced on, say, a network failure. A failure of the trash
+// check alone is not (audit finding, 2026-09-17): Drive being unreachable
+// used to break Connect, "Create a new sheet" and the switch back entirely.
+// It now reads as healthy — the trash detection is lost for that call, not
+// the feature, and the next check notices the trash. A sign-in failure is
+// still thrown: it's actionable, and Settings offers Reconnect for it.
+//
+// `connected` says whether this is the sheet the extension is connected to.
+// For any other sheet the check runs through otherSheetProvider, which
+// doesn't touch the connected sheet's trashed/missing flag.
 export type SheetHealth = 'healthy' | 'trashed' | 'missing'
 
-export async function sheetHealth(sheetRef: SheetRef): Promise<SheetHealth> {
-  const provider = await getActiveProvider()
+export async function sheetHealth(sheetRef: SheetRef, { connected = true } = {}): Promise<SheetHealth> {
+  const provider = connected ? await getActiveProvider() : otherSheetProvider
   try {
     await provider.readHeaders(sheetRef)
-    return (await provider.isTrashed(sheetRef)) ? 'trashed' : 'healthy'
   } catch (err) {
     if (err instanceof SheetMissingError) return 'missing'
     throw err
+  }
+  try {
+    return (await provider.isTrashed(sheetRef)) ? 'trashed' : 'healthy'
+  } catch (err) {
+    if (err instanceof AuthRequiredError) throw err
+    console.warn('[job-app-tracker] the trash check failed; treating the sheet as healthy:', err)
+    return 'healthy'
   }
 }
