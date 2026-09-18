@@ -2117,6 +2117,46 @@ Which path made the second sheet isn't known; the 8:07 PM sheet's contents
 would tell (formatted with headers: a completed Connect, from a stale page
 or a re-add; no header row: a failed one).
 
+**The pre-submission audit of 2026-09-17 (`9a215e8`), for whoever audits
+next.** Four reviews of the same commit, relayed by the reviewer session
+in four groups, so the next pass can start from what this one already
+covered rather than re-deriving it:
+- **The code review** raised seven findings. One high: checking a sheet
+  that isn't the connected one flags the connected one. Then the writes
+  a swap can misdirect; `sheetHealth` throwing on any Drive failure;
+  `Connect`/`replaceSheet` not being crash-safe; the Summary tab's
+  hardcoded grid id; `CREATE_NEW_SHEET`'s in-flight sharing ignoring
+  `replaceHealthy`; and three low ones left to this session's judgement
+  (the notification Edit window's skipped identity check, verifying the
+  tab title by `sheetId`, and the `locale: 'en_US'` pin). Ryan verified
+  the high one and three others in the code himself before relaying
+  them.
+- **The docs review** found the privacy page's date and three stale
+  claims (which sheet the trash check asks about and when, when a
+  previous ref is stored, "a short-term queue"), the same in
+  `store-assets/listing.md`, a single-purpose line that didn't mention
+  reviewing or managing, a status list missing Cancelled, an "always"
+  that overclaimed, and a README missing the Summary tab's average and
+  total and two internal messages.
+- **The store-compliance review** found no in-product disclosure of what
+  the extension reads (Google's Limited Use guidance says the policy
+  alone isn't enough) and, on `ats-lever-ashby`, a manifest description
+  naming Workday, which that branch doesn't implement.
+- **The screenshots review** found both store screenshots were pages
+  shown as cards on a plain background, which is the padding Chrome's
+  image requirements rule out.
+
+All of it was acted on except the two low findings recorded below as
+declined, and one thing that is **documented, not fixed: the orphan
+window inside `createSheet`.** A worker killed between the create call
+and the header write leaves a spreadsheet in the user's Drive that
+nothing knows about, and the next Connect makes another. Storing the id
+earlier would trade the orphan for a connected sheet with no header row,
+which is worse; adopting the orphan would mean listing `drive.file`
+files at Connect. That's the remaining part of the 2026-09-14
+two-sheets incident above — the part this session's Settings fix doesn't
+cover.
+
 **Fixed 2026-09-17 (four-agent audit of `9a215e8`).** Findings 1-6 of that
 audit, in the order they were fixed. Each has a Node or headless test that
 fails without its fix (checked by reverting the fix and re-running):
@@ -2285,6 +2325,10 @@ fails without its fix (checked by reverting the fix and re-running):
    lists what changes at the merge.
 
 **Deferred, not abandoned:**
+- **A worker killed inside `createSheet` orphans a sheet (2026-09-17,
+  audit):** documented, not fixed — see the audit record above for why
+  the two obvious fixes are both worse. The visible symptom is a second
+  "Job Applications" file in Drive after a Connect that appeared to fail.
 - **A write can land in the wrong tab after two deliberate renames
   (2026-09-17, audit):** every range names `sheetRef.sheetName`, and the
   recovery that re-reads the tab's title by `sheetId` only fires on the

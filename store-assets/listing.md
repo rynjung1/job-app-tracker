@@ -96,38 +96,51 @@ any Google account, but it points a reviewer at the flow):
 
 ## Screenshots (1280×800, 24-bit PNG, no alpha)
 
-Each screenshot is the real page itself, filling the frame: every pixel
-is the rendered page, with square corners and no border, shadow, margin
-or backdrop of any kind — Chrome's image requirements ask for full bleed
-with no padding. All data shown is placeholder: fake companies and
-`jobs.example.com` URLs. Rebuilt 2026-09-17 from `main` for the current
-popup (the summary line and waiting applications) and the current
-Settings (the connected sheet's name and "Start a new sheet"); the
-2026-09-14 pair showed each page as a card on a plain background, which
-is exactly the padding the requirement rules out. Upload in this order:
+Each screenshot is 1280x800 of real rendered product: two of the
+extension's own surfaces side by side, each at its own scale, butted
+together edge to edge so the frame is full bleed — no card, border,
+shadow, margin or backdrop, and nothing scaled so far up that a single
+fragment fills the frame. The two-panel layout is a full-bleed
+composition of two real rendered pages, not a page shown as a card on a
+background: the panels meet at a 1px line and both run to the edges of
+the frame. Chrome asks for both: full bleed with no
+padding, and screenshots that demonstrate the actual user experience.
+All data shown is placeholder: fake companies and `jobs.example.com`
+URLs. Rebuilt 2026-09-18 from `main` plus the `audit-fixes` branch; the
+2026-09-14 pair showed each page as a card on a plain background (that's
+the padding the requirement rules out), and the first rebuild filled the
+frame with a 3.5x blow-up of the popup's top (full bleed, but a fragment
+rather than the product). Upload in this order:
 
-1. `screenshots/1-popup.png`: the popup's header, its "N this week · M
-   interviews" summary line, the banner for applications still waiting,
-   and the first row, a waiting one.
-2. `screenshots/2-settings.png`: Settings connected to Google Sheets,
-   naming the sheet, with Open sheet, the quiet Reconnect link and
-   "Start a new sheet".
+1. `screenshots/1-popup-and-settings.png`: the popup's list on the left —
+   the "N this week · M interviews" summary line, the banner for
+   applications still waiting, two waiting rows among the saved ones,
+   status chips and each row's ⋯ menu — and Settings on the right,
+   connected and naming the sheet, with Open sheet, the quiet Reconnect
+   link, "Start a new sheet", the supported sites and what's read from
+   them.
+2. `screenshots/2-popup-actions.png`: what you can do from the popup —
+   the status dropdown open on a row, with all five statuses and their
+   colours, and the note editor with that row's Notes cell.
 
-How both were made: each is the real built page (the popup and the
-options page) from the production build (`npm run build`) of commit
-`9a215e8` plus this branch's changes,
-rendered in headless Chrome with a stand-in for the extension's storage
-and background messages that supplies the placeholder data. The code and
-styles are the shipped ones; only the data source is substituted. The
-viewport is the page's own width — 368 CSS px for the popup, 500 for
-Settings (headless Chrome won't open a window narrower than 500, so
-Settings renders at 500 rather than its 440px window width) — at a 16:10
-height, with the device scale set so that comes out at exactly 1280×800
-(3.478× and 2.56×). So the page fills the frame edge to edge and the
-frame shows its top; nothing is scaled non-uniformly, composited,
-retouched or added. Saved as 24-bit RGB PNG with no alpha. The popup's
-chips show the placeholder applications' statuses as its live statuses
-would.
+How both were made: every panel is the real built page (the popup and
+the options page) from the production build (`npm run build`) of commit
+`f978ec2` — the `audit-fixes` branch's changes on top of `main`'s
+`9a215e8` — rendered in headless Chrome with a
+stand-in for the extension's storage and background messages that
+supplies the placeholder data. The code and styles are the shipped ones;
+only the data source is substituted. Each panel is rendered at the page's
+own width — 368 CSS px for the popup, 500 for Settings (headless Chrome
+won't open a window narrower than 500, so Settings renders at 500 rather
+than its 440px window width) — with the device scale chosen so the panel
+comes out at the width it occupies and, where the page is short enough,
+its whole height: 1.50x and 1.456x for the first screenshot (552 + 728 =
+1280), 1.674x and 1.804x for the second (616 + 664 = 1280). Nothing is
+scaled non-uniformly, retouched or added, and no text or browser chrome
+was drawn on: the only pixels that aren't page renders are the 1px
+divider between the two panels, in the app's own border colour
+(`#E5E7EB`). Saved as 24-bit RGB PNG with no alpha. The popup's chips
+show the placeholder applications' statuses as its live statuses would.
 
 Optional, to add later: a screenshot of the auto-created sheet.
 `scripts/screenshot-sheet.ts` builds one on a throwaway sheet through the
