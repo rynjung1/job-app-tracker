@@ -52,6 +52,30 @@ const EXPECTED = {
   ],
 }
 
+// The host each site the store summary can name is actually served from
+// (2026-09-17, audit finding): a branch that named a site in the summary
+// before its content script existed would have shipped a summary promising
+// a site the build didn't support. A name that isn't in this table fails
+// too, so the table can't quietly fall behind the summary.
+const SITE_HOSTS = {
+  LinkedIn: 'www.linkedin.com',
+  Greenhouse: 'greenhouse.io',
+  Lever: 'jobs.lever.co',
+  Ashby: 'jobs.ashbyhq.com',
+  Workday: 'myworkdayjobs.com',
+}
+
+// The sites named between "when you apply on" and the closing clause:
+// "LinkedIn, Greenhouse, Lever, Ashby or Workday" -> the five names.
+function sitesNamedIn(description) {
+  const named = description.match(/when you apply on ([^—.]+)/)?.[1]
+  if (!named) return []
+  return named
+    .split(/,| or /)
+    .map((name) => name.trim())
+    .filter(Boolean)
+}
+
 // Every file allowed in the package. Anything else (source maps, .ts
 // sources, .env, .DS_Store, .vite/, store assets, docs) fails the check.
 const ALLOWED = [
@@ -133,8 +157,20 @@ function checkDir(dir) {
   }
 
   const contentScripts = m.content_scripts ?? []
-  if (!sameSet(contentScripts.flatMap((c) => c.matches), EXPECTED.contentScriptMatches)) {
-    fail(`content_scripts matches are ${JSON.stringify(contentScripts.flatMap((c) => c.matches))}, expected ${JSON.stringify(EXPECTED.contentScriptMatches)}`)
+  // Every site the store summary names has a content script for it.
+  const allMatches = contentScripts.flatMap((c) => c.matches ?? [])
+  for (const site of sitesNamedIn(m.description ?? '')) {
+    const host = SITE_HOSTS[site]
+    if (!host) {
+      fail(`the description names "${site}", which scripts/package.mjs doesn't know a host for (add it to SITE_HOSTS)`)
+      continue
+    }
+    if (!allMatches.some((match) => match.includes(host))) {
+      fail(`the description names "${site}" but no content script matches ${host}: ${JSON.stringify(allMatches)}`)
+    }
+  }
+  if (!sameSet(allMatches, EXPECTED.contentScriptMatches)) {
+    fail(`content_scripts matches are ${JSON.stringify(allMatches)}, expected ${JSON.stringify(EXPECTED.contentScriptMatches)}`)
   }
   // Pinned (CLAUDE.md, Permissions): exactly one entry per content script,
   // exposing only that script's own file to its site's origin.

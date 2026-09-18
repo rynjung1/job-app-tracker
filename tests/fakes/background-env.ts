@@ -59,6 +59,10 @@ export const ctl = {
   // The next append succeeds at "Google" (the row is stored) but its
   // response times out, as in the idempotency bug.
   appendThenAbort: false,
+  // The grid id a created spreadsheet's first sheet comes back with. 0 in
+  // practice; a test sets it to the Summary tab's own id to check they can't
+  // collide (2026-09-17).
+  createdSheetId: 0,
   // The fake tab's current name (a rename changes it; its sheetId stays 0),
   // or the tab deleted (the spreadsheet then has only a different tab).
   sheetTitle: 'Sheet1',
@@ -98,6 +102,7 @@ export function reset() {
   ctl.failQueueWrite = false
   ctl.headers = HEADERS_8
   ctl.appendThenAbort = false
+  ctl.createdSheetId = 0
   ctl.sheetTitle = 'Sheet1'
   ctl.tabDeleted = false
   ctl.trashedIds.clear()
@@ -268,7 +273,7 @@ export const fakeResponse = (status: number, text: string) =>
   const titleRead = u.match(/^https:\/\/sheets\.googleapis\.com\/v4\/spreadsheets\/([^/?]+)\?fields=properties\.title$/)
   const body =
     createdId !== undefined
-      ? { spreadsheetId: createdId, sheets: [{ properties: { title: 'Sheet1', sheetId: 0 } }] }
+      ? { spreadsheetId: createdId, sheets: [{ properties: { title: 'Sheet1', sheetId: ctl.createdSheetId } }] }
       : titleRead
         ? { properties: { title: ctl.titles[titleRead[1]] ?? '' } }
         : u.endsWith('?fields=sheets.properties')

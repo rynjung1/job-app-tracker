@@ -42,6 +42,20 @@ export async function setPreviousSheetRef(sheetRef: SheetRef): Promise<void> {
   await withStorageLock(() => chrome.storage.local.set({ [PREVIOUS_SHEET_REF_KEY]: sheetRef }))
 }
 
+// A swap: the sheet now connected and the one it replaced, in ONE write
+// (audit finding, 2026-09-17). Written separately, the previous ref landed
+// first, so a worker killed between the two writes came back with
+// previousSheetRef === sheetRef, and Settings then offered a "switch back"
+// that would clear the recent list to arrive where it already was. chrome
+// .storage.local.set is atomic per call, so both keys move together or
+// neither does, and the new sheet is stored before anything else can read
+// a half-swapped pair.
+export async function setSwappedSheetRefs(sheetRef: SheetRef, previous: SheetRef): Promise<void> {
+  await withStorageLock(() =>
+    chrome.storage.local.set({ [SHEET_REF_KEY]: sheetRef, [PREVIOUS_SHEET_REF_KEY]: previous }),
+  )
+}
+
 // The spreadsheet's name, stored only if that spreadsheet is still the
 // connected one: a swap may have landed in between (2026-09-17).
 export async function updateStoredSheetTitle(spreadsheetId: string, title: string): Promise<SheetRef | undefined> {

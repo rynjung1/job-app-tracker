@@ -17,7 +17,14 @@
 import { getActiveProvider } from '../providers/activeProvider'
 import type { SheetRef } from '../providers/types'
 import { SHEET_TEMPLATE_COLUMNS } from '../lib/sheetTemplate'
-import { getPreviousSheetRef, getSheetRef, setPreviousSheetRef, setSheetRef, updateStoredSheetTitle } from '../lib/sheetRef'
+import {
+  getPreviousSheetRef,
+  getSheetRef,
+  setSheetRef,
+  setSwappedSheetRefs,
+  updateStoredSheetTitle,
+} from '../lib/sheetRef'
+import { duringSheetSwap } from './sheetSwap'
 import { datedSheetTitle } from '../lib/sheetTitle'
 import { getRecentApplications, rowStillMatches, setApplicationStatus, updateRecentApplication } from '../lib/recentApplications'
 import { isStatusValue } from '../lib/sheetTemplate'
@@ -191,13 +198,22 @@ function handleConnectProvider(): Promise<BackgroundResponse<ConnectResult>> {
 // it's reachable and not trashed. Overlapping requests share one run. It
 // signs in only non-interactively: signed out, it fails with AUTH_REQUIRED
 // and Settings offers Reconnect.
-let createInFlight: Promise<BackgroundResponse<ConnectResult>> | null = null
+//
+// The in-flight run is shared only with a request that asked for the same
+// thing (audit finding, 2026-09-17): sharing it with any caller meant a
+// plain CREATE_NEW_SHEET — which must be refused while the sheet is healthy
+// — could be answered with a deliberate swap's brand new sheet. A request
+// with the other flag waits its turn through oneAtATime and has the guard
+// evaluated again, against whatever sheet is connected by then.
+let createInFlight: { replaceHealthy: boolean; run: Promise<BackgroundResponse<ConnectResult>> } | null = null
 
 function handleCreateNewSheet(replaceHealthy: boolean): Promise<BackgroundResponse<ConnectResult>> {
-  createInFlight ??= oneAtATime(() => createNewSheet(replaceHealthy)).finally(() => {
-    createInFlight = null
+  if (createInFlight?.replaceHealthy === replaceHealthy) return createInFlight.run
+  const run = oneAtATime(() => createNewSheet(replaceHealthy)).finally(() => {
+    if (createInFlight?.run === run) createInFlight = null
   })
-  return createInFlight
+  createInFlight = { replaceHealthy, run }
+  return run
 }
 
 async function createNewSheet(replaceHealthy: boolean): Promise<BackgroundResponse<ConnectResult>> {
@@ -222,10 +238,14 @@ async function createNewSheet(replaceHealthy: boolean): Promise<BackgroundRespon
 async function replaceSheet(previous: SheetRef): Promise<ConnectResult> {
   const provider = await getActiveProvider()
   const sheetRef = await provider.createSheet([...SHEET_TEMPLATE_COLUMNS], datedSheetTitle())
-  await setPreviousSheetRef(previous)
-  await setSheetRef(sheetRef)
-  await clearSheetProblem()
-  await clearRecentApplications()
+  // Both refs in one write, the new sheet first, and with writers held off
+  // while the connected sheet changes under them (2026-09-17, audit).
+  await duringSheetSwap(async () => {
+    await setSwappedSheetRefs(sheetRef, previous)
+    await clearSheetProblem()
+    await clearRecentApplications()
+  })
+  // Outside the guard: these rows are meant for the new sheet.
   return { sheetRef, ...(await drainAfterSignIn()) }
 }
 
@@ -248,7 +268,21 @@ function handleSwitchToPreviousSheet(): Promise<BackgroundResponse<ConnectResult
 async function switchToPreviousSheet(): Promise<BackgroundResponse<ConnectResult>> {
   const previous = await getPreviousSheetRef()
   if (!previous) return { ok: false, error: 'No previous sheet is remembered.' }
-  const health = await sheetHealth(previous)
+  const leaving = await getSheetRef()
+  // The two refs pointing at one spreadsheet means a half-finished swap was
+  // interrupted (audit finding, 2026-09-17). Switching "back" there would
+  // clear the recent list to arrive where we already are, so it's refused
+  // and the offer is dropped.
+  if (leaving && leaving.spreadsheetId === previous.spreadsheetId) {
+    return {
+      ok: false,
+      code: 'PREVIOUS_UNAVAILABLE',
+      error: 'The previous sheet is the one you are already connected to.',
+    }
+  }
+  // The previous sheet isn't the connected one, so this check must not
+  // touch the connected sheet's trashed/deleted flag.
+  const health = await sheetHealth(previous, { connected: false })
   if (health !== 'healthy') {
     return {
       ok: false,
@@ -259,11 +293,12 @@ async function switchToPreviousSheet(): Promise<BackgroundResponse<ConnectResult
           : 'The previous sheet was deleted, so there is nothing to switch back to.',
     }
   }
-  const leaving = await getSheetRef()
-  if (leaving) await setPreviousSheetRef(leaving)
-  await setSheetRef(previous)
-  await clearSheetProblem()
-  await clearRecentApplications()
+  await duringSheetSwap(async () => {
+    if (leaving) await setSwappedSheetRefs(previous, leaving)
+    else await setSheetRef(previous)
+    await clearSheetProblem()
+    await clearRecentApplications()
+  })
   return { ok: true, data: { sheetRef: previous, ...(await drainAfterSignIn()) } }
 }
 
@@ -358,6 +393,18 @@ async function requireSheetRefOrThrow(): Promise<SheetRef> {
 // input stops at it too.
 export const MAX_RESUME_VERSION_LENGTH = 500
 
+// How long after an application was logged a notification-Edit window may
+// still write without the Company/Title check. Generous next to the
+// notification's own ~5 seconds, and far short of "indefinitely".
+const SKIP_IDENTITY_CHECK_WINDOW_MS = 10 * 60 * 1000
+
+function loggedWithin(entry: RecentApplication, windowMs: number): boolean {
+  const loggedAt = Date.parse(entry.date)
+  // An unparseable or future date is treated as outside the window: the
+  // check is the safe side.
+  return Number.isFinite(loggedAt) && Date.now() - loggedAt >= 0 && Date.now() - loggedAt <= windowMs
+}
+
 async function handleSaveResumeVersion(payload: {
   entryId: unknown
   resumeVersion: unknown
@@ -380,7 +427,15 @@ async function handleSaveResumeVersion(payload: {
   // standalone Edit window opened directly for this exact entry via the
   // notification's Edit button skips the check), now an explicit payload
   // field instead of something background would otherwise have to infer.
-  if (!skipIdentityCheck) {
+  //
+  // Honoured only while that correction window is plausibly still open
+  // (audit finding, 2026-09-17). The window is opened from a notification
+  // that lives about five seconds, but nothing closes the window itself:
+  // left open for an hour, its Save was a blind positional write to a row
+  // the user may have sorted or renamed since — the exact risk the check
+  // exists for. Past the window the write still goes through, it just has
+  // to prove the row is still the right one first.
+  if (!skipIdentityCheck || !loggedWithin(entry, SKIP_IDENTITY_CHECK_WINDOW_MS)) {
     const row = await provider.readRow(sheetRef, entry.rowNumber)
     if (!rowStillMatches(row, entry)) {
       return { ok: false, code: 'STALE_ROW', error: 'The row no longer matches the cached entry' }

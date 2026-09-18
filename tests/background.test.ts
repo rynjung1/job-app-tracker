@@ -15,6 +15,8 @@ import { getActiveProvider } from '../src/providers/activeProvider'
 import { AuthRequiredError } from '../src/providers/types'
 import { ensureRetryAlarm } from '../src/background/offlineQueue'
 import { DEFAULT_SHEET_TITLE, datedSheetTitle } from '../src/lib/sheetTitle'
+import { duringSheetSwap } from '../src/background/sheetSwap'
+import { drainOfflineQueue } from '../src/background/offlineQueue'
 import '../src/background/index'
 
 const REF = { spreadsheetId: 'sheet1', sheetName: 'Sheet1', sheetId: 0 }
@@ -370,6 +372,101 @@ test('background worker', async (t) => {
 
   const then = new Date(2026, 0, 5, 9, 30)
   await check('datedSheetTitle: the plain name plus the local creation date, zero-padded', datedSheetTitle(then) === 'Job Applications (from 2026-01-05)' && dated.startsWith(`${DEFAULT_SHEET_TITLE} (from `) && /^Job Applications \(from \d{4}-\d{2}-\d{2}\)$/.test(dated), { then: datedSheetTitle(then), dated })
+
+  // ---- Audit fixes (2026-09-17). ----
+
+  // 1. Checking the previous sheet must not flag the connected one.
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } })
+  ctl.trashedIds.add(REF.spreadsheetId)
+  const refusedSwitch = (await internal({ type: 'SWITCH_TO_PREVIOUS_SHEET' })) as any
+  const flagAfterRefusal = sheetFlag()
+  apply('Logged After The Refusal')
+  await settle()
+  await check('SWITCH_TO_PREVIOUS_SHEET with the previous sheet trashed leaves the CONNECTED sheet unflagged, and the next application still lands', !refusedSwitch.ok && refusedSwitch.code === 'PREVIOUS_UNAVAILABLE' && !flagAfterRefusal && !sheetFlag() && rowsFor('Logged After The Refusal') === 1 && queue() === 0 && sheetNotes().length === 0, { refusedSwitch, flagAfterRefusal, flag: sheetFlag(), queue: queue(), notes: sheetNotes().length })
+
+  // 3. A failing Drive call is "unknown", not a broken feature.
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.fetchPlan = [200, 500]
+  const createDriveDown = (await internal({ type: 'CREATE_NEW_SHEET' })) as any
+  reset()
+  await local.set({ sheetRef: REF, offlineQueue: [qrow('Queued Before Connect', 12)] })
+  ctl.fetchPlan = [200, 500]
+  const connectDriveDown = (await internal({ type: 'CONNECT_PROVIDER' })) as any
+  await check('with Drive failing, the trash check reads as healthy: "Create a new sheet" is refused rather than erroring, and Connect keeps the sheet and still drains', !createDriveDown.ok && createDriveDown.code === 'SHEET_HEALTHY' && connectDriveDown.ok && spreadsheetCreates() === 0 && connectDriveDown.data.sheetRef.spreadsheetId === REF.spreadsheetId && connectDriveDown.data.saved === 1 && queue() === 0, { createDriveDown, connectDriveDown, creates: spreadsheetCreates() })
+
+  // 2. A swap in flight: writers queue or stop instead of writing into the
+  //    spreadsheet being left behind.
+  reset()
+  await local.set({ sheetRef: REF })
+  await duringSheetSwap(async () => {
+    apply('Applied Mid Swap')
+    await settle()
+  })
+  await check('an application logged while a swap is in flight is queued, not appended to the sheet being left', rowsFor('Applied Mid Swap') === 0 && appendCalls() === 0 && queue() === 1, { appends: appendCalls(), queue: queue() })
+
+  reset()
+  await local.set({ sheetRef: REF, offlineQueue: [qrow('Drain Row One', 12), qrow('Drain Row Two', 13)] })
+  const realFetch = globalThis.fetch
+  let appendsSeen = 0
+  // The connected sheet changes after the drain's first append, as a swap
+  // landing mid-drain would do.
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const response = await realFetch(url, init)
+    if (String(url).includes(':append') && ++appendsSeen === 1) {
+      await local.set({ sheetRef: { ...REF, spreadsheetId: 'swapped-in' } })
+    }
+    return response
+  }) as typeof fetch
+  const drainedAcrossSwap = await drainOfflineQueue()
+  globalThis.fetch = realFetch
+  await check('a swap landing mid-drain stops the pass: the row already written counts, the rest stays queued for the new sheet', drainedAcrossSwap === 1 && rowsFor('Drain Row One') === 1 && rowsFor('Drain Row Two') === 0 && queue() === 1, { drainedAcrossSwap, queue: queue(), rows: Object.values(sheet.rows).map((r) => r[1]) })
+
+  // 4. Crash-safety: one storage write, the new sheet first, and no switch
+  //    back to the sheet already connected.
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  const realSet = local.set
+  const writes: string[][] = []
+  local.set = async (items: Record<string, unknown>) => {
+    writes.push(Object.keys(items))
+    return realSet(items)
+  }
+  await internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } })
+  local.set = realSet
+  const refWrite = writes.find((keys) => keys.includes('sheetRef') || keys.includes('previousSheetRef'))
+  await check('a swap writes both refs in one storage call, the new sheet first, so a worker killed mid-swap can never come back with previous === connected', writes.filter((keys) => keys.includes('sheetRef') || keys.includes('previousSheetRef')).length === 1 && refWrite?.[0] === 'sheetRef' && refWrite?.includes('previousSheetRef') === true, { writes })
+
+  reset()
+  await local.set({ sheetRef: REF, previousSheetRef: REF })
+  const switchToItself = (await internal({ type: 'SWITCH_TO_PREVIOUS_SHEET' })) as any
+  await check('SWITCH_TO_PREVIOUS_SHEET when the remembered sheet is the connected one (an interrupted swap) -> refused, the recent list untouched', !switchToItself.ok && switchToItself.code === 'PREVIOUS_UNAVAILABLE' && switchToItself.error.includes('already connected') && log.fetches.length === 0, { switchToItself, fetches: log.fetches })
+
+  // 6. An in-flight create is shared only with a request that asked for the
+  //    same thing.
+  reset()
+  await local.set({ sheetRef: { ...REF, title: DEFAULT_SHEET_TITLE } })
+  const [swapRun, plainRun] = (await Promise.all([
+    internal({ type: 'CREATE_NEW_SHEET', payload: { replaceHealthy: true } }),
+    internal({ type: 'CREATE_NEW_SHEET' }),
+  ])) as any[]
+  await check('a deliberate swap and a plain CREATE_NEW_SHEET at once: one sheet created, and the plain one is refused rather than answered with the swap', swapRun.ok && swapRun.data.sheetRef.spreadsheetId === 'new1' && !plainRun.ok && plainRun.code === 'SHEET_HEALTHY' && spreadsheetCreates() === 1, { swapRun, plainRun, creates: spreadsheetCreates() })
+
+  // 7. The notification Edit window's skipped identity check expires.
+  const freshEntry = { id: 'fresh1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: new Date().toISOString(), resumeVersion: 'SWE v1', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
+  const staleEntry = { ...freshEntry, id: 'stale1', date: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() }
+  reset()
+  await local.set({ sheetRef: REF, recentApplications: [freshEntry] })
+  sheet.rows[5] = ['', 'Renamed By Hand', 'SWE Intern', '', '', 'SWE v1', 'Applied', '', '']
+  const skipFresh = (await internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 'fresh1', resumeVersion: 'SWE v2', skipIdentityCheck: true } })) as any
+  const freshWrites = sheet.writes.length
+  reset()
+  await local.set({ sheetRef: REF, recentApplications: [staleEntry] })
+  sheet.rows[5] = ['', 'Renamed By Hand', 'SWE Intern', '', '', 'SWE v1', 'Applied', '', '']
+  const skipStale = (await internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 'stale1', resumeVersion: 'SWE v2', skipIdentityCheck: true } })) as any
+  await check('skipIdentityCheck is honoured for an application just logged (the notification\'s window) and not for one two hours old, which gets the Company/Title check and STALE_ROW', skipFresh.ok && freshWrites === 1 && !skipStale.ok && skipStale.code === 'STALE_ROW' && sheet.writes.length === 0, { skipFresh, freshWrites, skipStale, writes: sheet.writes.length })
 
   reset()
   await local.set({ sheetRef: REF })

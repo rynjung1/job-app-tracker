@@ -271,11 +271,17 @@ function toDateCellValue(value: string | undefined): string | number {
 // extension writes it once, in createSheet's own batch, and never touches it
 // again: every other method addresses sheetRef.sheetName.
 const SUMMARY_TAB_TITLE = 'Summary'
-// A fixed grid id, requested in the same batchUpdate that fills the tab. The
-// spreadsheet is one request old and holds only its default sheet, so this
-// id is free, and asking for it lets the formatting requests below name it
-// without a second round trip to learn what id Google picked.
+// The grid id asked for in the same batchUpdate that fills the tab, so the
+// cell requests below can name it without a second round trip to learn what
+// id Google picked. A brand-new spreadsheet's one sheet is id 0 in practice,
+// which is why this was simply hardcoded — but addSheet fails the whole
+// batch if the id is taken, and nothing checked (audit finding, 2026-09-17).
+// It's now derived from the id the applications tab actually came back with.
 const SUMMARY_SHEET_ID = 1000001
+
+export function summarySheetIdFor(applicationsSheetId: number): number {
+  return applicationsSheetId === SUMMARY_SHEET_ID ? SUMMARY_SHEET_ID + 1 : SUMMARY_SHEET_ID
+}
 const SUMMARY_WEEKS = 8
 // 1-based: the first "Week of" row, which the week formulas address.
 const SUMMARY_FIRST_WEEK_ROW = 13
@@ -303,7 +309,7 @@ const SUMMARY_AVERAGE_FORMAT = { numberFormat: { type: 'NUMBER', pattern: '0.0' 
 // Column letters come from the template passed in, never hardcoded, so a
 // change to the column order can't silently misaddress these (the same rule
 // the formatting requests follow).
-function buildSummaryRequests(applicationsTitle: string, templateColumns: string[]): unknown[] {
+function buildSummaryRequests(applicationsTitle: string, templateColumns: string[], summarySheetId: number): unknown[] {
   const letterOf = (column: string) => columnIndexToLetter(templateColumns.indexOf(column))
   const tab = quoteSheetName(applicationsTitle)
   const column = (name: string) => {
@@ -377,14 +383,14 @@ function buildSummaryRequests(applicationsTitle: string, templateColumns: string
   return [
     {
       updateCells: {
-        range: { sheetId: SUMMARY_SHEET_ID, startRowIndex: 0, startColumnIndex: 0 },
+        range: { sheetId: summarySheetId, startRowIndex: 0, startColumnIndex: 0 },
         rows,
         fields: 'userEnteredValue,userEnteredFormat,note',
       },
     },
     ...[170, 70, 170, 170, 70].map((pixelSize, i) => ({
       updateDimensionProperties: {
-        range: { sheetId: SUMMARY_SHEET_ID, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
+        range: { sheetId: summarySheetId, dimension: 'COLUMNS', startIndex: i, endIndex: i + 1 },
         properties: { pixelSize },
         fields: 'pixelSize',
       },
@@ -595,6 +601,9 @@ export const googleSheetsProvider: SpreadsheetProvider = {
     // The numeric grid id — batchUpdate's formatting requests below
     // address ranges by this, not by sheetName.
     const sheetId = created.sheets?.[0]?.properties?.sheetId ?? 0
+    // Never the applications tab's own id: addSheet would fail the whole
+    // batch, taking the headers' formatting with it.
+    const summarySheetId = summarySheetIdFor(sheetId)
 
     const range = rangeIn(sheetName, 'A1')
     await withAuth((token) =>
@@ -614,7 +623,7 @@ export const googleSheetsProvider: SpreadsheetProvider = {
             {
               addSheet: {
                 properties: {
-                  sheetId: SUMMARY_SHEET_ID,
+                  sheetId: summarySheetId,
                   title: SUMMARY_TAB_TITLE,
                   index: 1,
                   gridProperties: { rowCount: 40, columnCount: 6 },
@@ -622,7 +631,7 @@ export const googleSheetsProvider: SpreadsheetProvider = {
               },
             },
             ...buildFormattingRequests(sheetId, templateColumns),
-            ...buildSummaryRequests(sheetName, templateColumns),
+            ...buildSummaryRequests(sheetName, templateColumns, summarySheetId),
           ],
         }),
       }),
