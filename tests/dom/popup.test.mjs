@@ -252,6 +252,26 @@ var t = setInterval(function () { try { var b = f.contentDocument && f.contentDo
       assert.equal(refused.notice, '')
     })
 
+    const disconnected = await settings('disconnected', 'scenario=disconnected')
+    await t.test('Settings discloses what the extension reads, above Connect, before anything is connected', () => {
+      const said = disconnected.card ?? ''
+      assert.ok(said.includes('Not connected'), `card: ${said}`)
+      assert.ok(
+        said.includes("reads that job's title, company, location and link from the page you apply on"),
+        `card: ${said}`,
+      )
+      assert.ok(said.indexOf('reads that job') < said.indexOf('Connect Google Sheets'), `order: ${said}`)
+      assert.ok(disconnected.sitesnote.includes("only the job's title, company, location and link"), disconnected.sitesnote)
+    })
+
+    const killed = await settings('killed', 'scenario=killed&do=started')
+    await t.test('a request that fails after the sheet was already created: the card shows the new sheet instead of a "Try again" that would create a second one', () => {
+      assert.equal(killed.connected, 'Connected to Job Applications (from 2026-09-17)')
+      assert.ok(killed.notice.startsWith('Connected to Job Applications (from 2026-09-17). The last step didn\'t finish:'), `notice: ${killed.notice}`)
+      assert.equal(killed.alert, '')
+      assert.ok(!killed.card.includes('Try again'), `card: ${killed.card}`)
+    })
+
     // Settings at its 440px window, every card state, both themes: no
     // horizontal scroll (scrollWidth <= clientWidth).
     for (const scenario of ['ok', 'signedout', 'trashed', 'prev']) {
