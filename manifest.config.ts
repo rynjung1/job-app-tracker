@@ -71,9 +71,18 @@ function siteList(names: readonly string[]): string {
 // characters max), so it's the approved short description from
 // store-assets/listing.md, word for word, with the site list built from
 // SITES above. Keep the two identical.
-const description = `Automatically logs job applications to Google Sheets when you apply on ${siteList(
-  SITES.map((site) => site.name),
-)} — no manual data entry.`
+//
+// Two approved forms, and which one is used depends only on how many
+// sites there are: with room to spare it ends "— no manual data entry."
+// (the two-site line approved 2026-09-14, 117 characters), and once the
+// list is long enough to push that over Chrome's 132 it ends at the sites
+// (the five-site line approved 2026-09-15, 117 characters). Both are
+// reproduced exactly; a list too long for either is a build error rather
+// than a silently truncated summary.
+const sites = siteList(SITES.map((site) => site.name))
+const withTail = `Automatically logs job applications to Google Sheets when you apply on ${sites} — no manual data entry.`
+const plain = `Automatically logs job applications to Google Sheets when you apply on ${sites}.`
+const description = withTail.length <= 132 ? withTail : plain
 if (description.length > 132) {
   throw new Error(`manifest description is ${description.length} characters, over Chrome's 132: ${description}`)
 }
