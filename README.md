@@ -17,6 +17,11 @@ a new row.
   you to the company's own website aren't logged.
 - **Greenhouse job boards** on `job-boards.greenhouse.io`. Career sites
   that show Greenhouse jobs on the company's own domain aren't covered.
+- **Lever job sites** on `jobs.lever.co` and `jobs.eu.lever.co`.
+- **Ashby job boards** on `jobs.ashbyhq.com`.
+
+For Lever and Ashby, as for Greenhouse, boards a company hosts on its own
+domain aren't covered.
 
 ## How it works
 
@@ -25,7 +30,9 @@ a new row.
    the sheet you're connected to from then on.
 2. Apply as usual. On LinkedIn the row is logged when you click Easy
    Apply; on Greenhouse, once the site confirms your application was
-   submitted, so an attempt the form rejects isn't logged.
+   submitted, so an attempt the form rejects isn't logged; on Lever, when
+   the application form is submitted, after its own checks pass; on Ashby,
+   when you click Submit Application.
 3. A "Logged" notification appears for about five seconds, with an Undo
    in case you didn't mean to apply.
 4. The extension's popup lists your 20 most recent applications, plus any
@@ -37,7 +44,8 @@ a new row.
 
 - **Automatic logging per site.** Each supported site has its own parser
   and its own trigger: the Easy Apply click on LinkedIn, the confirmation
-  page on Greenhouse.
+  page on Greenhouse, the form's submit on Lever, and the Submit
+  Application click on Ashby.
 - **The popup.** Each row shows the company, title, location and date,
   with the status from your sheet. A dropdown sets the status (Applied,
   Interview, Offer, Rejected, Cancelled) — every logged row starts as
@@ -94,8 +102,9 @@ a new row.
   LinkedIn's interface set to English.
 - **The job sends you off-site.** "Apply on company website" leaves
   LinkedIn, and the extension doesn't follow you there.
-- **A Greenhouse job on the company's own domain.** Only
-  `job-boards.greenhouse.io` is covered.
+- **A job board on the company's own domain.** Only Greenhouse's, Lever's
+  and Ashby's own hosts are covered, not the same jobs re-hosted on a
+  company's careers site.
 - **No sheet connected, or Google sign-in lapsed.** The popup says so and
   the application waits; connect or reconnect and it's saved.
 - **You were offline.** The application is queued and retried every 5
@@ -137,10 +146,10 @@ https://rynjung1.github.io/job-app-tracker/privacy.html
   sheet was deleted" notices.
 - `https://sheets.googleapis.com/*`: reads and writes your sheet through
   the Google Sheets API.
-- It runs on LinkedIn and on Greenhouse job boards. LinkedIn moves between
-  pages without reloading them, so its code is loaded on every LinkedIn
-  page, but it acts only on job pages, reading the job details when you
-  click Easy Apply or Submit.
+- It runs on LinkedIn, Greenhouse job boards, Lever application pages and
+  Ashby job boards. LinkedIn and Ashby move between pages without reloading
+  them, so its code is loaded on every page of those sites, but it acts only
+  on job pages, reading the job details when you apply.
 
 ## For developers
 
@@ -157,7 +166,8 @@ content script (per site)          background service worker           Google
 ```
 
 - **Content scripts** (`src/content/`, `src/parsers/`) only read the page
-  and send a message. They never touch the spreadsheet.
+  and send a message. They never touch the spreadsheet. One parser per
+  site, each with its own trigger.
 - **The background worker** (`src/background/`) is the only component
   with the OAuth token and the only caller of the spreadsheet provider.
   It verifies each message's sender origin, validates the fields, and

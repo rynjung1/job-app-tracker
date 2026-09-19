@@ -1884,6 +1884,134 @@ deep-cloning mock storage: 13 of 13 pass, including a pending write and
 a confirmation fired together, and two confirmations at once logging
 exactly once.
 
+**Lever and Ashby (2026-09-15, decided by Ryan; built on the
+`ats-lever-ashby` branch, merged only after one real application on each
+confirms its trigger).** Neither delays the Workday launch.
+- **What was checked**, read-only, GET requests and headless renders, with
+  nothing filled in, clicked or submitted: six Lever postings from
+  different companies (five on `jobs.lever.co`, one on `jobs.eu.lever.co`),
+  their `/apply` and `/thanks` pages; five Ashby postings, one rendered
+  application page and that board's JS bundle.
+- **Lever, full page loads.** The posting is `/{company}/{id}`, the form
+  `/{company}/{id}/apply`, the confirmation `/{company}/{id}/thanks`. The
+  apply page holds the title in `.posting-header h2` (the posting page uses
+  `.posting-headline h2`, which the apply page doesn't have) and the
+  location in `.posting-categories .location`. The company comes only from
+  `document.title`, `"{Company} - {Title}"`, split at the FIRST `" - "` and
+  trimmed: job titles carry their own dashes ("Android Engineer -
+  Experience"), and one real posting's title had two spaces before it. The
+  apply page carries no JSON-LD. The logged URL is the posting, without
+  `/apply`. EU tenants exist only on `jobs.eu.lever.co`
+  (`jobs.lever.co/{company}` 404s for them).
+- **Lever's trigger: the form's own submit event** (`form#application-form`,
+  capture phase). The page's inline script runs `hcaptcha.execute` on the
+  `#btn-submit` click and, once the token is there, clicks a hidden
+  `#hcaptchaSubmitBtn` (`type="submit"`), with a comment saying that calling
+  `submit()` on the form directly would bypass the fields' `required`
+  attributes. So the submit event fires only after hCaptcha and the
+  browser's own required-field checks pass, and an attempt the page rejects
+  never reaches it. Not the `/thanks` route: a GET of `/thanks` renders
+  `<h3 data-qa="msg-submit-success">Application submitted!</h3>` for any
+  posting with no application made, so it confirms nothing on its own, and
+  Lever's "Application Success Page URL" setting sends some companies'
+  candidates to their own site, whose applications would be lost with
+  nothing to show for it. The listener deliberately doesn't require
+  `isTrusted`, unlike LinkedIn's click: Lever triggers the submit from its
+  own scripted click, so requiring trust would log nothing at all.
+  **The accepted trade-off** (decided by Ryan, 2026-09-15): a script running
+  on a Lever page could dispatch its own submit event on `#application-form`
+  and log a row the user never sent. That row is visible in the popup and
+  one status change cancels it, while requiring `isTrusted` would miss every
+  real application. The origin check still holds: only Lever's own pages run
+  this script, and the background refuses any other sender.
+- **Ashby, a React single-page app.** The posting is `/{org}/{id}` and the
+  application `/{org}/{id}/application`, a client-side route in the same
+  document, so the script matches the whole host and checks the path at the
+  click, as on LinkedIn. Title from `h1.ashby-job-posting-heading`
+  (trimmed: the real one has a leading space), company from
+  `.ashby-job-posting-header img[alt]`, falling back to `document.title`'s
+  `"{Title} @ {Company}"` — trusted less, because the rendered page carries
+  two `<title>` elements. Location from the `<p>` after the English
+  `<h2>Location</h2>`: every other class on the page is hashed per build.
+  The URL comes from `og:url`, which is the posting without
+  `/application`.
+- **Ashby's trigger: the Submit Application button's click**
+  (`.ashby-application-form-submit-button`), with the background's 24-hour
+  repeat skip. **The trade-off, decided by Ryan:** the alternative is
+  watching `.ashby-application-form-success-container`, which the bundle
+  defines beside the button's own class
+  (`e.ApplicationFormSubmitButton` = "ashby-application-form-submit-button",
+  `e.ApplicationFormSuccessContainer` =
+  "ashby-application-form-success-container") and reaches through
+  `FormSubmitResult: [FormRender, FormSubmitSuccess]`,
+  with the default message "Your application was successfully submitted…".
+  That is more accurate while it holds, but a rename would stop logging
+  silently, the way LinkedIn's label change once did; a row logged for an
+  attempt Ashby then rejects (a file still uploading, a reCAPTCHA error,
+  server-side validation) is visible in the popup and can be cancelled.
+  Checked on the rendered page: exactly one such button, no `<form>` element
+  and no `type="submit"` anywhere, and reCAPTCHA present.
+- **Flagged: a permission change, three more install-warning hosts.**
+  `jobs.lever.co`, `jobs.eu.lever.co` and `jobs.ashbyhq.com` join
+  `www.linkedin.com`, `job-boards.greenhouse.io` and
+  `sheets.googleapis.com`: six warning hosts, and Chromium turns more than
+  three into "Read and change your data on a number of websites" with a
+  sub-list. Shipping them in the first submission avoids the re-approval an
+  update adding hosts triggers (Chrome disables an extension when an update
+  adds a warning permission). `scripts/package.mjs` pins the new matches.
+- **Trust boundary:** the three origins are added to `TRUSTED_ORIGINS` as
+  exact strings, so a lookalike host (`evil-jobs.lever.co`,
+  `jobs.lever.co.evil.example`, `http:`, the bare domains) is a different
+  origin and is refused.
+- **Out of scope:** boards a company hosts on its own domain (Lever's embed
+  links back to `jobs.lever.co`; Ashby's loads its host in an iframe, and
+  content scripts don't run in frames), and an Ashby board a company has
+  turned off, which serves "Page not found" even though the posting API
+  still lists its jobs.
+- **The store summary** (decided by Ryan, 2026-09-15) names all five sites
+  at 117 of 132 characters, Workday included, even though Workday isn't on
+  this branch: "Automatically logs job applications to Google Sheets when
+  you apply on LinkedIn, Greenhouse, Lever, Ashby or Workday." The `workday`
+  branch rewrites the same line, so whichever of `workday` and
+  `ats-lever-ashby` merges second keeps this line and there's no collision
+  left to resolve. It's the manifest's `description`, and
+  `store-assets/listing.md` holds the identical text.
+
+**Verified 2026-09-15 in Node and headless Chrome only** (`npm test` 142 of
+142 on `ats-lever-ashby`, `npm run test:node` 101 of 101; `npm run package`
+OK, 20 files):
+- `tests/dom/ats.test.mjs`, both parsers on fixtures of the two real
+  structures, each in its own iframe at a real address: Lever's apply page
+  gives the title, company, location and the posting URL without `/apply`;
+  the EU host keeps its host; with no header block `document.title` splits
+  at its first `" - "`, so a title containing a dash survives, and a company
+  written with two spaces before the dash is trimmed; the posting page (not
+  `/apply`) and a title with no separator give no row. Ashby's application
+  page gives the trimmed title, the company from the logo's `alt`, the
+  location section and `og:url`; with no logo the company comes from
+  `document.title`; with no `og:url` the URL is built from the path; the
+  Overview route, and a page with no heading, no logo and no `" @ "`, give
+  no row. The fixtures also assert the shapes the triggers rest on: one
+  `form#application-form` and one `#btn-submit` on Lever, with its only
+  native submit button the hidden hCaptcha one, and on Ashby exactly one
+  submit button with no form or submit-type element at all.
+- `tests/leverContent.test.ts`, the real content script on a fake page: one
+  capture-phase submit listener; the application form's submit logs the job
+  with the posting URL; an untrusted submit still logs (Lever's own scripted
+  click); another form, the posting page, and a page it can't read all log
+  nothing.
+- `tests/ashbyContent.test.ts`: one capture-phase click listener; a trusted
+  Submit Application click logs the job; an untrusted click, a click
+  elsewhere and the Overview route log nothing; after an in-app move back to
+  `/application` the same instance logs again; a page it can't read logs
+  nothing.
+- `tests/background.test.ts`: the three origins log, and six lookalike
+  origins log nothing.
+- `tests/contentScripts.test.ts`: the manifest's four match entries, https
+  only.
+Not run live: nothing on Lever or Ashby has logged a real row yet. One real
+application on each is the check (web-store-deploy step 6).
+
 ---
 
 ## Security (required, not optional — this is going on the Web
@@ -2044,13 +2172,14 @@ actually needs it, not speculatively ahead of time.
 content script, exposing only that script's own bundled file to its
 site's origin (`https://www.linkedin.com/*`,
 `https://job-boards.greenhouse.io/*` since the https-only matches of
-2026-09-14, checked in the built manifest; `*://` before),
+2026-09-14, checked in the built manifest; `*://` before, and since
+2026-09-15 Lever's and Ashby's hosts too),
 `use_dynamic_url: false`). No plugin
-option turns it off, and it's accepted: a page on those two sites can
+option turns it off, and it's accepted: a page on those sites can
 detect the extension is installed if it knows the hashed file path, and
 nothing else is exposed. A Vite dev-server build instead exposes every
 file to every site (`<all_urls>`, `**/*`), so upload zips come only from
-`npm run package` (`scripts/package.mjs`), which pins exactly those two
+`npm run package` (`scripts/package.mjs`), which pins exactly those
 entries.
 
 **Manifest / build**
@@ -2096,12 +2225,13 @@ delegated entirely to Google OAuth by design.
   bundles `tests/*.test.ts` with the esbuild that comes with Vite and runs
   them with `node:test` (the background worker against faked chrome,
   fetch and navigator; Greenhouse pending applications; since 2026-09-15 the
-  popup's list and summary line, and the colour tokens in both themes), then
+  popup's list and summary line, the colour tokens in both themes, and the
+  Lever and Ashby content scripts against fake pages), then
   `tests/dom/popup.test.mjs`, which builds the extension and drives the
   built popup in headless Chrome through a stand-in chrome API (keyboard,
   scroll and Edit-window fit; since 2026-09-15 both themes, waiting rows,
-  the note editor and Settings at 440px). It skips itself when Chrome isn't
-  found.
+  the note editor and Settings at 440px), and `tests/dom/*.test.mjs` for the
+  site parsers on fixtures. They skip themselves when Chrome isn't found.
   `npm run test:node` runs only the Node parts. The storage fakes
   deep-clone on every get and set, per the 2026-09-09 lesson. Since
   2026-09-16 the DOM tests' stub waits for the condition each step needs

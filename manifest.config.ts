@@ -45,6 +45,33 @@ const SITES = [
       run_at: 'document_idle',
     },
   },
+  {
+    name: 'Lever',
+    contentScript: {
+      // Lever's own job sites, the application form page only (2026-09-15,
+      // flagged in CLAUDE.md, Site parsers, Lever: two more install-warning
+      // hosts). Lever is not a single-page app — the posting, the form and
+      // the thanks page are each a full load — so this narrow path match is
+      // enough. EU tenants exist only on jobs.eu.lever.co. https only.
+      matches: ['https://jobs.lever.co/*/*/apply*', 'https://jobs.eu.lever.co/*/*/apply*'],
+      js: ['src/content/lever.ts'],
+      run_at: 'document_idle',
+    },
+  },
+  {
+    name: 'Ashby',
+    contentScript: {
+      // Ashby's hosted job boards (2026-09-15, flagged with Lever above).
+      // A React single-page app: its Overview and Application tabs are
+      // client-side routes, so a match limited to /application would miss
+      // moving there in-app, the same reason LinkedIn matches every page.
+      // The script acts only when the path is /{org}/{id}/application at the
+      // click. https only.
+      matches: ['https://jobs.ashbyhq.com/*'],
+      js: ['src/content/ashby.ts'],
+      run_at: 'document_idle',
+    },
+  },
 ]
 
 // "A", "A or B", "A, B or C" — the form the approved store summary uses.
