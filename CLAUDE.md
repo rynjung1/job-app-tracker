@@ -1571,6 +1571,25 @@ Applied from its cached list, so the sheet and the popup disagreed.
   picks a value, and the Summary tab's totals will be short by that many
   until then.
 
+**Diagnosed 2026-09-18, the visible consequence of that:** Ryan reported the
+Status "not updating". It was the blank-cell case, not a failure. On a sheet
+whose rows predate the default, the popup's chip keeps showing the **cached**
+status for those rows, because `matchLiveStatuses` (`lib/liveStatuses.ts`)
+keeps a live status only when the row's Company and Title still match **and**
+the Status cell isn't empty — an empty one leaves the entry out, so the popup
+falls back to what it cached. Nothing is broken: the moment a status exists in
+the sheet (set from the popup, or typed in by hand), the chip follows it.
+`scripts/status-check.ts` is how to tell that apart from a real failure —
+read-only, it prints per entry whether the identity check passes, what
+`SET_STATUS` would decide, and where each chip's status comes from. Ryan's
+run, on a sheet created 2026-09-14 (the 9 legacy columns, Status at G): 6
+cached entries, all carrying a Log ID, every identity check passing,
+`entriesWhereAStatusChangeWouldWrite` 6 of 6,
+`entriesWhoseChipComesFromTheSheet` 0 of 6, `liveReadError` none, no sign-in
+or sheet flag, an empty queue. So the write path was healthy the whole time
+and every chip was cached, which is exactly what six blank Status cells
+produce.
+
 ---
 
 ## Site parsers (v1 scope)
