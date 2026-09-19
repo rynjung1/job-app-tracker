@@ -18,7 +18,6 @@ const entry = (id: string, date: Date, status = 'Applied', logId?: string): Rece
   location: null,
   url: `https://jobs.example.com/${id}`,
   date: iso(date),
-  resumeVersion: '',
   status,
   sheetName: 'Sheet1',
   rowNumber: 2,
@@ -30,7 +29,6 @@ const queued = (logId: string | undefined, date: Date, company = 'Queued Co') =>
   Title: 'Engineer',
   Location: '',
   URL: 'https://jobs.example.com/q',
-  'Resume Version': 'SWE v1',
   Status: '',
   Notes: '',
   ...(logId ? { 'Log ID': logId } : {}),
@@ -118,7 +116,6 @@ test('popup list and summary line', async (t) => {
       location: null,
       url: 'https://jobs.example.com/q',
       date: iso(day(0)),
-      resumeVersion: 'SWE v1',
       logId: 'k1',
     })
   })

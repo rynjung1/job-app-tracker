@@ -9,22 +9,21 @@ import { LOG_ID_COLUMN } from './sheetTemplate'
 // It stays a manual field: nothing detects a status change, the cell is
 // ordinary and editable, 'Applied' is one of the five the strict dropdown
 // accepts, and the sheet's TEXT_EQ rule colours it. Notes stays blank.
-// Resume Version is passed in rather than
-// computed here — see lib/resumeVersion.ts for the role-type-keyed
-// last-used lookup (CLAUDE.md Phase 4); kept out of this function so
-// buildRow stays a pure sync mapping, no storage access.
+// Resume Version was removed 2026-09-18 (decided by Ryan; a flagged change
+// to the locked sheet template): new sheets have no such column, and on a
+// sheet created before that they keep theirs and appendRow, which maps by
+// header name, simply leaves that cell blank.
 //
 // Log ID (2026-09-14): a random id made here, once per application, and
 // kept on the row through sanitizeRow and the offline queue, so the drain
 // can find a row that already reached the sheet (CLAUDE.md, Sheet setup).
-export function buildRow(data: JobPostingData, resumeVersion: string): Record<string, string> {
+export function buildRow(data: JobPostingData): Record<string, string> {
   return {
     Date: new Date().toISOString(),
     Company: data.company,
     Title: data.title,
     Location: data.location ?? '',
     URL: data.url,
-    'Resume Version': resumeVersion,
     Status: 'Applied',
     Notes: '',
     [LOG_ID_COLUMN]: crypto.randomUUID(),

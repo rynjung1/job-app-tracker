@@ -372,7 +372,8 @@ the approved mockups (direction A):
   one list in `lib/sheetTemplate.ts`, shared with the sheet's dropdown
   and colour rules (the new sheet's dropdown now lists them in workflow
   order). Picking one sends `SET_STATUS`, below.
-- **The row's ⋯ menu:** Change resume version and Open job posting. The
+- **The row's ⋯ menu:** Change resume version and Open job posting (since
+  2026-09-18: Add note and Open job posting). The
   popup's Undo button is gone: Cancelled is set from the status dropdown,
   one place for status. The notification keeps Undo and Edit, its short
   correction window.
@@ -569,6 +570,8 @@ user's flow. The 5-second popup toast is purely a correction window
 (Undo / Edit resume version), not a gate. Resume version defaults to
 whichever version was last used for that role type (SWE vs DE),
 inferred from job title keywords, and is editable from the toast.
+(Resume Version was removed 2026-09-18, and with it the toast's Edit
+button: the notification is Undo only — see Sheet setup.)
 
 **Updated 2026-09-12 (decided by Ryan): Greenhouse logs on a confirmed
 submission, not at the click.** Its Submit click can fail Greenhouse's
@@ -1138,7 +1141,8 @@ backend is ever added.
 
 Default: **auto-create** a new sheet on first install/auth, from a
 fixed template (Date, Company, Title, Location, URL, Resume Version,
-Status, Notes). Zero setup required to get working.
+Status, Notes). Zero setup required to get working. (Resume Version was
+removed 2026-09-18 — see below.)
 
 **Updated 2026-08-27:** added `Location` (8th column) — the LinkedIn
 parser built in Phase 2 extracts it, and the original 7-column list
@@ -1186,6 +1190,40 @@ one with the column.
 **Updated 2026-09-17:** a logged row's Status cell starts at `Applied`
 rather than blank — see Status field for the reasoning and what it doesn't
 change.
+
+**Updated 2026-09-18 (decided by Ryan), a change to this locked template:
+`Resume Version` is removed.** Ryan doesn't use it. New sheets are created
+with 7 visible columns — Date, Company, Title, Location, URL, Status,
+Notes — plus the hidden Log ID, so `Status` is column F where it used to be
+G, and the Summary tab's formulas follow, since every letter is computed
+from `SHEET_TEMPLATE_COLUMNS`.
+- **An existing sheet keeps its column and keeps working.** Nothing
+  rewrites or removes a column from a sheet that already exists.
+  `appendRow` maps values by header name, so a row built now simply leaves
+  that cell blank; every other column still lands where it belongs, and
+  rows logged before today keep whatever they had.
+- **What went with it:** `lib/resumeVersion.ts` (the last-used-per-role-type
+  lookup) and `lib/roleType.ts`, its only caller; the
+  `lastResumeVersionByRoleType` storage key, deleted on update alongside the
+  Excel leftovers (`REMOVED_KEYS`, background `onInstalled`);
+  `SAVE_RESUME_VERSION` and `RecentApplication.resumeVersion`;
+  `popup/ResumeVersionEditor.tsx`; and the popup's `?edit=` standalone-window
+  mode with its CSS and window sizing.
+- **The "Logged" notification keeps Undo only** (decided by Ryan): Edit
+  existed to change the resume version inside a five-second correction
+  window, and a note isn't a correction — it's written later, from the
+  popup.
+- **The row's ⋯ menu is Add note and Open job posting.**
+- **The popup row's meta line is the date** (and "not in your sheet yet"
+  for a waiting row).
+
+**Fixed in passing 2026-09-18:** an internal message whose type this
+version doesn't know — a popup or Settings page left open across an
+update, which is exactly what `SAVE_RESUME_VERSION` becomes — used to fall
+past the internal branch in `background/index.ts`, get logged as a message
+"from unverified origin" (it isn't) and leave the channel to close under
+the sender. It's now answered with `Unknown message type: …`, and
+`dispatch` has a matching default.
 
 **Updated 2026-09-16 (decided by Ryan), a second change to this locked
 template: a "Summary" tab.** `createSheet` adds a second tab whose cells
@@ -1317,7 +1355,8 @@ silently break if the template's shape ever changes.
   Alternating white/`#F5F7FB` banding on the data rows.
 - **Column widths**: a pixel width for every column (Date 130, Company
   180, Title 280, Location 170, URL 200, Resume Version 140, Status
-  120, Notes 280).
+  120, Notes 280; the Resume Version width left with the column on
+  2026-09-18).
 - **Status conditional formatting**: real, persistent
   `addConditionalFormatRule` rules (`TEXT_EQ` per value: `Offer` →
   green, `Interview` → blue, `Applied` → yellow, `Rejected` → red,
@@ -1531,6 +1570,25 @@ Applied from its cached list, so the sheet and the popup disagreed.
   Nothing rewrites existing rows; those cells stay empty until the user
   picks a value, and the Summary tab's totals will be short by that many
   until then.
+
+**Diagnosed 2026-09-18, the visible consequence of that:** Ryan reported the
+Status "not updating". It was the blank-cell case, not a failure. On a sheet
+whose rows predate the default, the popup's chip keeps showing the **cached**
+status for those rows, because `matchLiveStatuses` (`lib/liveStatuses.ts`)
+keeps a live status only when the row's Company and Title still match **and**
+the Status cell isn't empty — an empty one leaves the entry out, so the popup
+falls back to what it cached. Nothing is broken: the moment a status exists in
+the sheet (set from the popup, or typed in by hand), the chip follows it.
+`scripts/status-check.ts` is how to tell that apart from a real failure —
+read-only, it prints per entry whether the identity check passes, what
+`SET_STATUS` would decide, and where each chip's status comes from. Ryan's
+run, on a sheet created 2026-09-14 (the 9 legacy columns, Status at G): 6
+cached entries, all carrying a Log ID, every identity check passing,
+`entriesWhereAStatusChangeWouldWrite` 6 of 6,
+`entriesWhoseChipComesFromTheSheet` 0 of 6, `liveReadError` none, no sign-in
+or sheet flag, an empty queue. So the write path was healthy the whole time
+and every chip was cached, which is exactly what six blank Status cells
+produce.
 
 ---
 

@@ -1,5 +1,5 @@
 // The built popup in headless Chrome, with the stand-in chrome API from
-// stub.js: the keyboard and scroll steps (menu, status list, resume editor)
+// stub.js: the keyboard and scroll steps (menu, status list, note editor)
 // and the Edit window's fit; since 2026-09-15 also both themes, waiting
 // applications, the summary line, the note editor, and Settings at its real
 // 440px width. Skipped with a message when Chrome isn't found; set
@@ -19,9 +19,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url))
-// background/index.ts opens the Edit window 404px tall; the macOS title bar
-// takes about 28px of that.
-const EDIT_WINDOW_INNER_HEIGHT = 376
 // background/settingsWindow.ts's window width.
 const SETTINGS_WIDTH = 440
 
@@ -124,18 +121,6 @@ var t = setInterval(function () { try { var b = f.contentDocument && f.contentDo
     const steps = JSON.parse(keyboard.kb)
     assert.equal(steps.length, 14, 'expected 14 keyboard and scroll steps')
     for (const step of steps) await t.test(step.step, () => assert.ok(step.ok, `focus: ${step.focus}`))
-
-    const fits = [
-      ['Edit window fits its inner height, no scrolling', 'edit=a1&w=380'],
-      ['Edit window with the longest error still fits', 'edit=a1&w=380&scenario=editerr&do=save'],
-    ]
-    for (const [name, query] of fits) {
-      const page = await dumpBody(`${base}?${query}`, '500,900', profile(`fit-${fits.indexOf(name)}`))
-      const content = Number(page.content)
-      await t.test(name, () =>
-        assert.ok(content > 0 && content <= EDIT_WINDOW_INNER_HEIGHT, `content ${content}px, window inner height ${EDIT_WINDOW_INNER_HEIGHT}px`),
-      )
-    }
 
     // A sheet in Drive's trash, or deleted (2026-09-14): the banner per state,
     // and no status chip can write.

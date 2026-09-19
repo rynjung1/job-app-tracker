@@ -58,8 +58,8 @@ export interface SpreadsheetProvider {
   readHeaders(sheetRef: SheetRef): Promise<string[]>
   appendRow(sheetRef: SheetRef, row: Record<string, string>): Promise<AppendedRow>
   // NOT in CLAUDE.md's original locked interface — added for Phase 4's
-  // Undo (mark Status) and Edit (overwrite Resume Version), which both
-  // need to update one cell in an already-written row. Flagged as a new
+  // Undo and Edit, which both need to update one cell in an already-written
+  // row (today: the Status cell and a row's Notes cell). Flagged as a new
   // addition beyond the previously-approved appendRow signature change,
   // not silently bundled into it.
   updateCell(

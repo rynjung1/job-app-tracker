@@ -2,8 +2,6 @@
 // App.tsx unchanged on 2026-09-15, plus the two note texts.
 export const STALE_ROW_STATUS =
   "This row may have changed since it was logged, so its status wasn't changed. You can still change it in your spreadsheet."
-export const STALE_ROW_RESUME =
-  "This row may have changed since it was logged, so it wasn't updated. You can still change it in your spreadsheet."
 export const STALE_ROW_NOTE =
   "This row may have changed since it was logged, so its note wasn't opened or saved. You can still change it in your spreadsheet."
 // SAVE_NOTE's NOTE_CHANGED (wording decided by Ryan, 2026-09-15).

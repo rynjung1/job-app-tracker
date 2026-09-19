@@ -27,7 +27,6 @@ function recentEntryFor(row: Record<string, string>, appended: AppendedRow): Rec
     location: row.Location || null,
     url: row.URL ?? '',
     date: row.Date ?? '',
-    resumeVersion: row['Resume Version'] ?? '',
     status: row.Status || 'Applied',
     sheetName: appended.sheetName,
     rowNumber: appended.rowNumber,

@@ -10,9 +10,8 @@ import { buildRow } from '../lib/buildRow'
 import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { sanitizeRow } from '../lib/sanitize'
 import { parseJobPostingData } from '../lib/jobPayload'
-import { REMOVED_EXCEL_KEYS } from '../lib/storageKeys'
+import { REMOVED_KEYS } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
-import { getDefaultResumeVersion } from '../lib/resumeVersion'
 import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 import { recordPendingApplication, takePendingApplication } from '../lib/pendingApplications'
@@ -67,11 +66,12 @@ chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     openSettingsWindow()
   }
-  // Excel/OneDrive support was removed 2026-09-13: delete the Microsoft
-  // token and provider choice an earlier version may have stored, so the
-  // extension keeps no credential of its own.
+  // Keys an earlier version wrote that nothing reads any more: the
+  // Microsoft token and provider choice left by Excel/OneDrive support
+  // (removed 2026-09-13), so the extension keeps no credential of its own,
+  // and the last-used resume version per role type (removed 2026-09-18).
   if (details.reason === 'update') {
-    chrome.storage.local.remove(REMOVED_EXCEL_KEYS)
+    chrome.storage.local.remove(REMOVED_KEYS)
   }
 })
 
@@ -103,7 +103,6 @@ async function notifyApplicationLogged(payload: JobPostingData, row: Record<stri
     location: payload.location,
     url: payload.url,
     date: row.Date,
-    resumeVersion: row['Resume Version'],
     status: 'Applied',
     sheetName: appended.sheetName,
     rowNumber: appended.rowNumber,
@@ -116,7 +115,11 @@ async function notifyApplicationLogged(payload: JobPostingData, row: Record<stri
     iconUrl: chrome.runtime.getURL('icons/icon128.png'),
     title: 'Logged',
     message: `${payload.company} — ${payload.title}`,
-    buttons: [{ title: 'Undo' }, { title: 'Edit' }],
+    // Undo only since 2026-09-18 (decided by Ryan): Edit opened a
+    // standalone window for the Resume Version, and that column is gone.
+    // A note is written later, from the popup, not inside a five-second
+    // correction window.
+    buttons: [{ title: 'Undo' }],
   })
 
   const clearAlarmName = `${NOTIFICATION_CLEAR_ALARM_PREFIX}${id}`
@@ -148,8 +151,7 @@ async function handleJobApplicationLogged(payload: JobPostingData) {
     console.log('[job-app-tracker] this job was logged in the last 24 hours and not cancelled; not logging it again')
     return
   }
-  const resumeVersion = await getDefaultResumeVersion(payload.title)
-  const row = sanitizeRow(buildRow(payload, resumeVersion))
+  const row = sanitizeRow(buildRow(payload))
   const sheetRef = await getSheetRef()
 
   if (!sheetRef) {
@@ -327,19 +329,6 @@ chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIn
       }
     }
     chrome.notifications.clear(notificationId)
-  } else if (buttonIndex === 1) {
-    chrome.windows.create({
-      type: 'popup',
-      url: chrome.runtime.getURL(`src/popup/index.html?edit=${notificationId}`),
-      // The focused "Change resume version" dialog (ResumeVersionEditor).
-      // Sized from the rendered page at 380px wide: 308px of content, 367px
-      // with the longest inline error. The height is the outer window, and
-      // the macOS title bar takes about 28px of it, so 404 leaves 376px
-      // inside: the error case plus a 9px margin, no clipping or scrolling.
-      width: 380,
-      height: 404,
-    })
-    chrome.notifications.clear(notificationId)
   }
 })
 
@@ -362,9 +351,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // was the real page's origin, never a chrome-extension:// one) — not
   // something a compromised page script can forge, same trust basis the
   // TRUSTED_ORIGINS check below already relies on.
-  if (sender.origin === OWN_ORIGIN && isInternalMessage(message)) {
-    handleInternalMessage(message, sendResponse)
-    return true // keep the channel open for the async sendResponse above
+  if (sender.origin === OWN_ORIGIN) {
+    if (isInternalMessage(message)) {
+      handleInternalMessage(message, sendResponse)
+      return true // keep the channel open for the async sendResponse above
+    }
+    // Our own page, a type this version doesn't know: a popup or Settings
+    // left open across an update (found 2026-09-18, removing
+    // SAVE_RESUME_VERSION). Answer it. Falling through used to log it as a
+    // message "from unverified origin", which it isn't, and left the
+    // channel to close under the sender, which sees a generic failure.
+    console.warn('[job-app-tracker] unknown internal message type:', (message as { type?: unknown })?.type)
+    sendResponse({ ok: false, error: `Unknown message type: ${String((message as { type?: unknown })?.type)}` })
+    return false
   }
 
   if (!sender.origin || !TRUSTED_ORIGINS.includes(sender.origin)) {
