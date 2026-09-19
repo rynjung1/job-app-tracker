@@ -30,24 +30,23 @@ a new row.
    Apply; on Greenhouse, once the site confirms your application was
    submitted, so an attempt the form rejects isn't logged; on Workday, when
    you click the application's final Submit.
-3. A "Logged" notification appears for about five seconds, with Undo and
-   Edit for a quick fix.
+3. A "Logged" notification appears for about five seconds, with an Undo
+   in case you didn't mean to apply.
 4. The extension's popup lists your 20 most recent applications, plus any
    still waiting to be saved. From there you can change an application's
-   status, resume version or note, or open the job posting. Changes are
-   written to your sheet.
+   status or note, or open the job posting. Changes are written to your
+   sheet.
 
 ## Features
 
 - **Automatic logging per site.** Each supported site has its own parser
   and its own trigger: the Easy Apply click on LinkedIn, the confirmation
   page on Greenhouse.
-- **The popup.** Each row shows the company, title, location, resume
-  version and date, with the status from your sheet. A dropdown sets the
-  status (Applied, Interview, Offer, Rejected, Cancelled) — every logged
-  row starts as Applied — and the row's
-  ⋯ menu changes the resume version, edits the row's note or opens the
-  job posting. A row is only written if its Company and Title still
+- **The popup.** Each row shows the company, title, location and date,
+  with the status from your sheet. A dropdown sets the status (Applied,
+  Interview, Offer, Rejected, Cancelled) — every logged row starts as
+  Applied — and the row's ⋯ menu edits the row's note or opens the job
+  posting. A row is only written if its Company and Title still
   match, so a row you've sorted or renamed by hand is never overwritten.
   A line at the top counts this week's applications (Monday to Sunday)
   and your interviews.
@@ -59,7 +58,9 @@ a new row.
 - **Dark mode.** The popup, Settings and the editors follow your system's
   light or dark theme.
 - **The "Logged" notification.** Undo marks the row Cancelled rather than
-  deleting it; Edit opens a small window for the resume version.
+  deleting it, so an application you didn't mean to make is corrected in
+  one click. It's the only button: a note is written later, from the
+  popup.
 - **A retry queue.** If a save fails (offline, or a lapsed sign-in), the
   application is queued instead of dropped and retried every 5 minutes.
   Reopening Easy Apply for the same job within 24 hours doesn't log a
@@ -125,7 +126,7 @@ https://rynjung1.github.io/job-app-tracker/privacy.html
   waiting to be saved; briefly, a Greenhouse job's details between your
   Submit click and Greenhouse's confirmation (session storage, cleared
   when the browser closes, unused after 30 minutes); your 20 most recent
-  applications; the last resume version you used for each type of role;
+  applications;
   while Google sign-in is needed, when that happened and the error message
   from Chrome or Google; if your sheet is moved to Google Drive's trash or
   deleted, which of the two and when; the sheet a "Start a new sheet"

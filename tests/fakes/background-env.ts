@@ -44,10 +44,14 @@ export const log = {
 }
 // The fake chrome.alarms' current alarms, by name.
 export const alarms = new Map<string, Record<string, number>>()
-// The fake sheet's header row: a sheet made before 2026-09-14 (8 columns)
-// or one with the hidden Log ID column.
+// The fake sheet's header row. HEADERS_8 and HEADERS_WITH_LOG_ID are a
+// sheet created before 2026-09-18, so they still carry Resume Version —
+// which is most tests here on purpose, since that's what a user who
+// connected earlier still has. HEADERS_CURRENT is what createSheet writes
+// now (2026-09-18: no Resume Version, so Status is column F).
 export const HEADERS_8 = ['Date', 'Company', 'Title', 'Location', 'URL', 'Resume Version', 'Status', 'Notes']
 export const HEADERS_WITH_LOG_ID = [...HEADERS_8, 'Log ID']
+export const HEADERS_CURRENT = ['Date', 'Company', 'Title', 'Location', 'URL', 'Status', 'Notes', 'Log ID']
 
 export const ctl = {
   tokenReject: false,

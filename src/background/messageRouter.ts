@@ -26,7 +26,7 @@ import {
 } from '../lib/sheetRef'
 import { duringSheetSwap } from './sheetSwap'
 import { datedSheetTitle } from '../lib/sheetTitle'
-import { getRecentApplications, rowStillMatches, setApplicationStatus, updateRecentApplication } from '../lib/recentApplications'
+import { getRecentApplications, rowStillMatches, setApplicationStatus } from '../lib/recentApplications'
 import { isStatusValue } from '../lib/sheetTemplate'
 import type { StatusValue } from '../lib/sheetTemplate'
 import { AuthRequiredError, SheetMissingError } from '../providers/types'
@@ -34,7 +34,6 @@ import { clearSheetProblem, getSheetStatus } from '../lib/sheetStatus'
 import { clearRecentApplications } from '../lib/recentApplications'
 import { checkSheetInTrash, sheetHealth } from './sheetHealth'
 import type { RecentApplication } from '../lib/recentApplications'
-import { setLastResumeVersion } from '../lib/resumeVersion'
 import { LIVE_STATUS_COLUMNS, matchLiveStatuses } from '../lib/liveStatuses'
 import { openSettingsWindow } from './settingsWindow'
 import { drainOfflineQueue, getOfflineQueue } from './offlineQueue'
@@ -43,10 +42,6 @@ import { MAX_NOTE_LENGTH, NOTES_COLUMN } from '../lib/notes'
 export type BackgroundRequest =
   | { type: 'CONNECT_PROVIDER' }
   | { type: 'RECONNECT_PROVIDER' }
-  | {
-      type: 'SAVE_RESUME_VERSION'
-      payload: { entryId: string; resumeVersion: string; skipIdentityCheck: boolean }
-    }
   | { type: 'SET_STATUS'; payload: { entryId: string; status: StatusValue } }
   | { type: 'GET_LIVE_STATUSES' }
   // replaceHealthy (2026-09-17): Settings' "Start a new sheet" for a sheet
@@ -100,7 +95,6 @@ const SHEET_UNAVAILABLE_ERROR = "Your sheet is in Google Drive's trash or was de
 const INTERNAL_MESSAGE_TYPES = [
   'CONNECT_PROVIDER',
   'RECONNECT_PROVIDER',
-  'SAVE_RESUME_VERSION',
   'SET_STATUS',
   'GET_LIVE_STATUSES',
   'OPEN_SETTINGS',
@@ -138,8 +132,6 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
         return await handleConnectProvider()
       case 'RECONNECT_PROVIDER':
         return await handleReconnectProvider()
-      case 'SAVE_RESUME_VERSION':
-        return await handleSaveResumeVersion(message.payload)
       case 'SET_STATUS':
         return await handleSetStatus(message.payload)
       case 'GET_LIVE_STATUSES':
@@ -157,6 +149,13 @@ async function dispatch(message: BackgroundRequest): Promise<BackgroundResponse<
         return await handleGetNote(message.payload)
       case 'SAVE_NOTE':
         return await handleSaveNote(message.payload)
+      // A message type this version doesn't know — a page left open across
+      // an update, say. Found 2026-09-18 while removing SAVE_RESUME_VERSION:
+      // without this the switch fell through, dispatch resolved undefined,
+      // sendResponse was never called with anything useful, and the caller
+      // waited forever.
+      default:
+        return { ok: false, error: `Unknown message type: ${String((message as { type?: unknown }).type)}` }
     }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
@@ -389,70 +388,11 @@ async function requireSheetRefOrThrow(): Promise<SheetRef> {
   return sheetRef
 }
 
-// The same cap the sheet's scraped fields get (lib/sanitize.ts); the popup's
-// input stops at it too.
-export const MAX_RESUME_VERSION_LENGTH = 500
-
-// How long after an application was logged a notification-Edit window may
-// still write without the Company/Title check. Generous next to the
-// notification's own ~5 seconds, and far short of "indefinitely".
-const SKIP_IDENTITY_CHECK_WINDOW_MS = 10 * 60 * 1000
-
-function loggedWithin(entry: RecentApplication, windowMs: number): boolean {
-  const loggedAt = Date.parse(entry.date)
-  // An unparseable or future date is treated as outside the window: the
-  // check is the safe side.
-  return Number.isFinite(loggedAt) && Date.now() - loggedAt >= 0 && Date.now() - loggedAt <= windowMs
-}
-
-async function handleSaveResumeVersion(payload: {
-  entryId: unknown
-  resumeVersion: unknown
-  skipIdentityCheck: unknown
-}): Promise<BackgroundResponse<RecentApplication>> {
-  // Checked before anything is read or written (2026-09-14), like SET_STATUS.
-  if (typeof payload?.resumeVersion !== 'string' || payload.resumeVersion.length > MAX_RESUME_VERSION_LENGTH) {
-    return { ok: false, error: `Resume version must be text of at most ${MAX_RESUME_VERSION_LENGTH} characters` }
-  }
-  if (typeof payload.entryId !== 'string') return { ok: false, error: 'Missing entry id' }
-  if (await getSheetStatus()) return { ok: false, code: 'SHEET_UNAVAILABLE', error: SHEET_UNAVAILABLE_ERROR }
-  const { entryId, resumeVersion } = payload
-  const skipIdentityCheck = payload.skipIdentityCheck === true
-  const sheetRef = await requireSheetRefOrThrow()
-  const entry = await findEntryOrThrow(entryId)
-  const provider = await getActiveProvider()
-
-  // skipIdentityCheck replaces the old isOriginalNotificationEdit closure
-  // check that used to live in popup/App.tsx — same one exception (a
-  // standalone Edit window opened directly for this exact entry via the
-  // notification's Edit button skips the check), now an explicit payload
-  // field instead of something background would otherwise have to infer.
-  //
-  // Honoured only while that correction window is plausibly still open
-  // (audit finding, 2026-09-17). The window is opened from a notification
-  // that lives about five seconds, but nothing closes the window itself:
-  // left open for an hour, its Save was a blind positional write to a row
-  // the user may have sorted or renamed since — the exact risk the check
-  // exists for. Past the window the write still goes through, it just has
-  // to prove the row is still the right one first.
-  if (!skipIdentityCheck || !loggedWithin(entry, SKIP_IDENTITY_CHECK_WINDOW_MS)) {
-    const row = await provider.readRow(sheetRef, entry.rowNumber)
-    if (!rowStillMatches(row, entry)) {
-      return { ok: false, code: 'STALE_ROW', error: 'The row no longer matches the cached entry' }
-    }
-  }
-
-  await provider.updateCell(sheetRef, entry.rowNumber, 'Resume Version', resumeVersion)
-  await setLastResumeVersion(entry.title, resumeVersion)
-  const updated = await updateRecentApplication(entry.id, { resumeVersion })
-  if (!updated) throw new Error('Recent application entry disappeared mid-update')
-  return { ok: true, data: updated }
-}
-
 // The popup's status menu (added 2026-09-13, a flagged addition to the
 // internal messages; it replaces CANCEL_APPLICATION, whose only sender was
-// the popup's old Undo button). Same Company/Title identity check as
-// SAVE_RESUME_VERSION before writing: a mismatch writes nothing (STALE_ROW).
+// the popup's old Undo button). The row's Company and Title must still
+// match the cached entry before anything is written: a mismatch writes
+// nothing (STALE_ROW).
 // The status is checked before anything is read, so an unknown value never
 // reaches the sheet.
 async function handleSetStatus(payload: { entryId: unknown; status: unknown }): Promise<BackgroundResponse<RecentApplication>> {
@@ -500,7 +440,7 @@ async function handleSaveNote(payload: {
   note: unknown
   expected: unknown
 }): Promise<BackgroundResponse<{ note: string }>> {
-  // Checked before anything is read or written, like SAVE_RESUME_VERSION.
+  // Checked before anything is read or written, like SET_STATUS.
   if (typeof payload?.note !== 'string' || payload.note.length > MAX_NOTE_LENGTH) {
     return { ok: false, error: `A note must be text of at most ${MAX_NOTE_LENGTH} characters` }
   }

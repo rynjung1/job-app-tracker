@@ -4,7 +4,7 @@
 // fetch and navigator (fakes/background-env.ts, imported first). Each case
 // is one subtest; they share the listeners and run in order.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { alarms, ctl, HEADERS_8, HEADERS_WITH_LOG_ID, listeners, local, log, reset, session, sheet } from './fakes/background-env'
+import { alarms, ctl, HEADERS_8, HEADERS_CURRENT, HEADERS_WITH_LOG_ID, listeners, local, log, reset, session, sheet } from './fakes/background-env'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildRow } from '../src/lib/buildRow'
@@ -145,7 +145,7 @@ test('background worker', async (t) => {
   // ---- Drained rows enter the recent list; Connect drains. ----
   const qrow = (company: string, h: number) => ({ Date: d(h), Company: company, Title: 'Queued role', Location: 'Remote', URL: 'https://jobs.example.com/q', 'Resume Version': 'SWE v3', Status: 'Applied', Notes: '' })
   reset()
-  const existing = Array.from({ length: 19 }, (_, i) => ({ id: `old${i}`, company: `Old${i}`, title: 'T', location: null, url: '', date: d(4 + i), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 100 + i }))
+  const existing = Array.from({ length: 19 }, (_, i) => ({ id: `old${i}`, company: `Old${i}`, title: 'T', location: null, url: '', date: d(4 + i), status: 'Applied', sheetName: 'Sheet1', rowNumber: 100 + i }))
   await local.set({ sheetRef: REF, recentApplications: existing, offlineQueue: [qrow('QueuedNewest', 23), qrow('QueuedMiddle', 10), qrow('QueuedOldest', 1)] })
   listeners.onAlarm[0]({ name: 'retryOfflineQueue' })
   await settle()
@@ -216,14 +216,14 @@ test('background worker', async (t) => {
   await tick()
   await check('restored: the next tick gets trashed=false, clears the flag, badge and notification, and the drain writes the queue', !sheetFlag() && queue() === 0 && rowsFor('While Trashed Co') === 1 && log.badge.at(-1) === '' && log.cleared.includes('sheet-problem'), { flag: sheetFlag(), queue: queue(), badge: log.badge.at(-1), cleared: log.cleared })
 
-  const trashedEntry = { id: 't1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
+  const trashedEntry = { id: 't1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
   const trashedFlag = { state: 'trashed', since: d(1), reason: 'placeholder' }
   reset()
   await local.set({ sheetRef: REF, recentApplications: [trashedEntry], sheetStatus: trashedFlag })
   const refusedStatus = (await internal({ type: 'SET_STATUS', payload: { entryId: 't1', status: 'Interview' } })) as any
-  const refusedResume = (await internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 't1', resumeVersion: 'SWE v9', skipIdentityCheck: true } })) as any
+  const refusedNote = (await internal({ type: 'SAVE_NOTE', payload: { entryId: 't1', note: 'x', expected: '' } })) as any
   await listeners.onButtonClicked[0]('t1', 0)
-  await check('trashed: SET_STATUS and SAVE_RESUME_VERSION are refused (SHEET_UNAVAILABLE) and the notification Undo writes nothing, all before any request', !refusedStatus.ok && refusedStatus.code === 'SHEET_UNAVAILABLE' && !refusedResume.ok && refusedResume.code === 'SHEET_UNAVAILABLE' && log.fetches.length === 0 && sheet.writes.length === 0 && sheetNotes().length === 1 && log.cleared.includes('t1'), { refusedStatus, refusedResume, fetches: log.fetches, notes: sheetNotes().length })
+  await check('trashed: SET_STATUS and SAVE_NOTE are refused (SHEET_UNAVAILABLE) and the notification Undo writes nothing, all before any request', !refusedStatus.ok && refusedStatus.code === 'SHEET_UNAVAILABLE' && !refusedNote.ok && refusedNote.code === 'SHEET_UNAVAILABLE' && log.fetches.length === 0 && sheet.writes.length === 0 && sheetNotes().length === 1 && log.cleared.includes('t1'), { refusedStatus, refusedNote, fetches: log.fetches, notes: sheetNotes().length })
 
   reset()
   await local.set({ sheetRef: REF })
@@ -254,7 +254,7 @@ test('background worker', async (t) => {
   const driveTimeout = await outcome(sheetProvider.isTrashed(REF))
   await check('Drive check: a 401 surviving the retry means sign-in needed, not trashed; a 500 or a timeout is an ordinary failure with no flag', drive401 === 'AuthRequiredError' && after401.signIn && !after401.sheet && drive500.startsWith('other') && !after500 && driveTimeout.startsWith('other') && !sheetFlag(), { drive401, after401, drive500, driveTimeout })
 
-  const oldEntry = { id: 'old1', company: 'Old Sheet Row', title: 'T', location: null, url: '', date: d(9), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 7 }
+  const oldEntry = { id: 'old1', company: 'Old Sheet Row', title: 'T', location: null, url: '', date: d(9), status: 'Applied', sheetName: 'Sheet1', rowNumber: 7 }
   reset()
   await local.set({ sheetRef: REF, recentApplications: [oldEntry], offlineQueue: [qrow('Waiting For New Sheet', 12)] })
   ctl.trashedIds.add(REF.spreadsheetId)
@@ -454,37 +454,8 @@ test('background worker', async (t) => {
   ])) as any[]
   await check('a deliberate swap and a plain CREATE_NEW_SHEET at once: one sheet created, and the plain one is refused rather than answered with the swap', swapRun.ok && swapRun.data.sheetRef.spreadsheetId === 'new1' && !plainRun.ok && plainRun.code === 'SHEET_HEALTHY' && spreadsheetCreates() === 1, { swapRun, plainRun, creates: spreadsheetCreates() })
 
-  // 7. The notification Edit window's skipped identity check expires.
-  const freshEntry = { id: 'fresh1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: new Date().toISOString(), resumeVersion: 'SWE v1', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
-  const staleEntry = { ...freshEntry, id: 'stale1', date: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() }
-  reset()
-  await local.set({ sheetRef: REF, recentApplications: [freshEntry] })
-  sheet.rows[5] = ['', 'Renamed By Hand', 'SWE Intern', '', '', 'SWE v1', 'Applied', '', '']
-  const skipFresh = (await internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 'fresh1', resumeVersion: 'SWE v2', skipIdentityCheck: true } })) as any
-  const freshWrites = sheet.writes.length
-  reset()
-  await local.set({ sheetRef: REF, recentApplications: [staleEntry] })
-  sheet.rows[5] = ['', 'Renamed By Hand', 'SWE Intern', '', '', 'SWE v1', 'Applied', '', '']
-  const skipStale = (await internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 'stale1', resumeVersion: 'SWE v2', skipIdentityCheck: true } })) as any
-  await check('skipIdentityCheck is honoured for an application just logged (the notification\'s window) and not for one two hours old, which gets the Company/Title check and STALE_ROW', skipFresh.ok && freshWrites === 1 && !skipStale.ok && skipStale.code === 'STALE_ROW' && sheet.writes.length === 0, { skipFresh, freshWrites, skipStale, writes: sheet.writes.length })
-
-  reset()
-  await local.set({ sheetRef: REF })
-  ctl.trashedIds.add(REF.spreadsheetId)
-  await internal({ type: 'GET_LIVE_STATUSES' })
-  await settle()
-  await check('opening the popup (GET_LIVE_STATUSES) asks Drive too -> "trashed" set', driveChecks() === 1 && sheetFlag()?.state === 'trashed', { drive: driveChecks(), flag: sheetFlag() })
-
-  reset()
-  await local.set({ sheetRef: REF })
-  await tick()
-  const idleTickChecks = driveChecks()
-  await local.set({ offlineQueue: [qrow('Queued For Tick', 12)] })
-  await tick()
-  await check('retry tick: with nothing queued and no flag, no Drive call; with an application queued, one Drive call before the drain', idleTickChecks === 0 && driveChecks() === 1 && queue() === 0 && rowsFor('Queued For Tick') === 1, { idleTickChecks, drive: driveChecks(), queue: queue() })
-
   // ---- A failed notification Undo is visible. ----
-  const entry = { id: 'n1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
+  const entry = { id: 'n1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
   reset()
   await local.set({ sheetRef: REF, recentApplications: [entry] })
   ctl.fetchPlan = [500]
@@ -504,7 +475,7 @@ test('background worker', async (t) => {
   await check('notification Undo succeeds -> Cancelled, no failure notification', recent()[0].status === 'Cancelled' && log.notifications.length === 0, { status: recent()[0].status, notes: log.notifications })
 
   // ---- SET_STATUS, AUTH_REQUIRED, the URL check, Undo through the shared setter. ----
-  const acme = { id: 's1', company: 'Acme', title: 'SWE Intern', location: 'Remote', url: 'https://www.linkedin.com/jobs/view/1/', date: d(12), resumeVersion: 'SWE v3', status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
+  const acme = { id: 's1', company: 'Acme', title: 'SWE Intern', location: 'Remote', url: 'https://www.linkedin.com/jobs/view/1/', date: d(12), status: 'Applied', sheetName: 'Sheet1', rowNumber: 5 }
   const acmeRow = ['46277.5', 'Acme', 'SWE Intern', 'Remote', 'https://www.linkedin.com/jobs/view/1/', 'SWE v3', 'Applied', '']
   const setStatus = (status: unknown, entryId: unknown = 's1') => internal({ type: 'SET_STATUS', payload: { entryId, status } }) as Promise<any>
   const withAcme = async () => {
@@ -541,16 +512,16 @@ test('background worker', async (t) => {
 
   await withAcme()
   let responded = false
-  const returned = listeners.onMessage[0]({ type: 'CANCEL_APPLICATION', payload: { entryId: 's1' } }, { origin: 'chrome-extension://testid' }, () => {
+  let cancelAnswer: any
+  const returned = listeners.onMessage[0]({ type: 'CANCEL_APPLICATION', payload: { entryId: 's1' } }, { origin: 'chrome-extension://testid' }, (response: unknown) => {
     responded = true
+    cancelAnswer = response
   })
   await settle()
-  await check('CANCEL_APPLICATION is no longer an internal message: not handled, nothing read or written', returned === false && !responded && log.fetches.length === 0 && recent()[0].status === 'Applied', { returned, responded, fetches: log.fetches.length })
+  await check('CANCEL_APPLICATION is no longer an internal message: answered as unknown since 2026-09-18, nothing read or written', returned === false && responded && !cancelAnswer.ok && cancelAnswer.error.includes('Unknown message type') && log.fetches.length === 0 && recent()[0].status === 'Applied', { returned, cancelAnswer, fetches: log.fetches.length })
 
   await withAcme()
   ctl.tokenReject = true
-  const save = (await internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 's1', resumeVersion: 'SWE v4', skipIdentityCheck: false } })) as any
-  await check('SAVE_RESUME_VERSION signed out -> AUTH_REQUIRED, nothing written', !save.ok && save.code === 'AUTH_REQUIRED' && sheet.writes.length === 0, save)
 
   await withAcme()
   await listeners.onButtonClicked[0]('s1', 0)
@@ -619,7 +590,7 @@ test('background worker', async (t) => {
   const requests = (log.batchUpdates[0] ?? []) as any[]
   const hide = requests.find((r) => r.updateDimensionProperties?.range?.dimension === 'COLUMNS' && r.updateDimensionProperties.properties?.hiddenByUser)?.updateDimensionProperties
   const banding = requests.find((r) => r.addBanding)?.addBanding.bandedRange.range
-  await check('createSheet: Log ID is the 9th header, hidden and 60px wide, and outside the banding', connected.ok && headerWrite?.length === 9 && headerWrite[8] === 'Log ID' && hide?.range.startIndex === 8 && hide.range.endIndex === 9 && hide.properties.pixelSize === 60 && banding?.endColumnIndex === 8, { headerWrite, hide, banding })
+  await check('createSheet: 8 headers since Resume Version went (2026-09-18), Log ID last, hidden and 60px wide, and outside the banding', connected.ok && headerWrite?.length === 8 && headerWrite[7] === 'Log ID' && !headerWrite.includes('Resume Version') && hide?.range.startIndex === 7 && hide.range.endIndex === 8 && hide.properties.pixelSize === 60 && banding?.endColumnIndex === 7, { headerWrite, hide, banding })
 
   // ---- The "Logged" notification's clear (2026-09-14): a 5s timer, and a
   // 0.5-minute alarm as the fallback. ----
@@ -667,13 +638,6 @@ test('background worker', async (t) => {
   await check('content-script payloads: 11 malformed LOGGED and 1 malformed PENDING rejected before any request, queue or pending write; a valid one still logs', rejected.fetches === 0 && rejected.queue === 0 && rejected.pending === undefined && rejected.notes === 0 && rowsOf('Valid Co').length === 1 && recent()[0]?.company === 'Valid Co', { rejected, rows: rowsOf('Valid Co').length })
 
   await withAcme()
-  const saveResume = (resumeVersion: unknown) =>
-    internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 's1', resumeVersion, skipIdentityCheck: true } }) as Promise<any>
-  const notString = await saveResume(42)
-  const tooLong = await saveResume('v'.repeat(501))
-  const fetchesAfterRejects = log.fetches.length
-  const saved = await saveResume('SWE v5')
-  await check('SAVE_RESUME_VERSION: a non-string or over-500-character resumeVersion is refused before any request; a string is saved', !notString.ok && !tooLong.ok && fetchesAfterRejects === 0 && saved.ok && sheet.writes.length === 1 && JSON.stringify(sheet.writes[0].values) === '[["SWE v5"]]', { notString: notString.error, tooLong: tooLong.error, fetchesAfterRejects, saved: saved.ok, writes: sheet.writes })
 
   // ---- Sheet tab renamed (2026-09-14): quoted ranges, re-resolved by sheetId. ----
   const tabLookups = () => log.fetches.filter((f) => f.endsWith('?fields=sheets.properties')).length
@@ -725,7 +689,7 @@ test('background worker', async (t) => {
   await sendJob('Repeat Co', REPEAT_URL)
   const afterCancel = appends()
   reset()
-  const dayOld = { id: 'old', company: 'Repeat Co', title: 'Engineer', location: null, url: REPEAT_URL, date: new Date(Date.now() - 25 * 3600 * 1000).toISOString(), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 2 }
+  const dayOld = { id: 'old', company: 'Repeat Co', title: 'Engineer', location: null, url: REPEAT_URL, date: new Date(Date.now() - 25 * 3600 * 1000).toISOString(), status: 'Applied', sheetName: 'Sheet1', rowNumber: 2 }
   await local.set({ sheetRef: REF, recentApplications: [dayOld] })
   await sendJob('Repeat Co', REPEAT_URL)
   const afterDayOld = appends()
@@ -758,19 +722,18 @@ test('background worker', async (t) => {
     await local.set({ sheetRef: REF, recentApplications: [entry] })
     sheet.rows[5] = row
   }
-  const saveResumeChecked = () => internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 's1', resumeVersion: 'SWE v9', skipIdentityCheck: false } }) as Promise<any>
 
+  // SET_STATUS is the one writer on the Log ID rule; the note handlers
+  // still compare Company/Title, and SAVE_RESUME_VERSION left with the
+  // Resume Version column (main, 2026-09-18).
   await withEntry(idEntry, HEADERS_WITH_LOG_ID, idRow('acme (tenant id, edited by hand)', 'id-1'))
   const editedStatus = await setStatus('Interview')
   const editedStatusWrites = sheet.writes.length
-  await withEntry(idEntry, HEADERS_WITH_LOG_ID, idRow('acme (tenant id, edited by hand)', 'id-1'))
-  const editedResume = await saveResumeChecked()
-  await check('Log ID identity: Company edited in the sheet, same Log ID -> SET_STATUS and SAVE_RESUME_VERSION both write', editedStatus.ok && editedStatusWrites === 1 && editedResume.ok && sheet.writes.length === 1, { editedStatus, editedResume })
+  await check('Log ID identity: Company edited in the sheet, same Log ID -> SET_STATUS writes', editedStatus.ok && editedStatusWrites === 1, { editedStatus })
 
   await withEntry(idEntry, HEADERS_WITH_LOG_ID, idRow('Acme', 'id-2'))
   const movedStatus = await setStatus('Offer')
-  const movedResume = await saveResumeChecked()
-  await check('Log ID identity: same Company and Title but another Log ID (the row moved) -> STALE_ROW for both, nothing written', !movedStatus.ok && movedStatus.code === 'STALE_ROW' && !movedResume.ok && movedResume.code === 'STALE_ROW' && sheet.writes.length === 0, { movedStatus, movedResume })
+  await check('Log ID identity: same Company and Title but another Log ID (the row moved) -> STALE_ROW, nothing written', !movedStatus.ok && movedStatus.code === 'STALE_ROW' && sheet.writes.length === 0, { movedStatus })
 
   await withEntry(acme, HEADERS_WITH_LOG_ID, idRow('Acme (edited)', 'id-1'))
   const noIdOnEntry = await setStatus('Offer')
@@ -871,6 +834,34 @@ test('background worker', async (t) => {
   const signedOutNote = await saveNote('x', '')
   await check('SAVE_NOTE signed out -> AUTH_REQUIRED, sign-in flag set, nothing written', !signedOutNote.ok && signedOutNote.code === 'AUTH_REQUIRED' && !!flag() && sheet.writes.length === 0, signedOutNote)
 
+  // ---- Resume Version removed (2026-09-18). New sheets have no such
+  // column; a sheet created before keeps its own, and appendRow — which
+  // maps values by header name — simply leaves that cell blank. ----
+  reset()
+  // A sheet created before the change: 9 columns, Resume Version at F.
+  ctl.headers = HEADERS_WITH_LOG_ID
+  await local.set({ sheetRef: REF })
+  apply('Old Sheet Still Works Co')
+  await settle()
+  const legacyRow = rowsOf('Old Sheet Still Works Co')[0]?.[1]
+  const legacyEntry = recent().find((e) => e.company === 'Old Sheet Still Works Co')
+  await check("an existing sheet keeps its Resume Version column: the row still lands, that one cell blank and every other column in place", legacyRow?.length === 9 && legacyRow[5] === '' && legacyRow[1] === 'Old Sheet Still Works Co' && legacyRow[2] === 'Software Engineer Intern' && legacyRow[3] === 'Remote' && legacyRow[6] === 'Applied' && !!legacyRow[8] && !!legacyEntry && !('resumeVersion' in legacyEntry) && queue() === 0, { legacyRow, legacyEntry })
+
+  reset()
+  // A sheet created now: 8 columns, Status at F, Log ID last.
+  ctl.headers = HEADERS_CURRENT
+  await local.set({ sheetRef: REF })
+  apply('New Sheet Co')
+  await settle()
+  const currentRow = rowsOf('New Sheet Co')[0]?.[1]
+  const statusWrite = (await internal({ type: 'SET_STATUS', payload: { entryId: recent()[0]?.id, status: 'Interview' } })) as any
+  await check('a sheet created now has no Resume Version column: 8 values, Status at F, and a status change writes F', currentRow?.length === 8 && currentRow[5] === 'Applied' && !!currentRow[7] && statusWrite.ok && /^'Sheet1'!F\d+$/.test(sheet.writes.at(-1)?.range ?? ''), { currentRow, statusWrite, writes: sheet.writes.map((w) => w.range) })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  const unknownMessage = (await internal({ type: 'SAVE_RESUME_VERSION', payload: { entryId: 'x' } })) as any
+  await check('a message type this version no longer knows is answered, not left hanging (SAVE_RESUME_VERSION, removed 2026-09-18)', !unknownMessage.ok && unknownMessage.error.includes('Unknown message type') && log.fetches.length === 0, unknownMessage)
+
   // ---- Status starts at 'Applied' (2026-09-17), so a logged row carries one
   // of the five values the sheet's dropdown and colour rules know. ----
   reset()
@@ -889,7 +880,7 @@ test('background worker', async (t) => {
   // The popup's live chip now reads the same value back: matchLiveStatuses
   // skips a blank Status cell, so before this change a fresh row's live read
   // returned nothing and the popup fell back to its cached "Applied".
-  const statusLiveEntry = { id: 'ls1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber: 2 }
+  const statusLiveEntry = { id: 'ls1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), status: 'Applied', sheetName: 'Sheet1', rowNumber: 2 }
   const statusLiveRow = (status: string) => ({ Company: 'Acme', Title: 'SWE Intern', Status: status })
   const liveApplied = matchLiveStatuses([statusLiveEntry], [statusLiveRow('Applied')])
   const liveBlank = matchLiveStatuses([statusLiveEntry], [statusLiveRow('')])

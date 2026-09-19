@@ -3,8 +3,6 @@ import type { SheetRef } from '../providers/types'
 import { getRecentApplications } from '../lib/recentApplications'
 import type { RecentApplication } from '../lib/recentApplications'
 import { SHEET_REF_KEY } from '../lib/storageKeys'
-import { getLastResumeVersions } from '../lib/resumeVersion'
-import type { ResumeVersionsByRoleType } from '../lib/resumeVersion'
 import { safeJobUrl } from '../lib/safeUrl'
 import type { StatusValue } from '../lib/sheetTemplate'
 import { applicationCount } from '../lib/authStatus'
@@ -16,15 +14,8 @@ import { CheckIcon, ClockIcon, GearIcon, LockIcon, SheetIcon, WarnIcon } from '.
 import { useSyncStatus } from '../ui/useSyncStatus'
 import { StatusSelect } from './StatusSelect'
 import { RowMenu } from './RowMenu'
-import { ResumeVersionEditor } from './ResumeVersionEditor'
 import { NoteEditor } from './NoteEditor'
-import { errorMessage, GENERIC_ERROR, STALE_ROW_RESUME, STALE_ROW_STATUS } from './messages'
-
-// Opened by the notification's Edit button (background/index.ts), this page
-// is a small window showing only the resume editor for that entry. Opened
-// from the toolbar, there's no edit param and it's the popup.
-const editId = new URLSearchParams(window.location.search).get('edit')
-if (editId) document.body.classList.add('in-window')
+import { errorMessage, GENERIC_ERROR, STALE_ROW_STATUS } from './messages'
 
 function sheetUrl(sheetRef: SheetRef): string {
   return `https://docs.google.com/spreadsheets/d/${sheetRef.spreadsheetId}/edit`
@@ -87,9 +78,7 @@ function CompanyLink({ company, url }: { company: string; url: string | null }) 
 // status menu and no ⋯; a spacer keeps the columns lined up with the saved
 // rows. The banner above says why it's waiting.
 function WaitingRow({ app }: { app: WaitingApplication }) {
-  const meta = [app.resumeVersion && `Resume ${app.resumeVersion}`, formatDate(app.date), 'not in your sheet yet']
-    .filter(Boolean)
-    .join(' · ')
+  const meta = [formatDate(app.date), 'not in your sheet yet'].filter(Boolean).join(' · ')
   return (
     <li className="row waiting">
       <div className="r1">
@@ -124,7 +113,7 @@ function Summary({ summary }: { summary: WeekSummary }) {
   )
 }
 
-type View = { mode: 'list' } | { mode: 'edit'; id: string } | { mode: 'note'; id: string }
+type View = { mode: 'list' } | { mode: 'note'; id: string }
 
 function App() {
   const [applications, setApplications] = useState<RecentApplication[] | null>(null)
@@ -141,17 +130,13 @@ function App() {
   // Entries this popup changed itself (a status change), so a live read
   // that was already in flight can't put their old status back.
   const changedHere = useRef(new Set<string>())
-  const [lastUsed, setLastUsed] = useState<ResumeVersionsByRoleType>({})
-  const [view, setView] = useState<View>(editId ? { mode: 'edit', id: editId } : { mode: 'list' })
+  const [view, setView] = useState<View>({ mode: 'list' })
   const [statusBusyId, setStatusBusyId] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [editorError, setEditorError] = useState<string | null>(null)
   const { authStatus, sheetStatus, queued, queue } = useSyncStatus()
   const signedOut = authStatus !== undefined
-  // Why the status chip, "Change resume version" and "Add note" can't reach
-  // the sheet right now: signed out, or the sheet is in Drive's trash or
-  // deleted (2026-09-14).
+  // Why the status chip and "Add note" can't reach the sheet right now:
+  // signed out, or the sheet is in Drive's trash or deleted (2026-09-14).
   const blockedReason = signedOut
     ? 'Reconnect Google Sheets first'
     : sheetStatus
@@ -173,7 +158,6 @@ function App() {
       setSheetRef(stored[SHEET_REF_KEY] as SheetRef | undefined)
       setSheetRefChecked(true)
     })
-    getLastResumeVersions().then(setLastUsed)
     // Cached list first (above), live statuses when they arrive. A failed
     // read (offline, signed out) just leaves the cached statuses showing.
     ;(chrome.runtime.sendMessage({ type: 'GET_LIVE_STATUSES' }) as Promise<BackgroundResponse<Record<string, string>>>)
@@ -219,51 +203,17 @@ function App() {
     }
   }
 
-  function openEditor(entry: RecentApplication, mode: 'edit' | 'note') {
-    setEditorError(null)
+  function openEditor(entry: RecentApplication) {
     setRowError(null)
-    setView({ mode, id: entry.id })
+    setView({ mode: 'note', id: entry.id })
   }
 
   function closeEditor(entryId: string) {
-    if (editId) {
-      window.close()
-      return
-    }
-    setEditorError(null)
     returnFocusTo.current = entryId
     setView({ mode: 'list' })
   }
 
-  async function handleSaveResume(entry: RecentApplication, resumeVersion: string) {
-    setSaving(true)
-    setEditorError(null)
-    try {
-      // The notification's Edit window skips the identity check for the
-      // entry it was opened for (its short correction window); the popup's
-      // editor always checks. Sent explicitly rather than inferred.
-      const skipIdentityCheck = editId !== null && entry.id === editId
-      const response = (await chrome.runtime.sendMessage({
-        type: 'SAVE_RESUME_VERSION',
-        payload: { entryId: entry.id, resumeVersion, skipIdentityCheck },
-      })) as BackgroundResponse<RecentApplication>
-      if (!response.ok) {
-        setEditorError(errorMessage(response.code, STALE_ROW_RESUME))
-        return
-      }
-      patchApplication(entry.id, response.data)
-      getLastResumeVersions().then(setLastUsed)
-      closeEditor(entry.id)
-    } catch (err) {
-      console.error('[job-app-tracker] failed to save resume version:', err)
-      setEditorError(GENERIC_ERROR)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const loading = !sheetRefChecked || applications === null
-  const editing = view.mode === 'edit' ? applications?.find((a) => a.id === view.id) : undefined
   const noting = view.mode === 'note' ? applications?.find((a) => a.id === view.id) : undefined
   // The list (2026-09-15): saved entries and waiting applications, newest
   // first, and the summary line counted from them (lib/popupList.ts).
@@ -271,39 +221,10 @@ function App() {
   const items = mergeWaiting(applications ?? [], waiting)
   const summary = weekSummary(items, (app) => liveStatuses[app.id] ?? app.status, new Date())
 
-  const editor = editing && (
-    <ResumeVersionEditor
-      key={editing.id}
-      entry={editing}
-      appliedOn={formatDate(editing.date)}
-      lastUsed={lastUsed}
-      saving={saving}
-      error={editorError}
-      onSave={(value) => handleSaveResume(editing, value)}
-      onCancel={() => closeEditor(editing.id)}
-    />
-  )
   const noteEditor = noting && (
     <NoteEditor key={noting.id} entry={noting} appliedOn={formatDate(noting.date)} onClose={() => closeEditor(noting.id)} />
   )
-  const panel = editor || noteEditor
-
-  // The notification's Edit window: the editor only.
-  if (editId) {
-    if (loading) return <p className="window-note">Loading…</p>
-    if (editor) return editor
-    return (
-      <div className="window-note">
-        <p>
-          This application is no longer in your recent list, so its resume version can't be changed here. You can still
-          change it in your spreadsheet.
-        </p>
-        <button type="button" className="btn lg" onClick={() => window.close()}>
-          Close
-        </button>
-      </div>
-    )
-  }
+  const panel = noteEditor
 
   return (
     <>
@@ -426,9 +347,7 @@ function App() {
             const url = safeJobUrl(app.url)
             const busy = statusBusyId === app.id
             const error = rowError?.id === app.id ? rowError.message : null
-            const meta = [app.resumeVersion && `Resume ${app.resumeVersion}`, formatDate(app.date)]
-              .filter(Boolean)
-              .join(' · ')
+            const meta = formatDate(app.date)
             return (
               <li key={app.id} className={error ? 'row has-error' : 'row'} aria-busy={busy || undefined}>
                 <div className="r1">
@@ -448,8 +367,7 @@ function App() {
                     company={app.company}
                     url={url}
                     blockedReason={blockedReason}
-                    onChangeResume={() => openEditor(app, 'edit')}
-                    onAddNote={() => openEditor(app, 'note')}
+                    onAddNote={() => openEditor(app)}
                   />
                 </div>
                 <Place title={app.title} location={app.location} />

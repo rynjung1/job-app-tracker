@@ -267,7 +267,17 @@ description: Steps and status for publishing this extension to the Chrome Web St
      - chooses to publish manually after approval, not automatically;
      - picks the publisher display name;
      - confirms the OAuth consent screen's app name doesn't contain
-       "Google".
+       "Google";
+     - **confirms the consent screen still shows "In production"**
+       (added 2026-09-18). Step 5 set it, but nothing in the extension
+       or in CI can see it, and it is the one setting that silently
+       breaks every install but Ryan's: in Testing, only the listed test
+       users can sign in at all, so a new user's Connect fails at
+       Google's own screen with no row ever reaching a sheet, and the
+       extension can only report whatever error Chrome hands back.
+       Re-check it immediately before submitting, and again after any
+       change in the Cloud console, since editing the consent screen can
+       put it back into Testing.
 - Optional housekeeping (R): Excel/OneDrive support was removed
   2026-09-13, so the Azure app registration from that era is unused.
   Delete it in the Azure portal and revoke the extension's access in the
