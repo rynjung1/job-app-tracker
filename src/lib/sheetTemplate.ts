@@ -7,7 +7,6 @@ export const SHEET_TEMPLATE_COLUMNS = [
   'Title',
   'Location',
   'URL',
-  'Resume Version',
   'Status',
   'Notes',
   // Added 2026-09-14 (CLAUDE.md, Sheet setup): a hidden column holding each

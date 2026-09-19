@@ -13,7 +13,6 @@ export interface RecentApplication {
   location: string | null
   url: string
   date: string
-  resumeVersion: string
   status: string
   sheetName: string
   rowNumber: number

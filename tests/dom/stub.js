@@ -29,25 +29,25 @@
   // to count on any day: n days ago, at that hour.
   function daysAgo(n, hour) { var d = new Date(); d.setDate(d.getDate() - n); d.setHours(hour, 0, 0, 0); return d.toISOString() }
   function slug(company) { return company.toLowerCase().replace(/[^a-z0-9]+/g, '-') }
-  function app(id, company, title, location, rv, ago, status) {
-    return { id: id, company: company, title: title, location: location, url: 'https://jobs.example.com/' + slug(company), date: daysAgo(ago, 10), resumeVersion: rv, status: status, sheetName: 'Sheet1', rowNumber: 2 }
+  function app(id, company, title, location, ago, status) {
+    return { id: id, company: company, title: title, location: location, url: 'https://jobs.example.com/' + slug(company), date: daysAgo(ago, 10), status: status, sheetName: 'Sheet1', rowNumber: 2 }
   }
   var apps = [
-    app('a1', 'Northwind Robotics', 'Software Engineer Intern', 'Austin, TX', 'SWE v3', 0, 'Applied'),
-    app('a2', 'Juniper & Co', 'Product Engineer Intern, Growth and Monetization', 'San Francisco, CA', 'SWE v1', 1, 'Applied'),
-    app('a3', 'Harborview Health', 'Full Stack Developer', 'Boston, MA', 'SWE v3', 2, 'Cancelled'),
-    app('a4', 'Cedar Grove Analytics', 'Data Engineering Intern', 'Remote', 'DE v2', 4, 'Applied'),
-    app('a5', 'Bluefin Labs', 'Machine Learning Engineer Intern', 'Greater Toronto Area, Canada', 'SWE v2', 9, 'Applied')
+    app('a1', 'Northwind Robotics', 'Software Engineer Intern', 'Austin, TX', 0, 'Applied'),
+    app('a2', 'Juniper & Co', 'Product Engineer Intern, Growth and Monetization', 'San Francisco, CA', 1, 'Applied'),
+    app('a3', 'Harborview Health', 'Full Stack Developer', 'Boston, MA', 2, 'Cancelled'),
+    app('a4', 'Cedar Grove Analytics', 'Data Engineering Intern', 'Remote', 4, 'Applied'),
+    app('a5', 'Bluefin Labs', 'Machine Learning Engineer Intern', 'Greater Toronto Area, Canada', 9, 'Applied')
   ]
   var live = { a1: 'Applied', a2: 'Interview', a4: 'Interview', a5: 'Applied' }
   // Two applications waiting in the offline queue (signed out, the sheet in
   // the trash or deleted, or offline): rows with the sheet's column names.
-  function queued(company, title, location, rv, ago, hour, logId) {
-    return { Date: daysAgo(ago, hour), Company: company, Title: title, Location: location, URL: 'https://jobs.example.com/' + slug(company), 'Resume Version': rv, Status: '', Notes: '', 'Log ID': logId }
+  function queued(company, title, location, ago, hour, logId) {
+    return { Date: daysAgo(ago, hour), Company: company, Title: title, Location: location, URL: 'https://jobs.example.com/' + slug(company), Status: '', Notes: '', 'Log ID': logId }
   }
   var queue = [
-    queued('Silverline Systems', 'Backend Engineer Intern', 'Chicago, IL', 'SWE v3', 0, 11, 'q1'),
-    queued('Orchard Street Games', 'Gameplay Programmer Intern', 'Montreal, QC', 'SWE v1', 1, 18, 'q2')
+    queued('Silverline Systems', 'Backend Engineer Intern', 'Chicago, IL', 0, 11, 'q1'),
+    queued('Orchard Street Games', 'Gameplay Programmer Intern', 'Montreal, QC', 1, 18, 'q2')
   ]
   var NOTE = 'Met their recruiter at the career fair. Follow up next week if no reply.'
   var signedOut = sc === 'signedout'
@@ -82,7 +82,6 @@
         if (signedOut) all.authStatus = { since: '2026-09-13T15:00:00Z', reason: 'placeholder' }
         if (sheetGone) all.sheetStatus = { state: sc, since: '2026-09-14T15:00:00Z', reason: 'placeholder' }
         if (signedOut || sheetGone || offline) all.offlineQueue = queue
-        all.lastResumeVersionByRoleType = { SWE: 'SWE v3', DE: 'DE v2' }
         all.recentApplications = apps
         var out = {}
         ;(typeof keys === 'string' ? [keys] : keys).forEach(function (k) { if (all[k] !== undefined) out[k] = all[k] })
@@ -102,10 +101,6 @@
           if (sc === 'busy') return never
           if (sc === 'stale') return later({ ok: false, error: 'mismatch', code: 'STALE_ROW' }, 120)
           return later({ ok: true, data: Object.assign({}, entry, { status: m.payload.status }) }, 120)
-        }
-        if (m.type === 'SAVE_RESUME_VERSION') {
-          if (sc === 'editerr') return later({ ok: false, error: 'mismatch', code: 'STALE_ROW' }, 120)
-          return later({ ok: true, data: Object.assign({}, entry, { resumeVersion: m.payload.resumeVersion }) }, 120)
         }
         // The note editor (2026-09-15): the row's Notes cell, and the save,
         // refused as NOTE_CHANGED in the notechanged scenario.
@@ -199,13 +194,12 @@
       console.warn('[stub] ' + err.message)
     }
   }
-  // Opens a1's ⋯ menu and picks "Add note", its second item.
+  // Opens a1's ⋯ menu and picks "Add note", its first item since the resume
+  // action left with the Resume Version column (2026-09-18).
   async function openNote() {
     more('a1').focus()
     key(more('a1'), 'ArrowDown')
-    await until('the ⋯ menu to open', function () { return q('[role=menu]') })
-    key(document.activeElement, 'ArrowDown')
-    await until('Add note to take focus', function () { return document.activeElement.textContent.indexOf('Add note') !== -1 })
+    await until('Add note to take focus', function () { return q('[role=menu]') && document.activeElement.textContent.indexOf('Add note') !== -1 })
     key(document.activeElement, 'Enter')
     await until('the note editor to open', function () { return q('form.editor') })
   }
@@ -218,25 +212,23 @@
     var activeIs = function (text) { return function () { return active().textContent.indexOf(text) !== -1 } }
 
     var m = more('a1'); m.focus(); key(m, 'ArrowDown')
-    res = await reached('the ⋯ menu to open on Change resume version', function () { return q('[role=menu]') && active().textContent.indexOf('Change resume version') !== -1 })
+    res = await reached('the ⋯ menu to open on Add note', function () { return q('[role=menu]') && activeIs('Add note')() })
     rec('ArrowDown on ⋯ opens the menu, focus on its first item', res)
 
     key(active(), 'ArrowDown')
-    res = await reached('Add note to take focus', activeIs('Add note'))
-    rec('ArrowDown moves to Add note', res)
+    res = await reached('Open job posting to take focus', activeIs('Open job posting'))
+    rec('ArrowDown moves to Open job posting', res)
 
     key(active(), 'ArrowDown')
-    await reached('Open job posting to take focus', activeIs('Open job posting'))
-    key(active(), 'ArrowDown')
-    res = await reached('focus to wrap to the first item', activeIs('Change resume version'))
-    rec('ArrowDown past Open job posting wraps to the first item', res)
+    res = await reached('focus to wrap to the first item', activeIs('Add note'))
+    rec('ArrowDown past the last item wraps to the first', res)
 
     key(active(), 'End')
     res = await reached('End to move focus to the last item', activeIs('Open job posting'))
     rec('End jumps to the last item', res)
 
     key(active(), 'Home')
-    res = await reached('Home to move focus to the first item', activeIs('Change resume version'))
+    res = await reached('Home to move focus to the first item', activeIs('Add note'))
     rec('Home jumps to the first item', res)
 
     key(active(), 'Escape')
@@ -271,10 +263,10 @@
     m = more('a1'); m.focus(); key(m, 'ArrowDown')
     await reached('the ⋯ menu to open', function () { return q('[role=menu]') })
     key(active(), 'Enter')
-    res = await reached('the resume editor to open with focus in its input', function () {
-      return q('form.editor') && active().id === 'resume-version' && active().value === 'SWE v3'
+    res = await reached('the note editor to open with focus in its textarea', function () {
+      return q('form.editor') && active().id === 'note'
     })
-    rec('Enter on Change resume version opens the editor, focus in the input', res)
+    rec('Enter on Add note opens the note editor, focus in the textarea', res)
 
     key(active(), 'Escape')
     res = await reached('the list to come back with focus on that row\'s ⋯', function () { return !q('form.editor') && active() === more('a1') })
@@ -335,17 +327,6 @@
         key(document.activeElement, 'Enter')
         await until('the status list to close', function () { return !q('[role=listbox]') })
       }
-    }
-    if (act === 'editor') {
-      more('a1').focus()
-      key(more('a1'), 'ArrowDown')
-      await until('the ⋯ menu to open', function () { return q('[role=menu]') })
-      key(document.activeElement, 'Enter')
-      await until('the resume editor to open', function () { return q('form.editor') })
-    }
-    if (act === 'save') {
-      await until('the resume editor to open', function () { return q('form.editor') })
-      q('form.editor').requestSubmit()
     }
     if (act === 'note') await openNote()
     if (act === 'notesave') {
