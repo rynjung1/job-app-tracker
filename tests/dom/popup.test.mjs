@@ -74,7 +74,13 @@ function dumpBody(url, windowSize, profile, theme = 'light') {
       html += chunk
       if (html.includes('</html>')) chrome.kill('SIGKILL')
     })
-    const timer = setTimeout(() => chrome.kill('SIGKILL'), 30_000)
+    // The backstop is reported, not hidden: a page that "left no result"
+    // because Chrome was stopped here says so in the assertion message.
+    let stoppedByBackstop = false
+    const timer = setTimeout(() => {
+      stoppedByBackstop = true
+      chrome.kill('SIGKILL')
+    }, 30_000)
     chrome.on('exit', () => {
       clearTimeout(timer)
       const body = html.match(/<body([^>]*)>/)?.[1] ?? ''
@@ -82,7 +88,7 @@ function dumpBody(url, windowSize, profile, theme = 'light') {
       for (const [, name, value] of body.matchAll(/data-([a-z]+)="([^"]*)"/g)) {
         data[name] = value.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
       }
-      resolve(data)
+      resolve({ ...data, why: stoppedByBackstop ? ' (headless Chrome was stopped by the 30s backstop before printing the page)' : '' })
     })
   })
 }
@@ -117,7 +123,7 @@ var t = setInterval(function () { try { var b = f.contentDocument && f.contentDo
   const profile = (name) => path.join(work, `profile-${name}`)
   try {
     const keyboard = await dumpBody(`${base}?w=368&kbtest=1`, '500,700', profile('kb'))
-    assert.ok(keyboard.kb, 'the keyboard test left no results on the page')
+    assert.ok(keyboard.kb, `the keyboard test left no results on the page${keyboard.why}`)
     const steps = JSON.parse(keyboard.kb)
     assert.equal(steps.length, 14, 'expected 14 keyboard and scroll steps')
     for (const step of steps) await t.test(step.step, () => assert.ok(step.ok, `focus: ${step.focus}`))

@@ -2,6 +2,7 @@ import { RECENT_APPLICATIONS_KEY } from './storageKeys'
 import type { SheetRef, SpreadsheetProvider } from '../providers/types'
 import { withStorageLock } from './storageLock'
 import type { StatusValue } from './sheetTemplate'
+import { LOG_ID_COLUMN } from './sheetTemplate'
 
 // Named in CLAUDE.md's Tech Stack section ("chrome.storage.local for ...
 // the cached recent-applications list") but not built until Phase 4, when
@@ -16,14 +17,25 @@ export interface RecentApplication {
   status: string
   sheetName: string
   rowNumber: number
-  // The row's hidden Log ID (2026-09-15), so the popup can leave out a
-  // waiting application once its saved entry exists (lib/popupList.ts).
-  // Absent on entries logged before it and on rows of sheets without the
-  // column.
+  // The row's hidden Log ID (2026-09-14), for rowStillMatches below, and so
+  // the popup can leave out a waiting application once its saved entry exists
+  // (lib/popupList.ts). Absent on entries logged before it and on rows of
+  // sheets without the column.
   logId?: string
 }
 
 export const MAX_RECENT = 20
+
+// Is this sheet row still the entry's? Checked by SAVE_RESUME_VERSION and
+// SET_STATUS before writing (background/messageRouter.ts). Since 2026-09-14
+// the Log ID decides when both the entry and the sheet have one: a row that
+// moved is caught, and editing its Company in the sheet (a cryptic Workday
+// tenant id, say) no longer blocks the popup. Otherwise Company and Title must
+// both still match, as before.
+export function rowStillMatches(row: Record<string, string>, entry: RecentApplication): boolean {
+  if (entry.logId && LOG_ID_COLUMN in row) return row[LOG_ID_COLUMN] === entry.logId
+  return row.Company === entry.company && row.Title === entry.title
+}
 
 export async function getRecentApplications(): Promise<RecentApplication[]> {
   const stored = await chrome.storage.local.get(RECENT_APPLICATIONS_KEY)

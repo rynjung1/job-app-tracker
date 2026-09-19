@@ -48,9 +48,14 @@ test('LinkedIn content script outside /jobs/', async (t) => {
   })
 })
 
-test('manifest content-script matches: https only, LinkedIn on every page', () => {
+test('manifest content-script matches: https only, LinkedIn on every page, Workday tenants but never *.myworkday.com', () => {
   // tests/run.mjs runs from the repo root; the bundled test lives elsewhere.
   const source = fs.readFileSync(path.join(process.cwd(), 'manifest.config.ts'), 'utf8')
   const matches = [...source.matchAll(/^\s*matches: \[([^\]]*)\]/gm)].map((m) => m[1].trim())
-  assert.deepEqual(matches, ["'https://www.linkedin.com/*'", "'https://job-boards.greenhouse.io/*/jobs/*'"])
+  assert.deepEqual(matches, [
+    "'https://www.linkedin.com/*'",
+    "'https://job-boards.greenhouse.io/*/jobs/*'",
+    "'https://*.myworkdayjobs.com/*', 'https://*.myworkdaysite.com/*'",
+  ])
+  assert.ok(!/myworkday\.com/.test(matches.join()), 'the employee app must never be matched')
 })

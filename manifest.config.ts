@@ -45,6 +45,20 @@ const SITES = [
       run_at: 'document_idle',
     },
   },
+  {
+    name: 'Workday',
+    contentScript: {
+      // Workday career sites (2026-09-14, flagged in CLAUDE.md, Site parsers,
+      // Workday: a new set of install-warning hosts). Every tenant runs on a
+      // subdomain of these two domains, and the app moves from job search to
+      // posting to application without page loads, so no narrower pattern
+      // works. Never *.myworkday.com, Workday's employee HR app. The script
+      // acts only on a job's Apply and final Submit clicks.
+      matches: ['https://*.myworkdayjobs.com/*', 'https://*.myworkdaysite.com/*'],
+      js: ['src/content/workday.ts'],
+      run_at: 'document_idle',
+    },
+  },
 ]
 
 // "A", "A or B", "A, B or C" — the form the approved store summary uses.

@@ -163,6 +163,15 @@ description: Steps and status for publishing this extension to the Chrome Web St
        30-second fallback alarm can't be seen here. After the store
        install (step 8), check the notification still clears after
        about 5 seconds.
+     - Workday (the `workday` branch, CLAUDE.md, Site parsers, Workday),
+       after it's merged: on one real Workday application, check a row
+       lands at the final Submit with the tenant id as Company and the
+       normalized URL, once, and that it appears in the popup. Before the
+       merge, Ryan's first real Workday application is the observation
+       instead, with any build loaded (or none): run
+       `scripts/workday-observe.js` PARTs 0, A and B. The same
+       `documentLoadedAt` in PART 0 and PART A means the extension's
+       in-memory capture would survive to Submit.
      - A sheet in Drive's trash or deleted (CLAUDE.md, Spreadsheet
        backend, 2026-09-14), with a throwaway sheet connected: move it
        to Drive's trash, open the popup (the 5-minute tick only asks

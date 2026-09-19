@@ -10,6 +10,7 @@ import { buildRow } from '../lib/buildRow'
 import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { sanitizeRow } from '../lib/sanitize'
 import { parseJobPostingData } from '../lib/jobPayload'
+import { isTrustedJobSiteOrigin } from '../lib/trustedOrigins'
 import { REMOVED_KEYS } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
 import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
@@ -23,7 +24,6 @@ import { getSheetStatus, SHEET_PROBLEM_NOTIFICATION_ID, showSheetProblemNotifica
 import { checkSheetInTrash } from './sheetHealth'
 import { sheetSwapInProgress } from './sheetSwap'
 
-const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 // This extension's own pages (popup, options) — used to distinguish an
 // internal RPC message from a content-script message. See the onMessage
 // listener below for why this is sender.origin, not sender.tab or
@@ -357,7 +357,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false
   }
 
-  if (!sender.origin || !TRUSTED_ORIGINS.includes(sender.origin)) {
+  // The job sites' origins (lib/trustedOrigins.ts): LinkedIn, Greenhouse,
+  // and since 2026-09-14 any Workday career-site tenant.
+  if (!isTrustedJobSiteOrigin(sender.origin)) {
     console.warn('[job-app-tracker] rejected message from unverified origin', sender.origin)
     return false
   }
