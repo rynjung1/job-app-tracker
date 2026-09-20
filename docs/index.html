@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Application Tracker — a Chrome extension that logs your job applications to Google Sheets</title>
+<meta name="description" content="A Chrome extension that logs the job applications you submit on LinkedIn and Greenhouse to a Google Sheet you own, with no manual data entry.">
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+    line-height: 1.6;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .tagline { color: #666; font-size: 15px; margin: 0 0 32px; }
+  h2 { font-size: 17px; margin-top: 32px; }
+  code { background: #f2f2f2; padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 6px 0; }
+  a { color: #1a5fb4; }
+  .note { color: #666; font-size: 14px; }
+  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e5e5; font-size: 14px; }
+  footer a { margin-right: 16px; }
+</style>
+</head>
+<body>
+
+<h1>Job Application Tracker</h1>
+<p class="tagline">A Chrome extension that logs the job applications you submit to a Google Sheet you own — no manual data entry.</p>
+
+<h2>What it does</h2>
+<p>When you apply for a job on a supported site, the extension records that application as a row in your own Google Sheet: the date, the company, the job title, its location, and a link back to the posting. It does this automatically, at the moment you apply, so there is nothing to copy and paste afterwards.</p>
+<p>The spreadsheet is created in your own Google Drive on first use, already formatted, with a Status column you can set to Applied, Interview, Offer, Rejected or Cancelled, and a Summary tab that counts your applications by status and by week.</p>
+
+<h2>Supported sites</h2>
+<ul>
+  <li><b>LinkedIn</b> — Easy Apply. Detection is fully supported with LinkedIn's interface set to English. Jobs whose Apply button sends you to the company's own website are not logged.</li>
+  <li><b>Greenhouse</b> — job postings on <code>job-boards.greenhouse.io</code>, logged once Greenhouse confirms the application was submitted, so an attempt its form rejects isn't logged. Greenhouse jobs shown on a company's own domain are not covered.</li>
+</ul>
+
+<h2>How it works</h2>
+<ol>
+  <li><b>Connect.</b> Open the extension's Settings and click Connect Google Sheets. It signs you in with Google and creates a new, formatted sheet in your Drive.</li>
+  <li><b>Apply as usual.</b> On a supported site, the extension reads that job's title, company, location and link from the page you apply on, and writes them to your sheet. A notification confirms it, with an Undo in case you didn't mean to apply.</li>
+  <li><b>Keep it up to date.</b> The extension's popup lists your recent applications with their status from the sheet. Change a status or add a note there and the sheet is updated; edit the sheet yourself and the popup follows.</li>
+</ol>
+
+<h2>What it doesn't do</h2>
+<p>It talks only to Google's own APIs — Sheets, to read and write the spreadsheet it created, and Drive, only to check whether that spreadsheet is in the trash. There is no other server, no analytics, and no third-party data sharing. Its access to your Google account is limited to files the extension itself creates, so it cannot see the rest of your Drive. Full details are in the <a href="privacy.html">privacy policy</a>.</p>
+
+<h2>Install</h2>
+<!-- Chrome Web Store link goes here once the extension is published:
+     <p><a href="https://chromewebstore.google.com/detail/mhldoocgadblnnelahaplfdnaoiehafj">Add it from the Chrome Web Store</a></p> -->
+<p>The extension is not published to the Chrome Web Store yet. Until it is, it can be built and loaded from the <a href="https://github.com/rynjung1/job-app-tracker">source repository</a>, which has the build and install steps in its README.</p>
+
+<footer>
+  <a href="privacy.html">Privacy policy</a>
+  <a href="https://github.com/rynjung1/job-app-tracker">Source on GitHub</a>
+  <a href="https://github.com/rynjung1/job-app-tracker/issues">Questions or problems</a>
+</footer>
+
+</body>
+</html>
