@@ -19,6 +19,14 @@ export const page = {
   posting: null as null | { title: string; location: string; reqId: string },
   // The next fetch's answer; null makes it fail like a network error.
   fetchAnswer: null as null | { status: number; body: unknown },
+  // The application step the app is showing (2026-09-21): whether the
+  // Review page's own container is there, what the progress bar's active
+  // step reads, and the job title the Review page shows.
+  review: {
+    reviewPage: false,
+    activeStep: '' as string,
+    jobTitle: '' as string,
+  },
 }
 
 const url = new URL('https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite')
@@ -33,7 +41,13 @@ export class FakeElement {
   constructor(
     readonly automationId: string | null,
     readonly textContent = '',
+    readonly ariaLabel: string | null = null,
   ) {}
+  getAttribute(name: string) {
+    if (name === 'aria-label') return this.ariaLabel
+    if (name === 'data-automation-id') return this.automationId
+    return null
+  }
   closest(selector: string) {
     const matches = selector.split(',').some((part) => {
       const m = part.trim().match(/^[a-z]*\[data-automation-id="([^"]+)"\]$/)
@@ -72,6 +86,16 @@ const recordUnknown = <T extends object>(target: T, label: string): T =>
     if (type === 'click' && options?.capture) clickListeners.push(listener)
   },
   querySelector: (selector: string) => {
+    const r = page.review
+    if (selector === '[data-automation-id="applyFlowReviewPage"]') {
+      return r.reviewPage ? new FakeElement('applyFlowReviewPage') : null
+    }
+    if (selector === '[data-automation-id="progressBarActiveStep"]') {
+      return r.activeStep ? new FakeElement('progressBarActiveStep', r.activeStep) : null
+    }
+    if (selector === '[data-automation-id="jobTitleHeading"]') {
+      return r.jobTitle ? new FakeElement('jobTitleHeading', r.jobTitle) : null
+    }
     const p = page.posting
     if (!p) return null
     if (selector === '[data-automation-id="jobPostingHeader"]') return new FakeElement('jobPostingHeader', p.title)

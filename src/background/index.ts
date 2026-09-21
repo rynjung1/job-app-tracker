@@ -10,6 +10,7 @@ import { buildRow } from '../lib/buildRow'
 import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { sanitizeRow } from '../lib/sanitize'
 import { parseJobPostingData } from '../lib/jobPayload'
+import { parseWorkdaySubmitPayload, workdayPostingFor } from './workdaySubmit'
 import { isTrustedJobSiteOrigin } from '../lib/trustedOrigins'
 import { REMOVED_KEYS } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
@@ -373,6 +374,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false
     }
     handleJobApplicationLogged(payload)
+  }
+
+  // Workday's final Submit (2026-09-21): the page sends the address it was
+  // on, the background reads the job. See ./workdaySubmit.ts for why the
+  // read can't happen in the content script.
+  if (message?.type === 'WORKDAY_APPLICATION_SUBMITTED') {
+    const payload = parseWorkdaySubmitPayload(message.payload, sender.origin)
+    if (!payload) {
+      console.warn('[job-app-tracker] rejected a Workday submit message with an invalid payload')
+      return false
+    }
+    workdayPostingFor(payload).then((posting) => {
+      if (posting) handleJobApplicationLogged(posting)
+    })
+    return false
   }
 
   if (message?.type === 'JOB_APPLICATION_PENDING' || message?.type === 'JOB_APPLICATION_CONFIRMED') {

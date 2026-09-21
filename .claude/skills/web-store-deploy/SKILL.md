@@ -212,17 +212,18 @@ description: Steps and status for publishing this extension to the Chrome Web St
      (`package.json`'s `version`, which the manifest reads).
      **What changes at the Workday merge** (prepared 2026-09-14, so the
      work after the observation is quick):
-     - **The Submit selector:** replace the placeholder
-       `WORKDAY_SUBMIT_SELECTOR_PLACEHOLDER` (`:not(*)`,
-       `src/parsers/workday.ts`) with the control that PART A of
-       `scripts/workday-observe.js` shows. If that Submit shares its
-       `data-automation-id` with the earlier steps' Next button, the
-       selector also needs whatever PART A shows marks the Review step
-       (its label, or the progress step). Tests: the content-script
-       test's test-only selector becomes the real one, and the DOM test
-       checks it matches the observed Submit and not a Next button. The
-       raw output is never committed; a fixture made from it is scrubbed
-       first. CLAUDE.md's Workday note records the evidence.
+     - **The Submit selector: done 2026-09-21.** PART A showed the
+       Review page's Submit carries the same `data-automation-id` as
+       every step's Next button (`pageFooterNextButton`), so the trigger
+       is that control *plus* the Review step, and the posting is read
+       by the background after the click rather than kept in the page,
+       since Workday's sign-in reloads it. That added
+       `host_permissions` for the two Workday domains, for one public
+       JSON read the endpoint's missing CORS header makes impossible
+       from the page. CLAUDE.md's Workday notes have the evidence and
+       the reasoning; the raw output was scrubbed before it went in.
+       What's left is the live check: one real Workday application on
+       the rebuilt build, confirming a row lands.
      - **The listing and privacy text:** already on the branch (the
        summary, 126 of 132 characters; the description, single purpose,
        storage and content-script texts; privacy.html's Workday

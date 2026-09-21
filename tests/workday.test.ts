@@ -6,7 +6,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
-import { captureFromJobJson, parseWorkdayJobUrl, WORKDAY_SUBMIT_SELECTOR_PLACEHOLDER, workdayParser } from '../src/parsers/workday'
+import {
+  captureFromJobJson,
+  isFinalReviewStep,
+  parseWorkdayJobUrl,
+  reviewPageJobTitle,
+  WORKDAY_SUBMIT_CONTROL_SELECTOR,
+  workdayParser,
+} from '../src/parsers/workday'
 import { isTrustedJobSiteOrigin } from '../src/lib/trustedOrigins'
 
 const fixture = (name: string) => JSON.parse(fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/workday', name), 'utf8'))
@@ -78,9 +85,54 @@ test('Workday job URLs', async (t) => {
     }
   })
 
-  await t.test('the Submit selector is still the placeholder, which matches nothing', () => {
-    assert.equal(WORKDAY_SUBMIT_SELECTOR_PLACEHOLDER, ':not(*)')
-    assert.equal(workdayParser.getApplyButtonSelector(), ':not(*)')
+  // Pinned 2026-09-21: the Review page's Submit carries the same
+  // data-automation-id as every step's Next button, so the control alone
+  // can't be the trigger (CLAUDE.md, Site parsers, Workday).
+  await t.test('the Submit selector is the footer control the observation showed', () => {
+    assert.equal(WORKDAY_SUBMIT_CONTROL_SELECTOR, '[data-automation-id="pageFooterNextButton"]')
+    assert.equal(workdayParser.getApplyButtonSelector(), WORKDAY_SUBMIT_CONTROL_SELECTOR)
+  })
+
+  // A stand-in document: querySelector answers the three review selectors.
+  const reviewDoc = (opts: { reviewPage?: boolean; activeStep?: string; ariaLabel?: string; jobTitle?: string }) =>
+    ({
+      querySelector: (selector: string) => {
+        if (selector === '[data-automation-id="applyFlowReviewPage"]') return opts.reviewPage ? {} : null
+        if (selector === '[data-automation-id="progressBarActiveStep"]') {
+          if (!opts.activeStep && !opts.ariaLabel) return null
+          return {
+            textContent: opts.activeStep ?? '',
+            getAttribute: (name: string) => (name === 'aria-label' ? (opts.ariaLabel ?? null) : null),
+          }
+        }
+        if (selector === '[data-automation-id="jobTitleHeading"]') {
+          return opts.jobTitle ? { textContent: opts.jobTitle } : null
+        }
+        return null
+      },
+    }) as unknown as ParentNode
+
+  await t.test('isFinalReviewStep: the review container alone is enough', () => {
+    assert.equal(isFinalReviewStep(reviewDoc({ reviewPage: true })), true)
+    assert.equal(isFinalReviewStep(reviewDoc({ reviewPage: true, activeStep: 'current step 3 of 8' })), true)
+  })
+
+  await t.test('isFinalReviewStep: without it, the progress bar deciding on digits, not words', () => {
+    assert.equal(isFinalReviewStep(reviewDoc({ activeStep: 'current step 8 of 8' })), true)
+    assert.equal(isFinalReviewStep(reviewDoc({ ariaLabel: 'étape 8 sur 8' })), true)
+    assert.equal(isFinalReviewStep(reviewDoc({ activeStep: '第 8 步，共 8 步' })), true)
+    assert.equal(isFinalReviewStep(reviewDoc({ activeStep: 'current step 3 of 8' })), false)
+    assert.equal(isFinalReviewStep(reviewDoc({ activeStep: 'step 8' })), false)
+    assert.equal(isFinalReviewStep(reviewDoc({ activeStep: 'Review' })), false)
+  })
+
+  await t.test('isFinalReviewStep: neither mark, nothing is a final step', () => {
+    assert.equal(isFinalReviewStep(reviewDoc({})), false)
+  })
+
+  await t.test('reviewPageJobTitle: the heading, collapsed; empty when it is absent', () => {
+    assert.equal(reviewPageJobTitle(reviewDoc({ jobTitle: '  Senior   Engineer ' })), 'Senior Engineer')
+    assert.equal(reviewPageJobTitle(reviewDoc({})), '')
   })
 })
 

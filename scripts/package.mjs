@@ -33,7 +33,13 @@ const CLIENT_ID = readFileSync(join(ROOT, 'manifest.config.ts'), 'utf8').match(/
 
 const EXPECTED = {
   permissions: ['storage', 'identity', 'alarms', 'notifications'],
-  hostPermissions: ['https://sheets.googleapis.com/*'],
+  // The Workday domains (2026-09-21) are for the background's job-JSON read
+  // after Submit, which CORS blocks without them (manifest.config.ts).
+  hostPermissions: [
+    'https://sheets.googleapis.com/*',
+    'https://*.myworkdayjobs.com/*',
+    'https://*.myworkdaysite.com/*',
+  ],
   scopes: ['https://www.googleapis.com/auth/drive.file'],
   minimumChromeVersion: '110',
   // The Chrome Web Store item (created 2026-09-14). A manifest key, allowed
@@ -172,14 +178,34 @@ function checkDir(dir) {
   if (!sameSet(allMatches, EXPECTED.contentScriptMatches)) {
     fail(`content_scripts matches are ${JSON.stringify(allMatches)}, expected ${JSON.stringify(EXPECTED.contentScriptMatches)}`)
   }
-  // Pinned (CLAUDE.md, Permissions): exactly one entry per content script,
-  // exposing only that script's own file to its site's origin.
+  // Pinned (CLAUDE.md, Permissions): one entry per content script, exposing
+  // only that script's own built files to its site's origin, and never with
+  // a dynamic url.
+  //
+  // "Files" rather than "file" since 2026-09-21: the Workday parser is now
+  // imported by the background as well as by its content script, so Vite
+  // splits it into a shared chunk and crxjs exposes that chunk alongside the
+  // script's own. Still only this bundle's own JavaScript, still only to the
+  // origins that script already runs on. The background's own entry must
+  // never appear.
   const war = m.web_accessible_resources ?? []
-  const normalize = (r) =>
-    JSON.stringify({ matches: [...(r.matches ?? [])].sort(), resources: [...(r.resources ?? [])].sort(), dynamic: r.use_dynamic_url })
-  const expectedWar = contentScripts.map((c) => ({ matches: c.matches.map(originOf), resources: c.js, use_dynamic_url: false }))
-  if (!sameSet(war.map(normalize), expectedWar.map(normalize))) {
-    fail(`web_accessible_resources must be exactly one entry per content script (its own file, its site's origin, use_dynamic_url false); found ${JSON.stringify(war)}`)
+  const origins = contentScripts.map((c) => JSON.stringify(c.matches.map(originOf).sort()))
+  const background = m.background?.service_worker
+  if (war.length !== contentScripts.length) {
+    fail(`web_accessible_resources should have one entry per content script (${contentScripts.length}); found ${war.length}`)
+  }
+  for (const entry of war) {
+    const matches = JSON.stringify([...(entry.matches ?? [])].sort())
+    if (!origins.includes(matches)) {
+      fail(`web_accessible_resources entry exposes files to ${matches}, which is not a content script's origin`)
+    }
+    if (entry.use_dynamic_url !== false) fail(`web_accessible_resources entry for ${matches} must set use_dynamic_url false`)
+    for (const resource of entry.resources ?? []) {
+      if (!/^assets\/[\w.-]+\.js$/.test(resource)) {
+        fail(`web_accessible_resources exposes ${resource} to ${matches}; only this bundle's own assets/*.js may be exposed`)
+      }
+      if (resource === background) fail(`web_accessible_resources exposes the background service worker (${resource})`)
+    }
   }
 
   const referenced = [

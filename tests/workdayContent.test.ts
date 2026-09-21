@@ -1,21 +1,17 @@
 // The real src/content/workday.ts on a fake Workday page
 // (fakes/workday-page.ts), moved through the app the way a user does: job
-// search, a posting, its Apply control, the application routes, the final
-// Submit. Checks the click-time capture (2026-09-14), the job JSON fallback,
-// and that the placeholder Submit selector logs nothing.
+// search, a posting, the application steps, the final Submit. Since
+// 2026-09-21 the script keeps nothing and reads nothing: Workday's sign-in
+// reloads the page, so at Submit it sends the address it is on and the
+// background reads the job (tests/background.test.ts covers that half).
+// What's checked here is which clicks send and which don't.
 import { FakeElement, clickListeners, fetches, htmlAttributes, navigateInApp, page, pageWrites, sent } from './fakes/workday-page'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
-import { workdayParser } from '../src/parsers/workday'
 import '../src/content/workday'
 
-const fixture = (name: string) => JSON.parse(fs.readFileSync(path.join(process.cwd(), 'tests/fixtures/workday', name), 'utf8'))
-// Lets the click handler's async work (the job JSON read) finish. The fake
-// fetch answers with plain promises, so a few event-loop turns cover it on
-// any machine. This used to wait a fixed 20 ms, less than a real Response's
-// first use costs in a fresh process (21-34 ms measured): the flake.
+// Five event-loop turns, as elsewhere: the handler is synchronous now, but
+// a message that ever became async would still be caught.
 const settle = async () => {
   for (let turn = 0; turn < 5; turn++) await new Promise((r) => setImmediate(r))
 }
@@ -23,75 +19,91 @@ const click = async (target: unknown, isTrusted = true) => {
   clickListeners.forEach((listener) => listener({ isTrusted, target }))
   await settle()
 }
+const onReviewPage = (jobTitle = 'Senior System Software Engineer, Agentic Kernel Development') => {
+  page.review = { reviewPage: true, activeStep: 'current step 8 of 8', jobTitle }
+}
+const onStep = (activeStep: string) => {
+  page.review = { reviewPage: false, activeStep, jobTitle: '' }
+}
 
-const NVIDIA = 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-System-Software-Engineer--Agentic-Kernel-Development_JR2025621'
-const NVIDIA_POSTING = { title: 'Senior System Software Engineer, Agentic Kernel Development', location: 'US, CA, Santa Clara', reqId: 'JR2025621' }
+const NVIDIA_PATH = '/en-US/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-System-Software-Engineer--Agentic-Kernel-Development_JR2025621'
+const NVIDIA_URL = `https://nvidia.wd5.myworkdayjobs.com${NVIDIA_PATH.replace('/en-US', '')}`
 const apply = new FakeElement('adventureButton', 'Apply')
-// Controls a Review page plausibly has; the placeholder matches none of them.
-const plausibleSubmits = [new FakeElement('pageFooterNextButton', 'Submit'), new FakeElement('bottom-navigation-next-button', 'Submit')]
-const testSubmit = new FakeElement('testFinalSubmit', 'Submit')
+const footerNext = new FakeElement('pageFooterNextButton', 'Submit')
+const footerBack = new FakeElement('pageFooterBackButton', 'Back')
 
 test('Workday content script', async (t) => {
-  await t.test('on the job search page, an Apply-shaped click does nothing (no job in the address)', async () => {
+  await t.test('on the job search page, a footer click does nothing (no job in the address)', async () => {
+    onReviewPage()
+    await click(footerNext)
+    assert.equal(sent.length + fetches.length, 0)
+  })
+
+  await t.test('the posting page: the Apply control is no longer a trigger — nothing is kept, sent or read', async () => {
+    navigateInApp(NVIDIA_PATH)
+    page.posting = { title: 'Senior System Software Engineer, Agentic Kernel Development', location: 'US, CA, Santa Clara', reqId: 'JR2025621' }
+    page.review = { reviewPage: false, activeStep: '', jobTitle: '' }
     await click(apply)
     assert.equal(sent.length + fetches.length, 0)
   })
 
-  await t.test('posting page: a trusted Apply click (the untrusted one ignored) sends nothing and reads nothing; the Submit test below shows it was kept', async () => {
-    navigateInApp(`/en-US/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-System-Software-Engineer--Agentic-Kernel-Development_JR2025621`)
-    page.posting = NVIDIA_POSTING
-    await click(apply, false)
-    await click(apply)
-    assert.equal(sent.length + fetches.length, 0)
-  })
-
-  await t.test('application routes: with the placeholder selector, Submit-like clicks log nothing and read nothing', async () => {
-    navigateInApp(`${new URL(NVIDIA).pathname}/apply/applyManually`)
+  await t.test("an earlier step's Next button is the same control, and logs nothing", async () => {
+    navigateInApp(`${NVIDIA_PATH}/apply/applyManually`)
     page.posting = null
-    for (const control of [...plausibleSubmits, testSubmit]) await click(control)
-    assert.equal(sent.length + fetches.length, 0)
+    onStep('current step 3 of 8')
+    await click(footerNext)
+    assert.equal(sent.length, 0)
   })
 
-  // From here a test-only selector stands in for the one the observation
-  // will pin, to exercise the Submit path itself.
-  await t.test('final Submit (test selector): logs the kept posting, no network read; normalized URL and tenant Company', async () => {
-    workdayParser.getApplyButtonSelector = () => '[data-automation-id="testFinalSubmit"]'
-    await click(testSubmit, false)
+  await t.test('the Review page: a trusted footer click sends the address and the page title, and reads nothing', async () => {
+    navigateInApp(`${NVIDIA_PATH}/apply/autofillWithResume`)
+    onReviewPage()
+    await click(footerNext, false)
     assert.equal(sent.length, 0)
-    await click(testSubmit)
-    assert.deepEqual(sent, [{ type: 'JOB_APPLICATION_LOGGED', payload: { title: NVIDIA_POSTING.title, company: 'nvidia', location: NVIDIA_POSTING.location, url: NVIDIA } }])
+    await click(footerNext)
+    assert.deepEqual(sent, [
+      {
+        type: 'WORKDAY_APPLICATION_SUBMITTED',
+        payload: {
+          url: `https://nvidia.wd5.myworkdayjobs.com${NVIDIA_PATH}/apply/autofillWithResume`,
+          title: 'Senior System Software Engineer, Agentic Kernel Development',
+        },
+      },
+    ])
     assert.equal(fetches.length, 0)
   })
 
-  await t.test('landed on /apply without an Apply click: one same-origin job JSON read, then logged from it', async () => {
-    const bmo = fixture('bmo-job.json').jobPostingInfo
-    navigateInApp(`https://bmo.wd3.myworkdayjobs.com/en-US/External/job/Toronto-ON-CAN/Sr-Application-Developer----Java---AWS---Payment-Systems---Leadership-_R260009659/apply/autofillWithResume`)
-    page.fetchAnswer = { status: 200, body: fixture('bmo-job.json') }
-    await click(testSubmit)
-    assert.deepEqual(fetches, ['https://bmo.wd3.myworkdayjobs.com/wday/cxs/bmo/External/job/Toronto-ON-CAN/Sr-Application-Developer----Java---AWS---Payment-Systems---Leadership-_R260009659'])
-    assert.deepEqual(sent.at(-1), { type: 'JOB_APPLICATION_LOGGED', payload: { title: bmo.title, company: 'bmo', location: bmo.location, url: bmo.externalUrl } })
+  await t.test("the Back button is never the trigger, even on the Review page", async () => {
+    await click(footerBack)
+    assert.equal(sent.length, 1)
+  })
+
+  await t.test('the review container gone, the progress bar still says the last step: still sent', async () => {
+    onStep('étape 8 sur 8')
+    await click(footerNext)
+    assert.equal(sent.length, 2)
+    assert.equal((sent.at(-1) as { payload: { title: string } }).payload.title, '')
+  })
+
+  await t.test('neither mark: nothing sent', async () => {
+    page.review = { reviewPage: false, activeStep: '', jobTitle: '' }
+    await click(footerNext)
+    onStep('step 8')
+    await click(footerNext)
     assert.equal(sent.length, 2)
   })
 
-  await t.test('the JSON read fails (404, then a network error): nothing logged', async () => {
-    navigateInApp('https://mastercard.wd1.myworkdayjobs.com/en-US/CorporateCareers/job/OFallon-Missouri/Senior-Software-Engineer_R-290078/apply')
-    page.fetchAnswer = { status: 404, body: {} }
-    await click(testSubmit)
-    page.fetchAnswer = null
-    await click(testSubmit)
-    assert.equal(fetches.length, 3)
+  await t.test('on an address that names no job, the Review page logs nothing', async () => {
+    navigateInApp('https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/userHome')
+    onReviewPage()
+    await click(footerNext)
     assert.equal(sent.length, 2)
   })
 
-  await t.test('a Submit on an address that names no job: no read, nothing logged', async () => {
-    navigateInApp('https://mastercard.wd1.myworkdayjobs.com/en-US/CorporateCareers/userHome')
-    await click(testSubmit)
-    assert.equal(fetches.length, 3)
-    assert.equal(sent.length, 2)
-  })
-
-  await t.test('through all of the above, the script wrote nothing to the page', () => {
+  await t.test('the script never fetches anything, and wrote nothing to the page', () => {
+    assert.deepEqual(fetches, [])
     assert.deepEqual(htmlAttributes, {})
     assert.deepEqual(pageWrites, [])
+    assert.equal(NVIDIA_URL, 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-System-Software-Engineer--Agentic-Kernel-Development_JR2025621')
   })
 })

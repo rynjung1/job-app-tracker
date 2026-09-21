@@ -1968,14 +1968,14 @@ continue on `main`, which stays packageable.
   generic, and the JSON's `hiringOrganization` is a legal entity ("2100
   NVIDIA USA") or empty. Editing it in the sheet is safe since the
   popup's identity check uses the Log ID (Sheet setup).
-- **The Submit selector is a placeholder** (`:not(*)`, matching nothing)
-  until the observation (`scripts/workday-observe.js`, PARTs 0, A and B,
-  on any build, or none) pins it. That application must also
-  show: the job path surviving sign-in and every step, whether Submit
-  leads to a full load, the confirmation marker, the page language,
-  iframes, and whether PART 0 and PART A share one `documentLoadedAt`
-  (then the in-memory capture survives to Submit). A
-  later real application is the live check.
+- **The Submit selector was a placeholder** (`:not(*)`, matching nothing)
+  until Ryan's observation pinned it on 2026-09-21
+  (`scripts/workday-observe.js`): it's the footer's `pageFooterNextButton`
+  *while the Review step is showing*, and the posting is no longer kept in
+  memory, since Workday's sign-in reloads the page. The observation notes
+  below have both, and what the same run settled about the post-submit
+  page. A real application on the rebuilt build is the live check;
+  nothing has logged a real Workday row yet.
 
 **Verified 2026-09-14 in Node and headless Chrome only** (`npm test`:
 128 of 128, `npm run test:node` 104, after the review changes):
@@ -1989,22 +1989,32 @@ continue on `main`, which stays packageable.
   JSON fallback reads the three JSON fixtures; the origin check accepts 5
   and refuses 11 (lookalikes, `http:`, a port, the employee app).
 - `tests/workdayContent.test.ts`, the real content script on a fake page
-  moved through the app: an Apply-shaped click on the search page does
-  nothing; a trusted Apply click on the posting keeps it, sending and
-  reading nothing; with the placeholder, Submit-like
-  clicks on the application routes log and read nothing; with a test-only
-  selector, Submit logs the kept posting with no read, a direct landing
-  reads the job JSON once and logs from it, a 404 or network error logs
-  nothing, and an address naming no job reads and logs nothing; through
-  all of it the script writes nothing to the page (the fake document, a
-  Proxy, records any use beyond the three reads it expects).
+  moved through the app (rewritten 2026-09-21): a footer click on the
+  search page does nothing; the Apply control is no longer a trigger; an
+  earlier step's Next click sends nothing; on the Review page a trusted
+  footer click sends the address and the page's title (an untrusted one
+  doesn't), and Back never triggers; with the review container gone the
+  progress bar's "N of N" still sends, and with neither mark nothing
+  does; an address naming no job sends nothing; the script fetches
+  nothing at all and writes nothing to the page (the fake document, a
+  Proxy, records any use beyond the reads it expects).
 - `tests/dom/workday.test.mjs`, the real parser on the four fixtures'
   real markup in headless Chrome: title, first location, requisition id,
   normalized URL and tenant for each; the DOM capture equals the job JSON
   for the three with JSON; the Apply selector finds each posting's one
-  Apply link, and the placeholder matches none of three plausible Submit
-  controls.
-- `tests/background.test.ts`: messages from a myworkdayjobs.com tenant
+  Apply link; the Submit control matches the footer button on a Review
+  section and on an earlier step's section and nothing on the postings,
+  `isFinalReviewStep` is true only for the Review one (still true with its
+  container removed, on the progress bar alone), and the Review page's
+  title heading reads back.
+- `tests/background.test.ts` (2026-09-21): a `WORKDAY_APPLICATION_SUBMITTED`
+  message reads the job JSON once and logs its title and location with the
+  tenant as Company and the normalized URL; an unreadable JSON with a page
+  title still logs, from that title, with no location; an unreadable JSON
+  and no title logs nothing and queues nothing; three untrusted origins and
+  a tenant naming another tenant's job never reach the read; seven
+  malformed payloads are refused before it; and a retried Submit is the
+  same normalized URL, so one row. Plus: messages from a myworkdayjobs.com tenant
   and from myworkdaysite.com log, 5 lookalike origins log nothing, the
   same normalized URL twice logs once; the Log ID identity cases (Company
   edited with the same Log ID writes for both messages; another Log ID is
@@ -2067,10 +2077,88 @@ automationIds     CandidateHomePage, candidate-home-app, welcomeMsgHeader,
   has to beat the unload and may not. It doesn't change the code today,
   but it's why PART A's `documentLoadedAt` matters (below) and why the
   fallback should be treated as a long shot rather than an equal path.
-- **Still outstanding: PART A**, on the final Review page. It's the part
-  that pins the selector, and it needs no submission — see
-  `scripts/workday-observe.js`, rewritten 2026-09-21 for a run that stops
-  at Review.
+- **PART A followed on a second tenant** (below), and pinned the selector.
+
+**Observed 2026-09-21 (Ryan), PART A, on a second tenant: the Submit
+control is pinned.** Same shapes as the first tenant. Scrubbed as above;
+the path's structure is what matters, not whose job it was:
+
+```
+path              /en-US/<tenant-site>/job/<LOCATION>/<Job-Title-slug>_<reqId>
+                  /apply/autofillWithResume     <- the Review route STILL names the job
+documentLoadedAt  2026-09-21T01:19:57Z  vs PART 0's 01:11:53Z   -> a FULL PAGE LOAD
+                  in between: Workday required sign-up/sign-in (title "Create Account")
+lang en-US        iframes []        title "Create Account"
+headings          the job title, Review, My Information, My Experience,
+                  Application Questions 1-3 of 3, Voluntary Disclosures
+Submit control    <button data-automation-id="pageFooterNextButton">Submit</button>
+                  — the SAME automation id as every earlier step's Next button;
+                  the only other footer control is pageFooterBackButton ("Back")
+Review markers    applyFlowPage, applyFlowReviewPage, jobTitleHeading, progressBar,
+                  progressBarActiveStep ("current step 8 of 8"), backToJobPosting
+```
+
+Two things follow, and both changed what's built (2026-09-21):
+
+**1. The trigger is the footer control *plus* the Review page.** The
+selector can't be `pageFooterNextButton` alone — it would fire on every
+step — and it shouldn't be the English word "Submit". So
+`isFinalReviewStep` (`parsers/workday.ts`) accepts **either** mark:
+`[data-automation-id="applyFlowReviewPage"]` being present, **or** the
+progress bar's active step reading "N of N". Either alone is enough, on
+purpose:
+- **Why OR rather than AND.** A rename of one mark then doesn't stop a
+  real application being logged. The cost of being wrong in each
+  direction isn't symmetric, and this project has already taken that
+  trade once: "a missed final Submit would be an invisible lost row,
+  which is worse than an extra visible one" (LinkedIn, 2026-09-12). A
+  false positive here is *at most one* extra row, because the 24-hour
+  repeat check is keyed on the normalized URL, so clicking Next through
+  eight steps can't make eight rows — and it's visible in the sheet and
+  in the popup, where one click marks it Cancelled. A false negative is
+  a silent nothing.
+- **The step is read off the digits, never the words** ("N of N" from
+  `\d+` matches, last pair equal), because the label is translated and
+  the numerals mostly aren't. "step 8" or "Review" alone is not a match.
+- **If Workday renames both marks, nothing logs.** That's the residual
+  failure and it's deliberate: the alternative — falling back to "log on
+  any footer click" — would log a row for every step of every
+  application, which is worse than logging none. The live check after a
+  real application is what would catch it.
+
+**2. The in-memory capture is gone; the background does the read.** The
+sign-in reload means the posting kept at the Apply click is not there at
+Submit, and PART A shows that reload is the normal path. Since the
+Review URL still names the job, the content script now keeps nothing: at
+the Submit click it sends the address it is on, plus the Review page's
+`jobTitleHeading` as a fallback, and `background/workdaySubmit.ts` reads
+the job's public JSON. The read has to be there rather than in the page
+because Submit is itself a full page load (PART B), so a fetch started in
+the click handler races the unload; the background outlives both.
+- **This needs `host_permissions` for the two Workday domains** (a
+  flagged addition, `manifest.config.ts`). Checked 2026-09-21 against two
+  live tenants: the job JSON answers 200 with **no
+  `Access-Control-Allow-Origin` header**, so an extension-origin fetch is
+  blocked without host access. The same two domains the content scripts
+  already match, so the install warning is expected to be unchanged —
+  confirmed on the store install dialog at step 8, since an unpacked load
+  shows none. Credentials are omitted: the endpoint is public, and the
+  candidate's Workday session is none of the extension's business.
+- **Nothing from the page is trusted for the read.** The background
+  re-parses the address itself, and refuses it unless it parses as a
+  Workday job URL **on the sender's own origin**, so a compromised page
+  can't point the fetch at another tenant or at a non-job address.
+- **If the JSON can't be read**, the Review page's title is used, with
+  the tenant as Company and no location — a real application still
+  reaches the sheet. With neither, nothing is logged: a row with no title
+  would be worse than none.
+- **One build consequence:** the parser is now imported by the background
+  as well as its content script, so Vite splits it into a shared chunk and
+  crxjs makes that chunk web-accessible to the Workday origins alongside
+  the script's own file. `scripts/package.mjs` used to pin "exactly one
+  file per content script"; it now allows a script's own built files while
+  still requiring each entry's origins to be that script's, `assets/*.js`
+  only, `use_dynamic_url: false`, and never the background's own entry.
 
 **Fixed 2026-09-14 (review): a flaky test, found by measurement.** The
 reviewer's first `npm test` in a fresh clone had 2 failures (not named in

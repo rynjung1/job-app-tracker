@@ -137,7 +137,22 @@ export default defineManifest({
   //
   // login.microsoftonline.com + graph.microsoft.com removed 2026-09-13,
   // with Excel/OneDrive support (CLAUDE.md, Spreadsheet backend).
-  host_permissions: ['https://sheets.googleapis.com/*'],
+  //
+  // The two Workday career-site domains added 2026-09-21, for one call: the
+  // background reads a job's public JSON after the final Submit click
+  // (background/workdaySubmit.ts). It can't be read from the page — Submit
+  // is a full page load, so a fetch started in the click handler races the
+  // unload — and it can't be read without this: the endpoint answers with no
+  // Access-Control-Allow-Origin header (checked against two live tenants,
+  // both 200, neither sending one), so an extension-origin fetch is blocked
+  // without host access. Same two domains the content script already
+  // matches, so the install warning is expected to be unchanged; that gets
+  // confirmed on the store install dialog, since an unpacked load shows none.
+  host_permissions: [
+    'https://sheets.googleapis.com/*',
+    'https://*.myworkdayjobs.com/*',
+    'https://*.myworkdaysite.com/*',
+  ],
   // Client ID is a public identifier for this client type — Google doesn't
   // issue a secret for "Chrome Extension" OAuth clients, so this is fine to
   // commit (see CLAUDE.md Security > Secrets & credentials, Phase 3 note).

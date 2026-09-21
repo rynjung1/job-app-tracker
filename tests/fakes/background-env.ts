@@ -77,6 +77,10 @@ export const ctl = {
   // taken to answer 404 everywhere (expected, not measured).
   trashedIds: new Set<string>(),
   goneIds: new Set<string>(),
+  // What a Workday job JSON read answers (2026-09-21), for the background's
+  // read after a Submit message; null makes the fetch fail like a network
+  // error.
+  workdayJson: { status: 200, body: {} } as null | { status: number; body: unknown },
   // Each spreadsheet's name (2026-09-17), for readTitle. A create adds the
   // name it asked for under the next id (new1, new2...); 'sheet1' is the
   // pre-existing one every test starts connected to.
@@ -112,6 +116,7 @@ export function reset() {
   ctl.trashedIds.clear()
   ctl.goneIds.clear()
   ctl.titles = { sheet1: 'Job Applications' }
+  ctl.workdayJson = { status: 200, body: {} }
   created = 0
 }
 
@@ -223,6 +228,11 @@ export const fakeResponse = (status: number, text: string) =>
   const step = ctl.fetchPlan.length ? ctl.fetchPlan.shift()! : 200
   if (step === 'abort') throw new DOMException('The operation was aborted.', 'AbortError')
   if (step !== 200) return fakeResponse(step, `{"error":{"code":${step}}}`)
+  // A Workday job JSON read (2026-09-21): whatever ctl.workdayJson says.
+  if (u.includes('/wday/cxs/')) {
+    if (!ctl.workdayJson) throw new TypeError('Failed to fetch')
+    return fakeResponse(ctl.workdayJson.status, JSON.stringify(ctl.workdayJson.body))
+  }
   // Drive files.get?fields=trashed (isTrashed): per ctl.trashedIds; a
   // deleted file answers 404.
   const driveFile = u.match(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/([^/?]+)/)?.[1]

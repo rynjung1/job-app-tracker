@@ -1,6 +1,6 @@
 // The Workday parser's posting-DOM capture (src/parsers/workday.ts) against
 // the real, trimmed markup of four public postings (tests/fixtures/workday),
-// with real selectors, in headless Chrome. Also: the placeholder Submit
+// with real selectors, in headless Chrome. Also: the Submit control and the
 // selector matches nothing on a page with plausible Submit controls. Skipped
 // with a message when Chrome isn't found (set CHROME_PATH).
 import { test } from 'node:test'
@@ -66,14 +66,27 @@ test('Workday posting DOM in headless Chrome', { skip: CHROME ? false : 'headles
     const sections = CASES.map((c) => `<section id="${c.name}">${fs.readFileSync(path.join(FIXTURES, `${c.name}-posting.html`), 'utf8')}</section>`).join('\n')
     const page = `<!doctype html><html><body>
 ${sections}
-<section id="review"><button data-automation-id="pageFooterNextButton">Submit</button><button type="submit">Submit</button><div role="button" data-automation-id="bottom-navigation-next-button">Submit</div></section>
+<section id="review" data-automation-id="applyFlowReviewPage"><h2 data-automation-id="jobTitleHeading">Senior System Software Engineer, Agentic Kernel Development</h2><div data-automation-id="progressBarActiveStep" aria-label="current step 8 of 8">Review</div><button data-automation-id="pageFooterBackButton">Back</button><button data-automation-id="pageFooterNextButton">Submit</button></section>
+<section id="step3"><div data-automation-id="progressBarActiveStep" aria-label="current step 3 of 8">My Experience</div><button data-automation-id="pageFooterBackButton">Back</button><button data-automation-id="pageFooterNextButton">Save and Continue</button></section>
 <script src="workday.js"></script>
 <script>
   const cases = ${JSON.stringify(CASES.map(({ name, href }) => ({ name, href })))}
   const out = {}
   for (const c of cases) out[c.name] = Workday.captureFromPostingDom(document.getElementById(c.name), c.href)
-  out.placeholderMatches = document.querySelectorAll(Workday.WORKDAY_SUBMIT_SELECTOR_PLACEHOLDER).length
   out.applyControls = document.querySelectorAll(Workday.WORKDAY_APPLY_CONTROL_SELECTOR).length
+  // The footer control is the same on both steps; only the page differs.
+  const review = document.getElementById('review')
+  const step3 = document.getElementById('step3')
+  out.submitControls = {
+    review: review.querySelectorAll(Workday.WORKDAY_SUBMIT_CONTROL_SELECTOR).length,
+    step3: step3.querySelectorAll(Workday.WORKDAY_SUBMIT_CONTROL_SELECTOR).length,
+    postings: document.querySelectorAll(Workday.WORKDAY_SUBMIT_CONTROL_SELECTOR).length - 2,
+  }
+  out.finalStep = { review: Workday.isFinalReviewStep(review), step3: Workday.isFinalReviewStep(step3) }
+  // The review container removed: the progress bar alone still decides.
+  review.removeAttribute('data-automation-id')
+  out.finalStepWithoutContainer = Workday.isFinalReviewStep(review)
+  out.reviewTitle = Workday.reviewPageJobTitle(review)
   document.body.setAttribute('data-result', JSON.stringify(out))
 </script></body></html>`
     fs.writeFileSync(path.join(dir, 'page.html'), page)
@@ -101,9 +114,12 @@ ${sections}
         )
       }
     })
-    await t.test('the Apply control selector finds each posting\'s one Apply link; the placeholder Submit selector matches nothing', () => {
+    await t.test('the Apply control selector finds each posting\'s one Apply link; the Submit control matches the footer button on both steps, and only the Review page counts as the final step', () => {
       assert.equal(out.applyControls, CASES.length)
-      assert.equal(out.placeholderMatches, 0)
+      assert.deepEqual(out.submitControls, { review: 1, step3: 1, postings: 0 })
+      assert.deepEqual(out.finalStep, { review: true, step3: false })
+      assert.equal(out.finalStepWithoutContainer, true)
+      assert.equal(out.reviewTitle, 'Senior System Software Engineer, Agentic Kernel Development')
     })
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })

@@ -713,6 +713,76 @@ test('background worker', async (t) => {
   await fromOrigin('https://nvidia.wd5.myworkdayjobs.com', 'wd-repeat', WD_URL)
   await check('Workday: messages from a myworkdayjobs.com tenant and from myworkdaysite.com log; 5 lookalike origins log nothing; the same normalized URL twice logs once', rowsOf('wd-tenant').length === 1 && rowsOf('wd-site').length === 1 && lookalikeRows === 0 && rowsOf('wd-repeat').length === 1 && appends() === 3, { tenant: rowsOf('wd-tenant').length, site: rowsOf('wd-site').length, lookalikeRows, repeat: rowsOf('wd-repeat').length, appends: appends() })
 
+  // ---- Workday's final Submit, read in the background (2026-09-21). The
+  // page sends only the address it was on; the background re-parses it and
+  // reads the job's public JSON, because the click is followed by a full
+  // page load that would kill a fetch started in the page. ----
+  const WD_ORIGIN = 'https://nvidia.wd5.myworkdayjobs.com'
+  const WD_REVIEW_URL = `${WD_ORIGIN}/en-US/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Kernel-Engineer_JR2025621/apply/autofillWithResume`
+  const WD_ROW_URL = `${WD_ORIGIN}/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Kernel-Engineer_JR2025621`
+  const wdJson = (title: string, location: string) => ({ jobPostingInfo: { title, location, jobReqId: 'JR2025621', externalUrl: WD_ROW_URL } })
+  const submitFrom = async (origin: string, payload: unknown) => {
+    listeners.onMessage[0]({ type: 'WORKDAY_APPLICATION_SUBMITTED', payload }, { origin }, () => {})
+    await settle()
+  }
+  const wdFetches = () => log.fetches.filter((f) => f.includes('/wday/cxs/'))
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 200, body: wdJson('Kernel Engineer', 'US, CA, Santa Clara') }
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  const fromJson = rowsOf('nvidia')[0]?.[1]
+  await check('Workday submit: the background reads the job JSON once and logs it — title and location from the JSON, the tenant as Company, the normalized URL', wdFetches().length === 1 && wdFetches()[0] === `${WD_ORIGIN}/wday/cxs/nvidia/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Kernel-Engineer_JR2025621` && rowsOf('nvidia').length === 1 && fromJson?.[2] === 'Kernel Engineer' && fromJson?.[3] === 'US, CA, Santa Clara' && fromJson?.[4] === WD_ROW_URL, { fetches: wdFetches(), row: fromJson })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 404, body: {} }
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  const fromHint = rowsOf('nvidia')[0]?.[1]
+  await check("Workday submit: the JSON unreadable but the Review page had a title -> still logged, from the page's title, with no location", rowsOf('nvidia').length === 1 && fromHint?.[2] === 'Kernel Engineer' && fromHint?.[3] === '' && fromHint?.[4] === WD_ROW_URL, { row: fromHint })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = null
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: '' })
+  const noTitleAppends = appends()
+  ctl.workdayJson = { status: 200, body: { jobPostingInfo: {} } }
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: '' })
+  await check('Workday submit: the JSON unreadable (a network error, then a JSON with no posting) and no page title -> nothing logged, nothing queued', noTitleAppends === 0 && appends() === 0 && queue() === 0 && recent().length === 0, { appends: appends(), queue: queue() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 200, body: wdJson('Kernel Engineer', 'US, CA, Santa Clara') }
+  for (const origin of ['https://evil-myworkdayjobs.com', 'https://nvidia.wd5.myworkday.com', 'http://nvidia.wd5.myworkdayjobs.com']) {
+    await submitFrom(origin, { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  }
+  const untrustedAppends = appends()
+  // A trusted tenant naming another tenant's job: refused before any read.
+  await submitFrom('https://bmo.wd3.myworkdayjobs.com', { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  await check('Workday submit: untrusted origins log nothing, and a tenant may not name another tenant\'s job — neither reaches the JSON read', untrustedAppends === 0 && appends() === 0 && wdFetches().length === 0, { appends: appends(), fetches: wdFetches() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 200, body: wdJson('Kernel Engineer', 'US, CA, Santa Clara') }
+  const badSubmitPayloads: unknown[] = [
+    null,
+    'a string',
+    { url: 'http://nvidia.wd5.myworkdayjobs.com/en-US/Site/job/Loc/Role_R1/apply', title: 'x' },
+    { url: `${WD_ORIGIN}/en-US/NVIDIAExternalCareerSite/userHome`, title: 'x' },
+    { url: `${WD_REVIEW_URL}?q=${'x'.repeat(2100)}`, title: 'x' },
+    { url: WD_REVIEW_URL, title: 'x'.repeat(501) },
+    { url: WD_REVIEW_URL, title: 42 },
+  ]
+  for (const payload of badSubmitPayloads) await submitFrom(WD_ORIGIN, payload)
+  await check(`Workday submit: ${badSubmitPayloads.length} malformed payloads (none, a string, http, an address naming no job, an over-long url, an over-long or non-string title) are refused before any read`, appends() === 0 && wdFetches().length === 0 && queue() === 0, { appends: appends(), fetches: wdFetches() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 200, body: wdJson('Kernel Engineer', 'US, CA, Santa Clara') }
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  await submitFrom(WD_ORIGIN, { url: `${WD_REVIEW_URL}#retry`, title: 'Kernel Engineer' })
+  await check('Workday submit: a Submit retried after a failed validation is the same normalized URL, so the 24-hour repeat check keeps it to one row', rowsOf('nvidia').length === 1 && appends() === 1 && wdFetches().length === 2, { rows: rowsOf('nvidia').length, appends: appends(), fetches: wdFetches().length })
+
   // ---- The popup's identity check by Log ID (2026-09-14). ----
   const idEntry = { ...acme, logId: 'id-1' }
   const idRow = (company: string, logId: string) => ['46277.5', company, 'SWE Intern', 'Remote', 'https://www.linkedin.com/jobs/view/1/', 'SWE v3', 'Applied', '', logId]

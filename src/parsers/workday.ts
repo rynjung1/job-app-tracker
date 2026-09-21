@@ -115,11 +115,52 @@ export function captureFromJobJson(json: unknown, href: string): WorkdayCapture 
 // <a role="button" data-automation-id="adventureButton" href=".../apply">.
 export const WORKDAY_APPLY_CONTROL_SELECTOR = '[data-automation-id="adventureButton"]'
 
-// PLACEHOLDER until Ryan's observed application pins the final Submit
-// control (scripts/workday-observe.js, PART A). ':not(*)' matches no element,
-// so no Workday click logs anything yet; tests/workdayContent.test.ts proves
-// it. Replace it, with the observation's evidence, before merging.
-export const WORKDAY_SUBMIT_SELECTOR_PLACEHOLDER = ':not(*)'
+// The final Submit control, pinned by Ryan's observation of 2026-09-21
+// (scripts/workday-observe.js PART A, on a second tenant; CLAUDE.md has the
+// output). It is NOT a control of its own: the Review page's Submit button
+// carries the same data-automation-id as every earlier step's Next button,
+// and its only sibling is pageFooterBackButton. So the selector alone can't
+// be the trigger — the page has to be the Review page too, which is what
+// isFinalReviewStep below decides.
+export const WORKDAY_SUBMIT_CONTROL_SELECTOR = '[data-automation-id="pageFooterNextButton"]'
+
+// Two independent marks of the Review step, either of which is enough
+// (decided 2026-09-21). The first is the page's own container; the second is
+// the progress bar's active step reading "N of N".
+const WORKDAY_REVIEW_PAGE_SELECTOR = '[data-automation-id="applyFlowReviewPage"]'
+const WORKDAY_ACTIVE_STEP_SELECTOR = '[data-automation-id="progressBarActiveStep"]'
+// The job's title on the Review page, sent with the submit message as a
+// fallback for the background's job-JSON read.
+const WORKDAY_REVIEW_TITLE_SELECTOR = '[data-automation-id="jobTitleHeading"]'
+
+// "current step 8 of 8" -> true; "step 3 of 8" -> false. Read off the digits,
+// never the words: the label is translated, the numerals mostly aren't. A
+// label with fewer than two numbers, or one that doesn't end in a pair, is
+// simply not a match.
+function isLastStep(label: string): boolean {
+  const numbers = label.match(/\d+/g)
+  if (!numbers || numbers.length < 2) return false
+  const [current, total] = numbers.slice(-2)
+  return current === total
+}
+
+// Is this the application's final Review step? Either mark is accepted, so a
+// rename of one doesn't stop a real application being logged; if Workday
+// renames both, nothing logs, which is the failure this trades against
+// logging on every Next click (CLAUDE.md, Site parsers, Workday).
+export function isFinalReviewStep(root: ParentNode): boolean {
+  if (root.querySelector(WORKDAY_REVIEW_PAGE_SELECTOR)) return true
+  const step = root.querySelector(WORKDAY_ACTIVE_STEP_SELECTOR)
+  if (!step) return false
+  const label = `${step.getAttribute('aria-label') ?? ''} ${step.textContent ?? ''}`
+  return isLastStep(label)
+}
+
+// The Review page's job title, for the background to fall back on if the job
+// JSON can't be read. Empty when the heading isn't there.
+export function reviewPageJobTitle(root: ParentNode): string {
+  return collapsed(root.querySelector(WORKDAY_REVIEW_TITLE_SELECTOR))
+}
 
 export const workdayParser: JobPageParser = {
   siteId: 'workday',
@@ -133,9 +174,11 @@ export const workdayParser: JobPageParser = {
     return captureFromPostingDom(document, window.location.href)?.posting ?? null
   },
 
-  // The logging trigger, the final Submit click (decided 2026-09-14): the
-  // placeholder above for now.
+  // The logging trigger, the final Submit click (decided 2026-09-14, pinned
+  // 2026-09-21). The selector matches the footer's Next/Submit button on
+  // every step; content/workday.ts logs only when isFinalReviewStep also
+  // says the Review page is showing.
   getApplyButtonSelector() {
-    return WORKDAY_SUBMIT_SELECTOR_PLACEHOLDER
+    return WORKDAY_SUBMIT_CONTROL_SELECTOR
   },
 }
