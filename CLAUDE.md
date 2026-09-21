@@ -2119,6 +2119,33 @@ See the `web-store-deploy` skill (`.claude/skills/web-store-deploy/SKILL.md`)
 for the submission steps and current status (privacy policy: done,
 published 2026-09-09).
 
+**OAuth consent screen: In production (2026-09-20, Ryan).** The app was
+in Testing until now, and Google wouldn't switch it without a valid app
+name, support email, home page URL and privacy policy URL. The privacy
+policy was live; the home page was a 404, since `docs/` held only
+`privacy.html` — so `docs/index.html` was written for it (`885e6fd`), a
+small self-contained landing page. **It has to stay live:** the
+production consent screen points at it, and so does the store listing.
+What Ryan filled in on the Branding page: app name "Job Application
+Tracker", his email as both support and developer contact, **no logo**
+(a logo or a display name would trigger brand verification, 2-3 business
+days), home page `https://rynjung1.github.io/job-app-tracker/`, privacy
+policy `https://rynjung1.github.io/job-app-tracker/privacy.html`, and
+authorized domain `rynjung1.github.io` — **accepted without Search
+Console verification** (`github.io` is a public suffix, so that's the
+registrable domain; the file-or-meta-tag verification prepared for it
+wasn't needed). User type External.
+
+Two things this settles:
+- **The 100-user cap doesn't apply.** It covers unapproved *sensitive*
+  or *restricted* scopes, and `drive.file` is neither, so being
+  External and unverified doesn't limit how many people can connect.
+- **The 7-day refresh-token expiry is gone.** That was Testing's
+  behaviour for an external app asking for anything beyond name, email
+  and profile, and it's the cause of the silent sign-in lapse of
+  2026-09-13 (Logging behavior, "needs reconnect"). A lapse can still
+  happen — a revoke, a password change — but not on a 7-day clock.
+
 **Store item (2026-09-14):** Ryan uploaded the no-key zip as a draft.
 Item ID `mhldoocgadblnnelahaplfdnaoiehafj`, listed Public once
 submitted. Its public key is `manifest.config.ts`'s `key` (public by

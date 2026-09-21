@@ -83,6 +83,26 @@ description: Steps and status for publishing this extension to the Chrome Web St
        display name to the consent screen: that triggers brand
        verification (2-3 business days). Confirm it shows In production.
      - **After step 4:** set the OAuth client's Item ID to the new ID.
+     - **DONE 2026-09-20 (Ryan).** Google wouldn't switch the app to
+       production without a valid app name, support email, home page URL
+       and privacy policy URL, and the home page was a 404 —
+       `docs/` held only `privacy.html`. `docs/index.html` was added for
+       it (main, `885e6fd`), so **that page has to stay live**: the
+       production consent screen points at it. What's now filled in on
+       the Branding page: app name "Job Application Tracker", Ryan's
+       email as both support and developer contact, **no logo** (so no
+       brand verification), home page
+       `https://rynjung1.github.io/job-app-tracker/`, privacy policy
+       `https://rynjung1.github.io/job-app-tracker/privacy.html`, and
+       authorized domain `rynjung1.github.io` — **accepted without
+       Search Console verification**, so the file-or-meta-tag
+       verification prepared for it wasn't needed. Publishing status is
+       **In production**, user type External. Two consequences worth
+       keeping straight: the 100-user cap applies only to unapproved
+       **sensitive or restricted** scopes, and `drive.file` is neither,
+       so it doesn't apply here; and Testing's 7-day refresh-token
+       expiry — the cause of the sign-in lapse of 2026-09-13 — is gone
+       with Testing.
   6. Re-verify Google sign-in and a real logged row on the new-ID
      build. **First pass 2026-09-14** (the reviewer drove LinkedIn in
      Ryan's Chrome, Ryan did Connect; the loaded build came from the
