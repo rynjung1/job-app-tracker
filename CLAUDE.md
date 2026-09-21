@@ -2013,6 +2013,65 @@ continue on `main`, which stays packageable.
   the row's Log ID.
 Not run live: nothing on Workday has logged a real row yet.
 
+**Observed 2026-09-21 (Ryan), partial: PARTs 0 and B only.** He submitted
+the application before running PART A, so **the Submit control is still
+unpinned and the selector is still the placeholder.** What the two parts
+do settle is worth recording, since it decides the trigger's shape.
+Scrubbed as this file's rule requires: the tenant and the job slug are
+replaced with placeholders (it's one of Ryan's real applications, and
+this file is public), and the candidate's name was already redacted in
+what was relayed. Everything else is as the script printed it.
+
+PART 0, on the posting page, before Apply:
+
+```
+path              /en-US/<tenant>/job/<Job-Title-slug>_<reqId>
+documentLoadedAt  2026-09-21T00:42:47.556Z
+lang en-US, iframes []
+applyControls     one <a role="button" data-automation-id="adventureButton"
+                  data-uxi-widget-type="adventureButton"
+                  data-uxi-element-id="Apply_adventureButton">Apply</a>,
+                  href the same job URL
+```
+
+PART B, after Submit:
+
+```
+path              /en-US/<tenant>/userHome        (NOT a per-job confirmation)
+documentLoadedAt  2026-09-21T00:51:48.594Z        (a full load since PART 0)
+title             "Candidate Home"
+headings          TD Careers / Welcome, <name> / My Tasks / My Applications
+successTexts      richText "Thank you for applying. Please review the checklist
+                  below to complete any assigned tasks related to your job
+                  application"; richText "As we are evaluating your
+                  qualifications…"; four data-automation-id="applicationStatus"
+                  spans reading "Application Received"
+liveRegions       []          iframes []
+automationIds     CandidateHomePage, candidate-home-app, welcomeMsgHeader,
+                  taskListRow, applicationTitle, applicationsSectionHeading,
+                  applicationStatus, actionMenuTarget
+```
+
+- **A two-phase confirmation trigger isn't viable on Workday**, the way
+  Greenhouse's is. Submit lands on the tenant's `/userHome`, which lists
+  every application the candidate has ever made: no job identity in the
+  URL, no per-job confirmation page, and the "Thank you for applying"
+  text belongs to the page, not to the application just made. There is
+  nothing there to tie a confirmation to *this* job. **So the final
+  Submit click stays the trigger** — the decision of 2026-09-14, now for
+  the reason the evidence shows rather than the one it was assumed for.
+- **Submit itself is a full page load** (`documentLoadedAt` moves between
+  PART 0 and PART B). That makes the *synchronous* path the only reliable
+  one at Submit: `onFinalSubmitClick` sends the kept in-memory capture
+  before the navigation, while the job-JSON fallback is a `fetch` that
+  has to beat the unload and may not. It doesn't change the code today,
+  but it's why PART A's `documentLoadedAt` matters (below) and why the
+  fallback should be treated as a long shot rather than an equal path.
+- **Still outstanding: PART A**, on the final Review page. It's the part
+  that pins the selector, and it needs no submission — see
+  `scripts/workday-observe.js`, rewritten 2026-09-21 for a run that stops
+  at Review.
+
 **Fixed 2026-09-14 (review): a flaky test, found by measurement.** The
 reviewer's first `npm test` in a fresh clone had 2 failures (not named in
 their log), then 125 of 125 three times. Not reproduced here: 12 cold

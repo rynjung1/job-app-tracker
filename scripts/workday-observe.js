@@ -1,34 +1,53 @@
 // Workday observation snippet (read-only). Not part of the extension build.
 //
-// Purpose: capture what Workday's Apply control, final Submit control and
-// post-submit confirmation look like, so the Workday parser's Submit
-// selector (a placeholder until then, parsers/workday.ts) can be pinned from
-// evidence (CLAUDE.md, Site parsers, Workday). Used once, during one of
-// Ryan's real applications. Any build of the extension can be loaded, or
-// none: nothing here depends on it.
+// Purpose: capture what Workday's final Submit control looks like, so the
+// Workday parser's Submit selector (a placeholder until then,
+// parsers/workday.ts) can be pinned from evidence (CLAUDE.md, Site parsers,
+// Workday). Any build of the extension can be loaded, or none: nothing here
+// depends on it.
+//
+// **This run does not need a submission.** PART B was captured on
+// 2026-09-21 and settled what happens after Submit (the tenant's /userHome,
+// no per-job confirmation page — CLAUDE.md has it); what's still missing is
+// PART A, which is read off the Review page *before* submitting. So take a
+// real application as far as the final Review page and stop there. Workday
+// keeps the draft; nothing here submits anything.
 //
 // How to use:
 // 1. On the job's posting page, BEFORE clicking Apply, open DevTools on that
 //    Workday tab (Console) and paste PART 0. Chrome may ask you to type
-//    "allow pasting" the first time.
+//    "allow pasting" the first time. Don't skip it: PART 0's timestamp is
+//    half of the pairing in the note below, and it costs one paste.
 // 2. Click Apply yourself and go through the application as usual.
 // 3. On the final Review page, BEFORE clicking Submit, paste PART A.
-// 4. Click Submit yourself. None of the parts ever clicks anything.
-// 5. Once Workday shows its confirmation, paste PART B in the same Console.
-// 6. Each part prints JSON and copies it to the clipboard. Skim it for your
-//    name or email before sharing it; a Review-page heading or a
-//    confirmation line can include them.
-// 7. Never commit the output. Any test fixture derived from it must be
-//    scrubbed first.
+// 4. Stop. You can submit if you want the application, or abandon it —
+//    either way PART A is the part that was needed, and PART B is optional
+//    (paste it after a submission only if you want a second reading of the
+//    confirmation).
+// 5. Each part prints JSON and copies it to the clipboard. Skim it for your
+//    name or email before sharing it; a Review-page heading can include them.
+// 6. Never commit the output. Any test fixture derived from it must be
+//    scrubbed first, and so must anything quoted into CLAUDE.md.
 //
-// Would the extension's in-memory capture survive to Submit? Its content
-// script keeps the posting (read at the Apply click) in memory, which lasts
-// as long as the document does. So compare documentLoadedAt: the same value
-// in PART 0 and PART A means no full page load between Apply and the Review
-// page, and the capture would still be there at Submit. A different value
-// means a reload (a sign-in, say); the extension then falls back to reading
-// the job's JSON, which needs PART A's path to still contain /job/. PART B's
-// value against PART A's says whether Submit itself reloaded the page.
+// What PART A has to answer, and why each matters:
+// - **The Submit control's attributes**, and whether they differ from the
+//   step's Next button: that's the selector. If Submit and Next share a
+//   data-automation-id, the selector also needs whatever marks the Review
+//   step (`steps` below, or the control's own label).
+// - **Whether the path still names the job** (`/job/{location}/{slug}_{reqId}`).
+//   The content script identifies the job at click time from the address; if
+//   the Review page's path has dropped it, the click trigger can't work
+//   there at all, whatever the selector is. PART B showed the *post*-submit
+//   page has no job in its path, which is why this is worth checking.
+// - **documentLoadedAt against PART 0's**: the same value means no full page
+//   load since the posting, so the capture the Apply click kept in memory is
+//   still there at Submit, and the log is sent synchronously before Submit's
+//   navigation. A different value means the capture is gone and the script
+//   falls back to fetching the job's JSON — which, now that Submit is known
+//   to be a full page load, has to beat the unload. Worth knowing which path
+//   a real application takes.
+// - **iframes**: if the application runs inside one, the content script would
+//   need all_frames, which it doesn't have today.
 //
 // All parts are strictly read-only: no clicks, dispatched events, network
 // requests, storage or DOM changes, and no form field values are read. Each
@@ -67,7 +86,7 @@
   const json = JSON.stringify(out, null, 2)
   console.log(json)
   if (typeof copy === 'function') copy(json)
-  console.log('PART 0 copied to the clipboard. Now click Apply yourself; run PART A on the Review page.')
+  console.log('PART 0 copied to the clipboard. Now click Apply yourself; run PART A on the Review page, before Submit.')
 })()
 
 // ===== Workday observation, PART A =====
@@ -117,11 +136,14 @@
   const json = JSON.stringify(out, null, 2)
   console.log(json)
   if (typeof copy === 'function') copy(json)
-  console.log('PART A copied to the clipboard. Now click Submit yourself, wait for the confirmation, then run PART B.')
+  console.log('PART A copied to the clipboard. That is the part that was needed — you can stop here without submitting. PART B is optional, after a real submission.')
 })()
 
-// ===== Workday observation, PART B =====
-// Run in the same tab AFTER Submit, once Workday shows its confirmation.
+// ===== Workday observation, PART B (optional) =====
+// Already captured 2026-09-21: Submit lands on the tenant's /userHome, which
+// lists every application with no job identity in the URL and no per-job
+// confirmation page (CLAUDE.md, Site parsers, Workday). Run it again only
+// after a real submission, if a second reading is wanted.
 // Same read-only rules as PART A. Keeps only short texts that look like a
 // success message, never the page's full text.
 (() => {
@@ -158,5 +180,5 @@
   const json = JSON.stringify(out, null, 2)
   console.log(json)
   if (typeof copy === 'function') copy(json)
-  console.log('PART B copied to the clipboard. Paste all three parts back.')
+  console.log('PART B copied to the clipboard.')
 })()
