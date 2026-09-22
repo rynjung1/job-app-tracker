@@ -105,6 +105,23 @@ description: Steps and status for publishing this extension to the Chrome Web St
        are in CLAUDE.md (Deployment path).
      - Rebuild `dist/` from main once Ryan's checks are done, so his
        daily build matches what ships.
+     **Second pass 2026-09-21 (Workday and Greenhouse, both PASS).**
+     Ryan's `dist/` was built from the `workday` branch at `7930447` for
+     this one run — the deliberate exception to building it from main —
+     and went back to main straight after.
+     - PASS, Workday, the first real row the site has ever produced:
+       one real application on a TD tenant (a Cloud/DevOps co-op,
+       submitted 22:54) logged **exactly one row**: Company `td` (the
+       tenant id, as designed), the job's title, Location "Toronto,
+       Ontario", Status `Applied`, the normalized job URL. The location
+       is the tell that the background's cxs job-JSON read worked
+       rather than the `jobTitleHeading` fallback — the part that needed
+       the Workday host permissions and that no test could prove, since
+       CORS only exists in a real browser.
+     - PASS, Greenhouse's two-phase logging, which had never been
+       confirmed by a real application: four applications Ryan made on
+       2026-09-16 are in the sheet as four rows with the right company,
+       title and location. One row each, none missing, none doubled.
      **Declined 2026-09-16 (Ryan): the checks below were not run.** He
      chose not to run the remaining live checks — the popup's status and
      resume changes, the stale-row refusal, the notification's Edit

@@ -25,13 +25,13 @@
 <body>
 
 <h1>Privacy Policy — Job Application Tracker</h1>
-<p class="updated">Last updated: 2026-09-18</p>
+<p class="updated">Last updated: 2026-09-22</p>
 
 <p>Job Application Tracker is a browser extension that automatically logs job applications you submit on supported job sites (currently LinkedIn, Greenhouse and Workday) to a Google Sheet you own. This page explains what data the extension accesses, stores, and sends, in plain terms.</p>
 
 <h2>What the extension reads from job pages</h2>
 <p>When you click Easy Apply or Submit on a supported job posting page, the extension reads the job title, company name, location, and page URL directly from that page. On LinkedIn its code is loaded on every LinkedIn page, because LinkedIn moves between pages without reloading them, but it acts only on job pages (addresses under linkedin.com/jobs/) and ignores the rest of LinkedIn.</p>
-<p>On Workday career sites (addresses on myworkdayjobs.com and myworkdaysite.com) its code is loaded on every page of the site, for the same reason, but it acts on only two clicks. When you click Apply on a job posting, it reads that posting's title, location, requisition number and address from the page and keeps them in that tab's memory only, not in storage. When you click the application's final Submit, it logs them. If it didn't see the Apply click (for example, you opened the application page directly, or the page reloaded), it reads that one job's public details (title and location) from the same Workday site at that moment instead. For Workday, the Company column is the career site's name taken from its address (for example "nvidia" for nvidia.wd5.myworkdayjobs.com), which you can change in your sheet.</p>
+<p>On Workday career sites (addresses on myworkdayjobs.com and myworkdaysite.com) its code is loaded on every page of the site, for the same reason, but it acts on one click: the final Submit of an application. It reads nothing while you browse or fill the application in. At that click it sends the page's address, and the job title the page is showing, to the extension itself, which then reads that one job's public details (title and location) from the same career site — the same information anyone can see on the posting. That read is made without your Workday session's cookies, and nothing is ever written to Workday. For Workday, the Company column is the career site's name taken from its address (for example "nvidia" for nvidia.wd5.myworkdayjobs.com), which you can change in your sheet.</p>
 <p>It does not read your LinkedIn, Greenhouse or Workday profile, account information, messages, what you type into an application, or any other page content.</p>
 
 <h2>Where your data goes</h2>

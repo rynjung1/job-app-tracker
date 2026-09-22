@@ -141,11 +141,14 @@ https://rynjung1.github.io/job-app-tracker/privacy.html
   sheet was deleted" notices.
 - `https://sheets.googleapis.com/*`: reads and writes your sheet through
   the Google Sheets API.
+- `https://*.myworkdayjobs.com/*`, `https://*.myworkdaysite.com/*`: after
+  a Workday application's final Submit, reads that one job's public
+  details from the same career site, without your Workday cookies.
 - It runs on LinkedIn, Greenhouse job boards and Workday career sites.
   LinkedIn and Workday move between pages without reloading them, so its
   code is loaded on every page of those sites, but it acts only on job
-  pages: it reads the job details when you click Easy Apply or Submit (on
-  Workday, when you click Apply, then logs them at the final Submit).
+  pages: it reads the job details when you click Easy Apply or Submit
+  application; on Workday it reads nothing until the final Submit.
 
 ## For developers
 

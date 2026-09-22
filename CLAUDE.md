@@ -1902,7 +1902,16 @@ a probe blocking every outgoing POST during the click:
 The test row was deleted afterwards. Opening the confirmation URL by
 hand stands in for Greenhouse's own `window.location.assign`, which the
 bundle shows; Ryan's next real Greenhouse application is the final
-check of that navigation. Also a Node test of the real
+check of that navigation.
+
+**Passed live 2026-09-21 (the check that was left open above):** four
+real Greenhouse applications Ryan made on 2026-09-16 are in his sheet as
+four rows, with the right company, title and location on each. So the
+two-phase path — the Submit click recording the job as pending, the row
+written when Greenhouse's own navigation loads `/confirmation` — is
+proven by real applications now, not only by the probe and the
+hand-opened confirmation URL. One row per application, none missing and
+none doubled. Also a Node test of the real
 `pendingApplications.ts` and `applicationState()` against a
 deep-cloning mock storage: 13 of 13 pass, including a pending write and
 a confirmation fired together, and two confirmations at once logging
@@ -2021,7 +2030,22 @@ continue on `main`, which stays packageable.
   `STALE_ROW` for both; an entry without a `logId` or a sheet without the
   column falls back to Company/Title); direct and drained entries carry
   the row's Log ID.
-Not run live: nothing on Workday has logged a real row yet.
+**Passed live 2026-09-21** on Ryan's build of `7930447` (his `dist/` was
+built from this branch for the run, the one deliberate exception to
+building it from `main`; it went back to `main` afterwards). One real
+application on a TD tenant — a Cloud/DevOps co-op posting, submitted at
+22:54 — logged **exactly one row**: Company `td` (the tenant id, as
+designed), the job's title, Location "Toronto, Ontario", Status
+`Applied`, and the normalized Workday job address as the URL. The
+tenant and job slug are scrubbed here as everywhere else in these notes.
+
+**The location is the evidence that the background's read worked.** The
+`jobTitleHeading` fallback can only produce a title, so a row with a
+location means the cxs job JSON was fetched and parsed in the service
+worker — which is the part that needed the host permission, and the part
+no test could prove, since CORS behaviour only exists in a real browser.
+So the whole chain ran as designed: the footer click on the Review step,
+the message, the background's origin re-check, the JSON read, the row.
 
 **Observed 2026-09-21 (Ryan), partial: PARTs 0 and B only.** He submitted
 the application before running PART A, so **the Submit control is still
