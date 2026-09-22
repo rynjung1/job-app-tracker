@@ -1,5 +1,22 @@
 # Chrome Web Store listing
 
+**Submitted 2026-09-22: v1.0.0 is Pending review** (item
+`mhldoocgadblnnelahaplfdnaoiehafj`, Public, from `main` at `0df8884`).
+What the store holds now is this file's text with two changes forced by
+the Developer Dashboard's own boxes, which this file hadn't anticipated:
+
+- **One host box for all host permissions, 1000 characters.** Not one box
+  per host, which is how the justifications below are still written. Ryan
+  merged the Sheets and Workday texts into a single justification to fit.
+  **The merged text he pasted isn't in this file yet** — paste it into
+  the "Host permissions, as submitted" block below, so the file matches
+  the store before any resubmission.
+- **Test instructions: 500 characters.** The five numbered steps below
+  are longer than that and were condensed for the box. **That condensed
+  text isn't in this file yet either** — same treatment.
+- The storage justification used the **short form** below, not the long
+  one.
+
 Approved 2026-09-11. This is the text to paste into the Developer
 Dashboard's Store listing tab. Kept out of `public/` (Vite copies that
 into `dist/`, so it would ship inside the extension) and `docs/`
@@ -209,6 +226,24 @@ Retries writing queued applications every 5 minutes after a network or sign-in f
 ```text
 Shows a "Logged" notification after each automatic log, with an Undo button in case you didn't mean to apply; a notice if you applied while no spreadsheet was connected, with a button that opens Settings; a "Sign-in needed" notice when Google access to your sheet has lapsed, with a Reconnect button, so applications waiting to be saved don't go unnoticed; a notice if your sheet is moved to Google Drive's trash or deleted, with a button that opens Settings; and an "Undo didn't go through" notice if the Logged notification's Undo fails, saying the application is still logged.
 ```
+
+### Host permissions, as submitted (one box, 1000 characters max)
+
+```text
+TO BE PASTED: the merged Sheets + Workday justification Ryan submitted on
+2026-09-22. Until it's here, this file does not match the store.
+```
+
+### Test instructions, as submitted (500 characters max)
+
+```text
+TO BE PASTED: the condensed five-step text Ryan submitted on 2026-09-22.
+Until it's here, this file does not match the store.
+```
+
+The per-host texts below are the long forms this file has always kept.
+They're still what the merged box was written from, and they're still
+the right starting point if the dashboard ever splits the boxes again.
 
 Host permission `https://sheets.googleapis.com/*`:
 

@@ -7,9 +7,9 @@ a new row.
 
 <!-- Chrome Web Store: link goes here once the extension is published. -->
 
-![The extension's popup, listing recent applications with a status dropdown on each row](store-assets/screenshots/1-popup.png)
+![The extension's popup listing recent applications with a status dropdown on each row, beside the Settings window connected to Google Sheets](store-assets/screenshots/1-popup-and-settings.png)
 
-![The Settings window, connected to Google Sheets, with the supported sites](store-assets/screenshots/2-settings.png)
+![The popup's status dropdown open on a row, beside the note editor for that application](store-assets/screenshots/2-popup-actions.png)
 
 ## Supported sites
 

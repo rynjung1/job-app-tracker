@@ -2475,6 +2475,27 @@ Two things this settles:
   2026-09-13 (Logging behavior, "needs reconnect"). A lapse can still
   happen — a revoke, a password change — but not on a 7-day clock.
 
+**Submitted 2026-09-22 (Ryan): v1.0.0 is Pending review.** Item
+`mhldoocgadblnnelahaplfdnaoiehafj`, Public, built from `main` at
+`0df8884` by `npm run package -- --allow-key` on a clean tree (85,260
+bytes, 26 entries, every check passing). The listing, the
+privacy-practices answers, the test instructions and distribution are
+filled in. Three sites ship in v1: LinkedIn, Greenhouse and Workday.
+Lever and Ashby stay on `ats-lever-ashby` for a later version.
+
+**Two Developer Dashboard limits the listing file didn't anticipate**,
+recorded so a resubmission doesn't rediscover them:
+- **Each justification box takes 1000 characters, and there is one host
+  box for *all* host permissions** — not one per host, which is how
+  `store-assets/listing.md` had them. Ryan merged the Sheets and Workday
+  texts into a single justification that fits; that merged text is what
+  the store holds.
+- **The test instructions box takes 500 characters**, so the five
+  numbered steps in the listing file are too long as written and were
+  condensed for the box.
+- The storage justification used the **short form** (the file keeps a
+  long and a short version).
+
 **Store item (2026-09-14):** Ryan uploaded the no-key zip as a draft.
 Item ID `mhldoocgadblnnelahaplfdnaoiehafj`, listed Public once
 submitted. Its public key is `manifest.config.ts`'s `key` (public by

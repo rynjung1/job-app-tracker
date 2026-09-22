@@ -238,7 +238,30 @@ description: Steps and status for publishing this extension to the Chrome Web St
      English), and the listing says Easy Apply detection is fully
      supported with LinkedIn set to English. `f3cb30a` also fixed
      split-pane applications not being logged.
-  8. **Held until the `workday` branch is merged** (Ryan wants Workday
+  8. **SUBMITTED 2026-09-22 (Ryan). Status: Pending review.** Item
+     `mhldoocgadblnnelahaplfdnaoiehafj`, Public, v1.0.0, from `main` at
+     `0df8884` — the zip `npm run package -- --allow-key` built from a
+     clean tree at that commit (85,260 bytes, 26 entries, every check
+     passing). Filled in: the listing, the privacy-practices answers,
+     the test instructions and distribution.
+     **Two dashboard limits we hit, so a resubmission doesn't rediscover
+     them:**
+     - **1000 characters per justification, and there is ONE host box
+       for all host permissions**, not one per host. `store-assets/
+       listing.md` had kept a separate text per host; Ryan merged the
+       Sheets and Workday texts into a single one that fits. The merged
+       text is what the store now holds.
+     - **500 characters for the test instructions**, so the five
+       numbered steps in listing.md don't fit as written. They were
+       condensed for the box.
+     - The storage justification used the **short form** listing.md
+       keeps for exactly this reason (there are two: a long one and a
+       short one).
+     Nothing else happens until Google replies; a rejection's reason
+     gets recorded here with the fix.
+
+     **The original plan for this step, kept for the next version:**
+     it was held until the `workday` branch merged (Ryan wanted Workday
      in v1; decided 2026-09-14). The merge waits for Ryan's observed
      Workday application, which pins the final Submit selector. The zip
      built at `838aa00` has no Workday and isn't the one to submit: the
