@@ -6,16 +6,16 @@ What the store holds now is this file's text with two changes forced by
 the Developer Dashboard's own boxes, which this file hadn't anticipated:
 
 - **One host box for all host permissions, 1000 characters.** Not one box
-  per host, which is how the justifications below are still written. Ryan
-  merged the Sheets and Workday texts into a single justification to fit.
-  **The merged text he pasted isn't in this file yet** — paste it into
-  the "Host permissions, as submitted" block below, so the file matches
-  the store before any resubmission.
-- **Test instructions: 500 characters.** The five numbered steps below
-  are longer than that and were condensed for the box. **That condensed
-  text isn't in this file yet either** — same treatment.
+  per host, which is how the justifications further down are still
+  written. Ryan merged the Sheets and Workday texts into a single
+  justification to fit (953 characters); it's recorded verbatim below,
+  under "Host permissions, as submitted".
+- **Test instructions: 500 characters.** The five numbered steps further
+  down are longer than that, so they were condensed for the box; that
+  text is recorded verbatim below (with a note about its length).
 - The storage justification used the **short form** below, not the long
-  one.
+  one, which is over the limit. Single purpose, `identity`, `alarms` and
+  `notifications` took this file's text unchanged.
 
 Approved 2026-09-11. This is the text to paste into the Developer
 Dashboard's Store listing tab. Kept out of `public/` (Vite copies that
@@ -229,17 +229,37 @@ Shows a "Logged" notification after each automatic log, with an Undo button in c
 
 ### Host permissions, as submitted (one box, 1000 characters max)
 
+Verbatim, as Ryan pasted it on 2026-09-22: 953 characters, two paragraphs
+with a blank line between them. This is what the store holds.
+
 ```text
-TO BE PASTED: the merged Sheets + Workday justification Ryan submitted on
-2026-09-22. Until it's here, this file does not match the store.
+Google Sheets API (https://sheets.googleapis.com/*): creates and formats the sheet when you connect, including a Summary tab whose cells are formulas over your own rows; writes each logged application as a row; updates one cell (Status or Notes) when you change it in the popup or use Undo; and reads the sheet's header row, your recent rows' Company, Title, Status and hidden ID for the popup, a row before a change to check it still matches, the hidden ID column when retrying a save, and the sheet's name and tab names.
+
+Workday career sites (https://*.myworkdayjobs.com/*, https://*.myworkdaysite.com/*): one read. When you click an application's final Submit, the extension reads that one job's public title and location from the same site to write the row. No other Workday page is read, nothing is written, no account data is touched, and no Workday cookies are sent; the read runs in the background because submitting navigates away immediately.
 ```
 
 ### Test instructions, as submitted (500 characters max)
 
+Verbatim, as relayed on 2026-09-22. Username and Password were left empty
+— the extension needs no credentials of its own, only a Google account the
+reviewer already has.
+
+**A counting discrepancy, left unresolved rather than papered over:** the
+text below is **466 characters**; Ryan reported the box showing **497**.
+Either something was lost in relaying it here, or the dashboard counts
+differently. The box's own content is the authority, so before any
+resubmission, copy it back out of the dashboard and compare it with this.
+
 ```text
-TO BE PASTED: the condensed five-step text Ryan submitted on 2026-09-22.
-Until it's here, this file does not match the store.
+No credentials needed; any Google account works. Open Settings from the popup, click Connect Google Sheets, sign in: a formatted sheet is created in that account's Drive. On LinkedIn (English UI), click Easy Apply on any job and close the dialog: one row is logged and a "Logged" notification appears; the popup lists it, where the status chip and ⋯ menu edit the sheet. Workday logs only at a real application's final Submit, so it can't be tested without applying.
 ```
+
+### Which boxes took this file's text unchanged
+
+Single purpose, `identity`, `alarms` and `notifications`: exactly the text
+below, pasted as it stands. `storage` used the **short** form below, not
+the long one — the long one is over the 1000-character limit. Only the two
+boxes above needed text this file didn't already have.
 
 The per-host texts below are the long forms this file has always kept.
 They're still what the merged box was written from, and they're still
