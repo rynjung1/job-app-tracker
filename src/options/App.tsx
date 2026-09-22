@@ -527,6 +527,20 @@ function App() {
           <li>
             <TickIcon size={16} className="tick" />
             <div>
+              <b>Lever</b> jobs.lever.co and jobs.eu.lever.co postings
+              <span className="note">Logged when you submit the application form</span>
+            </div>
+          </li>
+          <li>
+            <TickIcon size={16} className="tick" />
+            <div>
+              <b>Ashby</b> jobs.ashbyhq.com postings
+              <span className="note">Logged when you click Submit Application</span>
+            </div>
+          </li>
+          <li>
+            <TickIcon size={16} className="tick" />
+            <div>
               <b>Workday</b> career sites (myworkdayjobs.com, myworkdaysite.com)
               <span className="note">Logged at the final Submit; Company is the site's name from its address</span>
             </div>

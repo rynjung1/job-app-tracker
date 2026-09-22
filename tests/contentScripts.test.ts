@@ -55,6 +55,8 @@ test('manifest content-script matches: https only, LinkedIn on every page, Workd
   assert.deepEqual(matches, [
     "'https://www.linkedin.com/*'",
     "'https://job-boards.greenhouse.io/*/jobs/*'",
+    "'https://jobs.lever.co/*/*/apply*', 'https://jobs.eu.lever.co/*/*/apply*'",
+    "'https://jobs.ashbyhq.com/*'",
     "'https://*.myworkdayjobs.com/*', 'https://*.myworkdaysite.com/*'",
   ])
   assert.ok(!/myworkday\.com/.test(matches.join()), 'the employee app must never be matched')

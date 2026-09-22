@@ -955,4 +955,26 @@ test('background worker', async (t) => {
   const liveApplied = matchLiveStatuses([statusLiveEntry], [statusLiveRow('Applied')])
   const liveBlank = matchLiveStatuses([statusLiveEntry], [statusLiveRow('')])
   await check("the live chip reads a logged row back as Applied, where a blank Status cell was skipped", liveApplied.ls1 === 'Applied' && liveBlank.ls1 === undefined, { liveApplied, liveBlank })
+  // ---- Lever and Ashby (2026-09-15): messages from their own origins log,
+  // and a lookalike origin is refused by the sender-origin check. ----
+  reset()
+  await local.set({ sheetRef: REF })
+  const fromAtsOrigin = async (origin: string, company: string, url: string) => {
+    listeners.onMessage[0]({ type: 'JOB_APPLICATION_LOGGED', payload: { title: 'Engineer', company, location: null, url } }, { origin }, () => {})
+    await settle()
+  }
+  await fromAtsOrigin('https://jobs.lever.co', 'Lever Co', 'https://jobs.lever.co/northwind/1111')
+  await fromAtsOrigin('https://jobs.eu.lever.co', 'Lever EU Co', 'https://jobs.eu.lever.co/northwind/2222')
+  await fromAtsOrigin('https://jobs.ashbyhq.com', 'Ashby Co', 'https://jobs.ashbyhq.com/northwind/3333')
+  const loggedFromAts = recent().map((e) => e.company)
+  const atsLookalikes = [
+    'https://evil-jobs.lever.co',
+    'https://jobs.lever.co.evil.example',
+    'http://jobs.lever.co',
+    'https://jobs.ashbyhq.com.evil.example',
+    'https://ashbyhq.com',
+    'https://lever.co',
+  ]
+  for (const origin of atsLookalikes) await fromAtsOrigin(origin, `Refused ${origin}`, `${origin}/northwind/9999`)
+  await check('Lever and Ashby: their three origins log; 6 lookalike origins (a prefixed host, a suffixed host, http, and the bare domains) log nothing', loggedFromAts.length === 3 && recent().length === 3, { loggedFromAts, after: recent().map((e) => e.company) })
 })

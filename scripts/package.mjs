@@ -48,11 +48,16 @@ const EXPECTED = {
   // https only (2026-09-14). LinkedIn is every page, not /jobs/*: moving
   // from /feed/ to /jobs/ is an in-app pushState, so a /jobs/*-only script
   // was never injected (CLAUDE.md, Site parsers).
-  // Workday (2026-09-14): every tenant subdomain of its two career-site
-  // domains, never *.myworkday.com.
+  // Lever and Ashby (2026-09-15): Lever's apply pages on both of its hosts,
+  // and Ashby's board host (a single-page app, so the whole host). Workday
+  // (2026-09-14): every tenant subdomain of its two career-site domains,
+  // never *.myworkday.com.
   contentScriptMatches: [
     'https://www.linkedin.com/*',
     'https://job-boards.greenhouse.io/*/jobs/*',
+    'https://jobs.lever.co/*/*/apply*',
+    'https://jobs.eu.lever.co/*/*/apply*',
+    'https://jobs.ashbyhq.com/*',
     'https://*.myworkdayjobs.com/*',
     'https://*.myworkdaysite.com/*',
   ],

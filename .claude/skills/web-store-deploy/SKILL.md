@@ -228,6 +228,14 @@ description: Steps and status for publishing this extension to the Chrome Web St
        while the editor is open, then Save: "This note changed in your
        sheet; reopen to see it." and the sheet's text stays; the summary
        line counts this week's applications (Monday to Sunday).
+     - Lever and Ashby (CLAUDE.md, Site parsers, 2026-09-15), after the
+       `ats-lever-ashby` branch merges: on one real application each, check
+       a row lands once, with the right company, title and location and the
+       posting's URL (no /apply, no /application), and that it appears in
+       the popup. On Lever, check the row lands when the form is submitted,
+       not at the button click, and that an attempt its own checks reject
+       logs nothing. On Ashby, check the row lands at the Submit
+       Application click.
      - Left here by phase B (the new ID starts with empty storage, so
        it's a real first install): Settings opens on its own as a
        window, and the "Not connected" notification's Open Settings

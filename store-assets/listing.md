@@ -26,6 +26,13 @@ new Workday host-permission justification, the storage text and test
 instruction 5, which says plainly that Workday can't be tested without
 applying.
 
+Updated 2026-09-22 on the `ats-lever-ashby` branch (awaiting review, and
+merged only after one real application on each site confirms its trigger):
+Lever and Ashby added alongside the three shipped sites, so everything here
+reads for five. The summary is built from the manifest's site list, so on
+this branch it names all five and can't name a site the build doesn't
+support.
+
 Updated 2026-09-14 (a sheet in Drive's trash or deleted; awaiting review):
 the description's privacy sentence, the identity, storage (both) and
 notifications justifications, the certification note and the
@@ -45,14 +52,29 @@ test instruction 3, the storage justification (both) and the Sheets host
 justification now cover the popup's note editor and the recent entries'
 random ID.
 
-## Short description (126 of 132 characters)
+## Short description (derived; 117 of 132 characters on this branch)
 
 The store's summary comes from the manifest's `description`
 (`manifest.config.ts`), not from a dashboard field: the dashboard's
 listing fields have no separate summary, and Chrome's manifest docs
 limit `description` to 132 characters of plain text meant for both
-chrome://extensions and the Web Store. Since 2026-09-14 the manifest
-holds this exact text; keep the two identical.
+chrome://extensions and the Web Store.
+
+Since 2026-09-17 the manifest builds it from the same `SITES` list that
+defines the content scripts, so it can't name a site the build doesn't
+support (`scripts/package.mjs` fails the zip if it does). Two approved
+forms, picked by length: with room to spare it ends "— no manual data
+entry."; once the list is long enough to push that over 132 it ends at
+the sites, which is Ryan's five-site line of 2026-09-15 exactly. On this
+branch, with Lever and Ashby but not Workday:
+
+```text
+Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse, Lever, Ashby or Workday.
+```
+
+With five sites the "— no manual data entry." form would be 140 characters,
+so the rule falls back to ending at the sites, which is Ryan's approved
+five-site line of 2026-09-15 exactly (117). On `main`, with three, it reads:
 
 ```text
 Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse or Workday — no manual data entry.
@@ -63,7 +85,7 @@ Automatically logs job applications to Google Sheets when you apply on LinkedIn,
 The dashboard shows this as plain text, so it has no Markdown.
 
 ```text
-Job Application Tracker eliminates the copy-paste step of a job search. When you click Easy Apply on LinkedIn, submit an application on a Workday career site, or once a Greenhouse-hosted job posting confirms your application, it automatically logs the company, title, location, date, and a link to the job posting to a Google Sheet you control. On Workday, the company is the career site's name from its address (for example "nvidia"), which you can change in your sheet.
+Job Application Tracker eliminates the copy-paste step of a job search. When you click Easy Apply on LinkedIn, submit an application on a Lever or Ashby job board or a Workday career site, or once a Greenhouse-hosted job posting confirms your application, it automatically logs the company, title, location, date, and a link to the job posting to a Google Sheet you control.
 
 Easy Apply detection is fully supported with LinkedIn set to English.
 
@@ -101,8 +123,8 @@ any Google account, but it points a reviewer at the flow):
 1. Settings opens on install (or use the gear in the extension's popup). Click Connect Google Sheets and sign in with any Google account; a formatted "Job Applications" sheet is created in that account's Drive.
 2. With LinkedIn's interface in English, open a job posting that has Easy Apply and click Easy Apply. Closing the dialog without applying is fine. A row is logged to the sheet and a "Logged" notification with an Undo button appears.
 3. Open the extension's popup: the application is listed. Its status chip changes the Status in the sheet, and its ⋯ menu edits the row's note (the Notes cell) or opens the job posting.
-4. Greenhouse, without submitting anything: open a job posting on job-boards.greenhouse.io and click Submit application with the form left blank. Greenhouse shows its "is required" messages and sends nothing. Within 30 minutes, open the same address with /confirmation added to the end (https://job-boards.greenhouse.io/<board>/jobs/<id>/confirmation): one row is logged to the sheet. Opening it again logs nothing more.
-5. Workday is logged only at the final Submit of a real application, so it can't be tested without applying.
+4. Lever, Ashby and Workday are logged only when you actually submit an application, so they can't be tested without applying.
+5. Greenhouse, without submitting anything: open a job posting on job-boards.greenhouse.io and click Submit application with the form left blank. Greenhouse shows its "is required" messages and sends nothing. Within 30 minutes, open the same address with /confirmation added to the end (https://job-boards.greenhouse.io/<board>/jobs/<id>/confirmation): one row is logged to the sheet. Opening it again logs nothing more.
 ```
 
 ## Screenshots (1280×800, 24-bit PNG, no alpha)
@@ -170,7 +192,7 @@ the matching field.
 ### Single purpose
 
 ```text
-Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply, Greenhouse-hosted job postings and Workday career sites) as rows in a Google Sheet you own, and lets you review and update those logged applications and manage the sheet they're logged to.
+Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply, Greenhouse-hosted job postings, Lever and Ashby job boards, and Workday career sites) as rows in a Google Sheet you own, and lets you review and update those logged applications and manage the sheet they're logged to.
 ```
 
 ### Permission justifications
@@ -223,7 +245,7 @@ If the dashboard also asks about the content-script sites (they're
 declared under `content_scripts`, not `host_permissions`):
 
 ```text
-Content scripts run on https://www.linkedin.com/*, https://job-boards.greenhouse.io/*/jobs/*, https://*.myworkdayjobs.com/* and https://*.myworkdaysite.com/* (Workday career sites; never Workday's employee app). LinkedIn and Workday move between pages without reloading them, so their scripts are loaded on every page of those sites, but they act only on job pages: on LinkedIn and Greenhouse they read the job title, company, location and page URL when you click Easy Apply or Submit application; on Workday they read nothing as you browse, and when you click an application's final Submit they send that page's address, and the job title the page shows, to the extension, which reads that one job's public details from the same career site. Nothing else.
+Content scripts run on https://www.linkedin.com/*, https://job-boards.greenhouse.io/*/jobs/*, the application pages of Lever's job sites (https://jobs.lever.co/*/*/apply* and https://jobs.eu.lever.co/*/*/apply*) and Ashby's job boards (https://jobs.ashbyhq.com/*). LinkedIn and Ashby move between pages without reloading them, so their scripts are loaded on every page of those sites, but they act only on job pages: they read the job title, company, location and page URL when you click Easy Apply, submit a Lever application form, or click Submit application on Greenhouse or Submit Application on Ashby, and nothing else.
 ```
 
 ### Remote code
