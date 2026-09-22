@@ -20,6 +20,9 @@ a new row.
 - **Lever job sites** on `jobs.lever.co` and `jobs.eu.lever.co`.
 - **Ashby job boards** on `jobs.ashbyhq.com`.
 
+- **Workday career sites** on `myworkdayjobs.com` and `myworkdaysite.com`.
+  The Company column is the site's name from its address (for example
+  "nvidia"), which you can change in your sheet.
 For Lever and Ashby, as for Greenhouse, boards a company hosts on its own
 domain aren't covered.
 
@@ -32,7 +35,8 @@ domain aren't covered.
    Apply; on Greenhouse, once the site confirms your application was
    submitted, so an attempt the form rejects isn't logged; on Lever, when
    the application form is submitted, after its own checks pass; on Ashby,
-   when you click Submit Application.
+   when you click Submit Application; on Workday, when you click the
+   application's final Submit.
 3. A "Logged" notification appears for about five seconds, with an Undo
    in case you didn't mean to apply.
 4. The extension's popup lists your 20 most recent applications, plus any
@@ -44,8 +48,8 @@ domain aren't covered.
 
 - **Automatic logging per site.** Each supported site has its own parser
   and its own trigger: the Easy Apply click on LinkedIn, the confirmation
-  page on Greenhouse, the form's submit on Lever, and the Submit
-  Application click on Ashby.
+  page on Greenhouse, the form's submit on Lever, the Submit Application
+  click on Ashby, and the final Submit on Workday.
 - **The popup.** Each row shows the company, title, location and date,
   with the status from your sheet. A dropdown sets the status (Applied,
   Interview, Offer, Rejected, Cancelled) — every logged row starts as
@@ -146,10 +150,14 @@ https://rynjung1.github.io/job-app-tracker/privacy.html
   sheet was deleted" notices.
 - `https://sheets.googleapis.com/*`: reads and writes your sheet through
   the Google Sheets API.
-- It runs on LinkedIn, Greenhouse job boards, Lever application pages and
-  Ashby job boards. LinkedIn and Ashby move between pages without reloading
-  them, so its code is loaded on every page of those sites, but it acts only
-  on job pages, reading the job details when you apply.
+- `https://*.myworkdayjobs.com/*`, `https://*.myworkdaysite.com/*`: after
+  a Workday application's final Submit, reads that one job's public
+  details from the same career site, without your Workday cookies.
+- It runs on LinkedIn, Greenhouse job boards, Lever application pages,
+  Ashby job boards and Workday career sites. LinkedIn, Ashby and Workday
+  move between pages without reloading them, so its code is loaded on
+  every page of those sites, but it acts only on job pages, reading the
+  job details when you apply.
 
 ## For developers
 

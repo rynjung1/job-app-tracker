@@ -4,7 +4,7 @@
 // fetch and navigator (fakes/background-env.ts, imported first). Each case
 // is one subtest; they share the listeners and run in order.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { alarms, ctl, HEADERS_CURRENT, HEADERS_WITH_LOG_ID, listeners, local, log, reset, session, sheet } from './fakes/background-env'
+import { alarms, ctl, HEADERS_8, HEADERS_CURRENT, HEADERS_WITH_LOG_ID, listeners, local, log, reset, session, sheet } from './fakes/background-env'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildRow } from '../src/lib/buildRow'
@@ -695,6 +695,161 @@ test('background worker', async (t) => {
   const afterDayOld = appends()
   await check('Easy Apply reopened: the same job twice -> 1 row, 1 "Logged", nothing queued; a different job logs; after the entry is Cancelled it logs again; an entry 25 hours old doesn\'t block', reopened.appends === 1 && reopened.rows === 1 && reopened.logged === 1 && reopened.queue === 0 && afterOtherJob === 2 && afterCancel === 3 && afterDayOld === 1, { reopened, afterOtherJob, afterCancel, afterDayOld })
 
+  // ---- Workday (2026-09-14): tenant origins accepted, lookalikes refused;
+  // the 24-hour repeat check on the normalized URL. ----
+  const WD_URL = 'https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Senior-System-Software-Engineer--Agentic-Kernel-Development_JR2025621'
+  const fromOrigin = async (origin: string, company: string, url = `${WD_URL}-${company}`) => {
+    listeners.onMessage[0]({ type: 'JOB_APPLICATION_LOGGED', payload: { title: 'Engineer', company, location: 'US, CA, Santa Clara', url } }, { origin }, () => {})
+    await settle()
+  }
+  reset()
+  await local.set({ sheetRef: REF })
+  await fromOrigin('https://nvidia.wd5.myworkdayjobs.com', 'wd-tenant')
+  await fromOrigin('https://wd1.myworkdaysite.com', 'wd-site')
+  const lookalikes = ['https://evil-myworkdayjobs.com', 'https://myworkdayjobs.com.evil.example', 'http://nvidia.wd5.myworkdayjobs.com', 'https://nvidia.wd5.myworkday.com', 'https://nvidia.wd5.myworkdayjobs.com:8443']
+  for (const [i, origin] of lookalikes.entries()) await fromOrigin(origin, `lookalike${i}`)
+  const lookalikeRows = lookalikes.map((_, i) => rowsOf(`lookalike${i}`).length).reduce((a, b) => a + b, 0)
+  await fromOrigin('https://nvidia.wd5.myworkdayjobs.com', 'wd-repeat', WD_URL)
+  await fromOrigin('https://nvidia.wd5.myworkdayjobs.com', 'wd-repeat', WD_URL)
+  await check('Workday: messages from a myworkdayjobs.com tenant and from myworkdaysite.com log; 5 lookalike origins log nothing; the same normalized URL twice logs once', rowsOf('wd-tenant').length === 1 && rowsOf('wd-site').length === 1 && lookalikeRows === 0 && rowsOf('wd-repeat').length === 1 && appends() === 3, { tenant: rowsOf('wd-tenant').length, site: rowsOf('wd-site').length, lookalikeRows, repeat: rowsOf('wd-repeat').length, appends: appends() })
+
+  // ---- Workday's final Submit, read in the background (2026-09-21). The
+  // page sends only the address it was on; the background re-parses it and
+  // reads the job's public JSON, because the click is followed by a full
+  // page load that would kill a fetch started in the page. ----
+  const WD_ORIGIN = 'https://nvidia.wd5.myworkdayjobs.com'
+  const WD_REVIEW_URL = `${WD_ORIGIN}/en-US/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Kernel-Engineer_JR2025621/apply/autofillWithResume`
+  const WD_ROW_URL = `${WD_ORIGIN}/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Kernel-Engineer_JR2025621`
+  const wdJson = (title: string, location: string) => ({ jobPostingInfo: { title, location, jobReqId: 'JR2025621', externalUrl: WD_ROW_URL } })
+  const submitFrom = async (origin: string, payload: unknown) => {
+    listeners.onMessage[0]({ type: 'WORKDAY_APPLICATION_SUBMITTED', payload }, { origin }, () => {})
+    await settle()
+  }
+  const wdFetches = () => log.fetches.filter((f) => f.includes('/wday/cxs/'))
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 200, body: wdJson('Kernel Engineer', 'US, CA, Santa Clara') }
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  const fromJson = rowsOf('nvidia')[0]?.[1]
+  await check('Workday submit: the background reads the job JSON once and logs it — title and location from the JSON, the tenant as Company, the normalized URL', wdFetches().length === 1 && wdFetches()[0] === `${WD_ORIGIN}/wday/cxs/nvidia/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Kernel-Engineer_JR2025621` && rowsOf('nvidia').length === 1 && fromJson?.[2] === 'Kernel Engineer' && fromJson?.[3] === 'US, CA, Santa Clara' && fromJson?.[4] === WD_ROW_URL, { fetches: wdFetches(), row: fromJson })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 404, body: {} }
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  const fromHint = rowsOf('nvidia')[0]?.[1]
+  await check("Workday submit: the JSON unreadable but the Review page had a title -> still logged, from the page's title, with no location", rowsOf('nvidia').length === 1 && fromHint?.[2] === 'Kernel Engineer' && fromHint?.[3] === '' && fromHint?.[4] === WD_ROW_URL, { row: fromHint })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = null
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: '' })
+  const noTitleAppends = appends()
+  ctl.workdayJson = { status: 200, body: { jobPostingInfo: {} } }
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: '' })
+  await check('Workday submit: the JSON unreadable (a network error, then a JSON with no posting) and no page title -> nothing logged, nothing queued', noTitleAppends === 0 && appends() === 0 && queue() === 0 && recent().length === 0, { appends: appends(), queue: queue() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 200, body: wdJson('Kernel Engineer', 'US, CA, Santa Clara') }
+  for (const origin of ['https://evil-myworkdayjobs.com', 'https://nvidia.wd5.myworkday.com', 'http://nvidia.wd5.myworkdayjobs.com']) {
+    await submitFrom(origin, { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  }
+  const untrustedAppends = appends()
+  // A trusted tenant naming another tenant's job: refused before any read.
+  await submitFrom('https://bmo.wd3.myworkdayjobs.com', { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  await check('Workday submit: untrusted origins log nothing, and a tenant may not name another tenant\'s job — neither reaches the JSON read', untrustedAppends === 0 && appends() === 0 && wdFetches().length === 0, { appends: appends(), fetches: wdFetches() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 200, body: wdJson('Kernel Engineer', 'US, CA, Santa Clara') }
+  const badSubmitPayloads: unknown[] = [
+    null,
+    'a string',
+    { url: 'http://nvidia.wd5.myworkdayjobs.com/en-US/Site/job/Loc/Role_R1/apply', title: 'x' },
+    { url: `${WD_ORIGIN}/en-US/NVIDIAExternalCareerSite/userHome`, title: 'x' },
+    { url: `${WD_REVIEW_URL}?q=${'x'.repeat(2100)}`, title: 'x' },
+    { url: WD_REVIEW_URL, title: 'x'.repeat(501) },
+    { url: WD_REVIEW_URL, title: 42 },
+  ]
+  for (const payload of badSubmitPayloads) await submitFrom(WD_ORIGIN, payload)
+  await check(`Workday submit: ${badSubmitPayloads.length} malformed payloads (none, a string, http, an address naming no job, an over-long url, an over-long or non-string title) are refused before any read`, appends() === 0 && wdFetches().length === 0 && queue() === 0, { appends: appends(), fetches: wdFetches() })
+
+  reset()
+  await local.set({ sheetRef: REF })
+  ctl.workdayJson = { status: 200, body: wdJson('Kernel Engineer', 'US, CA, Santa Clara') }
+  await submitFrom(WD_ORIGIN, { url: WD_REVIEW_URL, title: 'Kernel Engineer' })
+  await submitFrom(WD_ORIGIN, { url: `${WD_REVIEW_URL}#retry`, title: 'Kernel Engineer' })
+  await check('Workday submit: a Submit retried after a failed validation is the same normalized URL, so the 24-hour repeat check keeps it to one row', rowsOf('nvidia').length === 1 && appends() === 1 && wdFetches().length === 2, { rows: rowsOf('nvidia').length, appends: appends(), fetches: wdFetches().length })
+
+  // ---- The popup's identity check by Log ID (2026-09-14). ----
+  const idEntry = { ...acme, logId: 'id-1' }
+  const idRow = (company: string, logId: string) => ['46277.5', company, 'SWE Intern', 'Remote', 'https://www.linkedin.com/jobs/view/1/', 'SWE v3', 'Applied', '', logId]
+  const withEntry = async (entry: object, headers: string[], row: string[]) => {
+    reset()
+    ctl.headers = headers
+    await local.set({ sheetRef: REF, recentApplications: [entry] })
+    sheet.rows[5] = row
+  }
+
+  // SET_STATUS is the one writer on the Log ID rule; the note handlers
+  // still compare Company/Title, and SAVE_RESUME_VERSION left with the
+  // Resume Version column (main, 2026-09-18).
+  await withEntry(idEntry, HEADERS_WITH_LOG_ID, idRow('acme (tenant id, edited by hand)', 'id-1'))
+  const editedStatus = await setStatus('Interview')
+  const editedStatusWrites = sheet.writes.length
+  await check('Log ID identity: Company edited in the sheet, same Log ID -> SET_STATUS writes', editedStatus.ok && editedStatusWrites === 1, { editedStatus })
+
+  await withEntry(idEntry, HEADERS_WITH_LOG_ID, idRow('Acme', 'id-2'))
+  const movedStatus = await setStatus('Offer')
+  await check('Log ID identity: same Company and Title but another Log ID (the row moved) -> STALE_ROW, nothing written', !movedStatus.ok && movedStatus.code === 'STALE_ROW' && sheet.writes.length === 0, { movedStatus })
+
+  await withEntry(acme, HEADERS_WITH_LOG_ID, idRow('Acme (edited)', 'id-1'))
+  const noIdOnEntry = await setStatus('Offer')
+  await withEntry(idEntry, HEADERS_8, [...acmeRow])
+  const oldSheetSame = await setStatus('Offer')
+  await withEntry(idEntry, HEADERS_8, ['46277.5', 'Acme (edited)', ...acmeRow.slice(2)])
+  const oldSheetEdited = await setStatus('Offer')
+  await check('Log ID identity falls back to Company/Title: an entry without a logId (edited Company -> STALE_ROW); a sheet without the column (same -> ok, edited -> STALE_ROW)', !noIdOnEntry.ok && noIdOnEntry.code === 'STALE_ROW' && oldSheetSame.ok && !oldSheetEdited.ok && oldSheetEdited.code === 'STALE_ROW', { noIdOnEntry, oldSheetSame: oldSheetSame.ok, oldSheetEdited })
+
+  reset()
+  ctl.headers = HEADERS_WITH_LOG_ID
+  await local.set({ sheetRef: REF })
+  apply('Logged Id Co')
+  await settle()
+  const directEntry = recent()[0]
+  const directRow = rowsOf('Logged Id Co')[0]?.[1]
+  await local.set({ offlineQueue: [{ ...twinRow('queued-id-7'), Company: 'Drained Id Co' }] })
+  await drain()
+  const drainedEntry = recent().find((e) => e.company === 'Drained Id Co')
+  await check('recent entries carry the row\'s Log ID: a direct log (same id as the sheet cell) and a drained row', directEntry?.company === 'Logged Id Co' && !!directEntry?.logId && directEntry.logId === directRow?.[LOG_ID] && drainedEntry?.logId === 'queued-id-7', { directEntry: directEntry?.logId, cell: directRow?.[LOG_ID], drained: drainedEntry?.logId })
+
+  // ---- Live status chips by Log ID (2026-09-14). ----
+  const live = () => internal({ type: 'GET_LIVE_STATUSES' }) as Promise<any>
+  const batchReads = () => log.fetches.filter((f) => f.includes('values:batchGet'))
+  const liveEntry = (id: string, rowNumber: number, logId?: string) => ({ id, company: 'nvidia', title: 'Engineer', location: null, url: '', date: d(12), resumeVersion: '', status: 'Applied', sheetName: 'Sheet1', rowNumber, ...(logId ? { logId } : {}) })
+  const liveRow = (company: string, status: string, logId: string) => ['46277.5', company, 'Engineer', '', '', '', status, '', logId]
+  reset()
+  ctl.headers = HEADERS_WITH_LOG_ID
+  await local.set({ sheetRef: REF, recentApplications: [liveEntry('a', 2, 'id-a'), liveEntry('b', 3, 'id-b'), liveEntry('c', 4), liveEntry('d', 5)] })
+  sheet.rows[2] = liveRow('NVIDIA (edited by hand)', 'Interview', 'id-a')
+  sheet.rows[3] = liveRow('nvidia', 'Offer', 'id-moved-here')
+  sheet.rows[4] = liveRow('NVIDIA (edited by hand)', 'Rejected', 'id-c')
+  sheet.rows[5] = liveRow('nvidia', 'Interview', 'id-d')
+  const withIds = await live()
+  const readsWithIds = batchReads()
+  await check('live chips on a Log ID sheet: an edited Company with the same Log ID keeps its live status; another Log ID in the row (moved) is left out; entries without a logId match on Company/Title; one batchGet with 4 ranges, nothing written', withIds.ok && JSON.stringify(withIds.data) === '{"a":"Interview","d":"Interview"}' && readsWithIds.length === 1 && (readsWithIds[0].match(/ranges=/g) ?? []).length === 4 && sheet.writes.length === 0, { data: withIds.data, reads: readsWithIds })
+
+  reset()
+  ctl.headers = HEADERS_8
+  await local.set({ sheetRef: REF, recentApplications: [liveEntry('a', 2, 'id-a'), liveEntry('b', 3, 'id-b')] })
+  sheet.rows[2] = liveRow('nvidia', 'Interview', '').slice(0, 8)
+  sheet.rows[3] = liveRow('NVIDIA (edited by hand)', 'Offer', '').slice(0, 8)
+  const oldSheetLive = await live()
+  const readsOldSheet = batchReads()
+  await check('live chips on a sheet without the Log ID column: no error, 3 ranges read, Company/Title decide (same -> live, edited -> left out)', oldSheetLive.ok && JSON.stringify(oldSheetLive.data) === '{"a":"Interview"}' && readsOldSheet.length === 1 && (readsOldSheet[0].match(/ranges=/g) ?? []).length === 3, { oldSheetLive, reads: readsOldSheet })
+
   // ---- The note editor (2026-09-15): GET_NOTE prefills from the row;
   // SAVE_NOTE writes only if the Notes cell still holds what it opened with. ----
   const getNote = (entryId: unknown = 's1') => internal({ type: 'GET_NOTE', payload: { entryId } }) as Promise<any>
@@ -749,21 +904,6 @@ test('background worker', async (t) => {
   const signedOutNote = await saveNote('x', '')
   await check('SAVE_NOTE signed out -> AUTH_REQUIRED, sign-in flag set, nothing written', !signedOutNote.ok && signedOutNote.code === 'AUTH_REQUIRED' && !!flag() && sheet.writes.length === 0, signedOutNote)
 
-  // ---- Recent entries carry the row's Log ID (2026-09-15), so the popup can
-  // leave out a waiting application once its saved entry exists. ----
-  reset()
-  ctl.headers = HEADERS_WITH_LOG_ID
-  await local.set({ sheetRef: REF })
-  apply('Log Id Direct Co')
-  await settle()
-  const queuedRow = sanitizeRow(buildRow({ title: 'Engineer', company: 'Log Id Drained Co', location: null, url: 'https://www.linkedin.com/jobs/view/991/' }))
-  await local.set({ offlineQueue: [queuedRow] })
-  await internal({ type: 'RECONNECT_PROVIDER' })
-  const directEntry = recent().find((e) => e.company === 'Log Id Direct Co')
-  const drainedEntry = recent().find((e) => e.company === 'Log Id Drained Co')
-  const directRowId = rowsOf('Log Id Direct Co')[0]?.[1][8]
-  await check('recent entries carry the row\'s Log ID: a direct log and a drained row', !!directEntry?.logId && directEntry.logId === directRowId && drainedEntry?.logId === queuedRow['Log ID'] && queue() === 0, { direct: directEntry?.logId, directRowId, drained: drainedEntry?.logId, queued: queuedRow['Log ID'] })
-
   // ---- Resume Version removed (2026-09-18). New sheets have no such
   // column; a sheet created before keeps its own, and appendRow — which
   // maps values by header name — simply leaves that cell blank. ----
@@ -810,24 +950,24 @@ test('background worker', async (t) => {
   // The popup's live chip now reads the same value back: matchLiveStatuses
   // skips a blank Status cell, so before this change a fresh row's live read
   // returned nothing and the popup fell back to its cached "Applied".
-  const liveEntry = { id: 'ls1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), status: 'Applied', sheetName: 'Sheet1', rowNumber: 2 }
-  const liveRow = (status: string) => ({ Company: 'Acme', Title: 'SWE Intern', Status: status })
-  const liveApplied = matchLiveStatuses([liveEntry], [liveRow('Applied')])
-  const liveBlank = matchLiveStatuses([liveEntry], [liveRow('')])
+  const statusLiveEntry = { id: 'ls1', company: 'Acme', title: 'SWE Intern', location: null, url: '', date: d(12), status: 'Applied', sheetName: 'Sheet1', rowNumber: 2 }
+  const statusLiveRow = (status: string) => ({ Company: 'Acme', Title: 'SWE Intern', Status: status })
+  const liveApplied = matchLiveStatuses([statusLiveEntry], [statusLiveRow('Applied')])
+  const liveBlank = matchLiveStatuses([statusLiveEntry], [statusLiveRow('')])
   await check("the live chip reads a logged row back as Applied, where a blank Status cell was skipped", liveApplied.ls1 === 'Applied' && liveBlank.ls1 === undefined, { liveApplied, liveBlank })
   // ---- Lever and Ashby (2026-09-15): messages from their own origins log,
   // and a lookalike origin is refused by the sender-origin check. ----
   reset()
   await local.set({ sheetRef: REF })
-  const fromOrigin = async (origin: string, company: string, url: string) => {
+  const fromAtsOrigin = async (origin: string, company: string, url: string) => {
     listeners.onMessage[0]({ type: 'JOB_APPLICATION_LOGGED', payload: { title: 'Engineer', company, location: null, url } }, { origin }, () => {})
     await settle()
   }
-  await fromOrigin('https://jobs.lever.co', 'Lever Co', 'https://jobs.lever.co/northwind/1111')
-  await fromOrigin('https://jobs.eu.lever.co', 'Lever EU Co', 'https://jobs.eu.lever.co/northwind/2222')
-  await fromOrigin('https://jobs.ashbyhq.com', 'Ashby Co', 'https://jobs.ashbyhq.com/northwind/3333')
+  await fromAtsOrigin('https://jobs.lever.co', 'Lever Co', 'https://jobs.lever.co/northwind/1111')
+  await fromAtsOrigin('https://jobs.eu.lever.co', 'Lever EU Co', 'https://jobs.eu.lever.co/northwind/2222')
+  await fromAtsOrigin('https://jobs.ashbyhq.com', 'Ashby Co', 'https://jobs.ashbyhq.com/northwind/3333')
   const loggedFromAts = recent().map((e) => e.company)
-  const lookalikes = [
+  const atsLookalikes = [
     'https://evil-jobs.lever.co',
     'https://jobs.lever.co.evil.example',
     'http://jobs.lever.co',
@@ -835,6 +975,6 @@ test('background worker', async (t) => {
     'https://ashbyhq.com',
     'https://lever.co',
   ]
-  for (const origin of lookalikes) await fromOrigin(origin, `Refused ${origin}`, `${origin}/northwind/9999`)
+  for (const origin of atsLookalikes) await fromAtsOrigin(origin, `Refused ${origin}`, `${origin}/northwind/9999`)
   await check('Lever and Ashby: their three origins log; 6 lookalike origins (a prefixed host, a suffixed host, http, and the bare domains) log nothing', loggedFromAts.length === 3 && recent().length === 3, { loggedFromAts, after: recent().map((e) => e.company) })
 })

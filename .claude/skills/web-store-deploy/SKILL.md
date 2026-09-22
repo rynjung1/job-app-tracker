@@ -83,6 +83,26 @@ description: Steps and status for publishing this extension to the Chrome Web St
        display name to the consent screen: that triggers brand
        verification (2-3 business days). Confirm it shows In production.
      - **After step 4:** set the OAuth client's Item ID to the new ID.
+     - **DONE 2026-09-20 (Ryan).** Google wouldn't switch the app to
+       production without a valid app name, support email, home page URL
+       and privacy policy URL, and the home page was a 404 —
+       `docs/` held only `privacy.html`. `docs/index.html` was added for
+       it (main, `885e6fd`), so **that page has to stay live**: the
+       production consent screen points at it. What's now filled in on
+       the Branding page: app name "Job Application Tracker", Ryan's
+       email as both support and developer contact, **no logo** (so no
+       brand verification), home page
+       `https://rynjung1.github.io/job-app-tracker/`, privacy policy
+       `https://rynjung1.github.io/job-app-tracker/privacy.html`, and
+       authorized domain `rynjung1.github.io` — **accepted without
+       Search Console verification**, so the file-or-meta-tag
+       verification prepared for it wasn't needed. Publishing status is
+       **In production**, user type External. Two consequences worth
+       keeping straight: the 100-user cap applies only to unapproved
+       **sensitive or restricted** scopes, and `drive.file` is neither,
+       so it doesn't apply here; and Testing's 7-day refresh-token
+       expiry — the cause of the sign-in lapse of 2026-09-13 — is gone
+       with Testing.
   6. Re-verify Google sign-in and a real logged row on the new-ID
      build. **First pass 2026-09-14** (the reviewer drove LinkedIn in
      Ryan's Chrome, Ryan did Connect; the loaded build came from the
@@ -105,6 +125,23 @@ description: Steps and status for publishing this extension to the Chrome Web St
        are in CLAUDE.md (Deployment path).
      - Rebuild `dist/` from main once Ryan's checks are done, so his
        daily build matches what ships.
+     **Second pass 2026-09-21 (Workday and Greenhouse, both PASS).**
+     Ryan's `dist/` was built from the `workday` branch at `7930447` for
+     this one run — the deliberate exception to building it from main —
+     and went back to main straight after.
+     - PASS, Workday, the first real row the site has ever produced:
+       one real application on a TD tenant (a Cloud/DevOps co-op,
+       submitted 22:54) logged **exactly one row**: Company `td` (the
+       tenant id, as designed), the job's title, Location "Toronto,
+       Ontario", Status `Applied`, the normalized job URL. The location
+       is the tell that the background's cxs job-JSON read worked
+       rather than the `jobTitleHeading` fallback — the part that needed
+       the Workday host permissions and that no test could prove, since
+       CORS only exists in a real browser.
+     - PASS, Greenhouse's two-phase logging, which had never been
+       confirmed by a real application: four applications Ryan made on
+       2026-09-16 are in the sheet as four rows with the right company,
+       title and location. One row each, none missing, none doubled.
      **Declined 2026-09-16 (Ryan): the checks below were not run.** He
      chose not to run the remaining live checks — the popup's status and
      resume changes, the stale-row refusal, the notification's Edit
@@ -163,6 +200,15 @@ description: Steps and status for publishing this extension to the Chrome Web St
        30-second fallback alarm can't be seen here. After the store
        install (step 8), check the notification still clears after
        about 5 seconds.
+     - Workday (the `workday` branch, CLAUDE.md, Site parsers, Workday),
+       after it's merged: on one real Workday application, check a row
+       lands at the final Submit with the tenant id as Company and the
+       normalized URL, once, and that it appears in the popup. Before the
+       merge, Ryan's first real Workday application is the observation
+       instead, with any build loaded (or none): run
+       `scripts/workday-observe.js` PARTs 0, A and B. The same
+       `documentLoadedAt` in PART 0 and PART A means the extension's
+       in-memory capture would survive to Submit.
      - A sheet in Drive's trash or deleted (CLAUDE.md, Spreadsheet
        backend, 2026-09-14), with a throwaway sheet connected: move it
        to Drive's trash, open the popup (the 5-minute tick only asks
@@ -211,17 +257,18 @@ description: Steps and status for publishing this extension to the Chrome Web St
      (`package.json`'s `version`, which the manifest reads).
      **What changes at the Workday merge** (prepared 2026-09-14, so the
      work after the observation is quick):
-     - **The Submit selector:** replace the placeholder
-       `WORKDAY_SUBMIT_SELECTOR_PLACEHOLDER` (`:not(*)`,
-       `src/parsers/workday.ts`) with the control that PART A of
-       `scripts/workday-observe.js` shows. If that Submit shares its
-       `data-automation-id` with the earlier steps' Next button, the
-       selector also needs whatever PART A shows marks the Review step
-       (its label, or the progress step). Tests: the content-script
-       test's test-only selector becomes the real one, and the DOM test
-       checks it matches the observed Submit and not a Next button. The
-       raw output is never committed; a fixture made from it is scrubbed
-       first. CLAUDE.md's Workday note records the evidence.
+     - **The Submit selector: done 2026-09-21.** PART A showed the
+       Review page's Submit carries the same `data-automation-id` as
+       every step's Next button (`pageFooterNextButton`), so the trigger
+       is that control *plus* the Review step, and the posting is read
+       by the background after the click rather than kept in the page,
+       since Workday's sign-in reloads it. That added
+       `host_permissions` for the two Workday domains, for one public
+       JSON read the endpoint's missing CORS header makes impossible
+       from the page. CLAUDE.md's Workday notes have the evidence and
+       the reasoning; the raw output was scrubbed before it went in.
+       What's left is the live check: one real Workday application on
+       the rebuilt build, confirming a row lands.
      - **The listing and privacy text:** already on the branch (the
        summary, 126 of 132 characters; the description, single purpose,
        storage and content-script texts; privacy.html's Workday
