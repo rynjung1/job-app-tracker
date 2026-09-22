@@ -16,6 +16,16 @@ disclosure); the content-script, Sheets, storage and notifications texts
 match the code; a no-submit Greenhouse path for the reviewer; the
 screenshots described as they are.
 
+Updated 2026-09-21 (Workday, ready to submit): Ryan's observation pinned the
+Submit control and one real application logged a row live, so Workday is in
+this listing for real — the summary (built from the manifest's site list, so
+it can't name a site the build doesn't support), the description, the single
+purpose, the content-script text (rewritten: the extension no longer keeps
+the posting in the tab, it reads the job in the background after Submit), the
+new Workday host-permission justification, the storage text and test
+instruction 5, which says plainly that Workday can't be tested without
+applying.
+
 Updated 2026-09-14 (a sheet in Drive's trash or deleted; awaiting review):
 the description's privacy sentence, the identity, storage (both) and
 notifications justifications, the certification note and the
@@ -35,7 +45,7 @@ test instruction 3, the storage justification (both) and the Sheets host
 justification now cover the popup's note editor and the recent entries'
 random ID.
 
-## Short description (117 of 132 characters)
+## Short description (126 of 132 characters)
 
 The store's summary comes from the manifest's `description`
 (`manifest.config.ts`), not from a dashboard field: the dashboard's
@@ -45,7 +55,7 @@ chrome://extensions and the Web Store. Since 2026-09-14 the manifest
 holds this exact text; keep the two identical.
 
 ```text
-Automatically logs job applications to Google Sheets when you apply on LinkedIn or Greenhouse — no manual data entry.
+Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse or Workday — no manual data entry.
 ```
 
 ## Detailed description
@@ -53,7 +63,7 @@ Automatically logs job applications to Google Sheets when you apply on LinkedIn 
 The dashboard shows this as plain text, so it has no Markdown.
 
 ```text
-Job Application Tracker eliminates the copy-paste step of a job search. When you click Easy Apply on LinkedIn, or once a Greenhouse-hosted job posting confirms your application, it automatically logs the company, title, location, date, and a link to the job posting to a Google Sheet you control.
+Job Application Tracker eliminates the copy-paste step of a job search. When you click Easy Apply on LinkedIn, submit an application on a Workday career site, or once a Greenhouse-hosted job posting confirms your application, it automatically logs the company, title, location, date, and a link to the job posting to a Google Sheet you control. On Workday, the company is the career site's name from its address (for example "nvidia"), which you can change in your sheet.
 
 Easy Apply detection is fully supported with LinkedIn set to English.
 
@@ -89,9 +99,10 @@ any Google account, but it points a reviewer at the flow):
 
 ```text
 1. Settings opens on install (or use the gear in the extension's popup). Click Connect Google Sheets and sign in with any Google account; a formatted "Job Applications" sheet is created in that account's Drive.
-2. With LinkedIn's interface in English, open a job posting that has Easy Apply and click Easy Apply. Closing the dialog without applying is fine. A row is logged to the sheet and a "Logged" notification with Undo and Edit appears.
+2. With LinkedIn's interface in English, open a job posting that has Easy Apply and click Easy Apply. Closing the dialog without applying is fine. A row is logged to the sheet and a "Logged" notification with an Undo button appears.
 3. Open the extension's popup: the application is listed. Its status chip changes the Status in the sheet, and its ⋯ menu edits the row's note (the Notes cell) or opens the job posting.
 4. Greenhouse, without submitting anything: open a job posting on job-boards.greenhouse.io and click Submit application with the form left blank. Greenhouse shows its "is required" messages and sends nothing. Within 30 minutes, open the same address with /confirmation added to the end (https://job-boards.greenhouse.io/<board>/jobs/<id>/confirmation): one row is logged to the sheet. Opening it again logs nothing more.
+5. Workday is logged only at the final Submit of a real application, so it can't be tested without applying.
 ```
 
 ## Screenshots (1280×800, 24-bit PNG, no alpha)
@@ -159,7 +170,7 @@ the matching field.
 ### Single purpose
 
 ```text
-Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply and Greenhouse-hosted job postings) as rows in a Google Sheet you own, and lets you review and update those logged applications and manage the sheet they're logged to.
+Automatically logs the job applications you submit on supported job sites (LinkedIn Easy Apply, Greenhouse-hosted job postings and Workday career sites) as rows in a Google Sheet you own, and lets you review and update those logged applications and manage the sheet they're logged to.
 ```
 
 ### Permission justifications
@@ -192,20 +203,27 @@ Retries writing queued applications every 5 minutes after a network or sign-in f
 `notifications`:
 
 ```text
-Shows a "Logged" notification after each automatic log, with Undo and Edit buttons to correct it; a notice if you applied while no spreadsheet was connected, with a button that opens Settings; a "Sign-in needed" notice when Google access to your sheet has lapsed, with a Reconnect button, so applications waiting to be saved don't go unnoticed; a notice if your sheet is moved to Google Drive's trash or deleted, with a button that opens Settings; and an "Undo didn't go through" notice if the Logged notification's Undo fails, saying the application is still logged.
+Shows a "Logged" notification after each automatic log, with an Undo button in case you didn't mean to apply; a notice if you applied while no spreadsheet was connected, with a button that opens Settings; a "Sign-in needed" notice when Google access to your sheet has lapsed, with a Reconnect button, so applications waiting to be saved don't go unnoticed; a notice if your sheet is moved to Google Drive's trash or deleted, with a button that opens Settings; and an "Undo didn't go through" notice if the Logged notification's Undo fails, saying the application is still logged.
 ```
 
 Host permission `https://sheets.googleapis.com/*`:
 
 ```text
-Through the Google Sheets API: creates and formats the sheet when you connect, including a Summary tab whose cells are formulas over your own rows (written once, at creation); writes each logged application as a row (with a random ID, used only to avoid duplicates) in the Google Sheet this extension created; updates one cell (Status or Notes) when you change an application's status or note in the popup, or use the Logged notification's Undo; reads the sheet's header row to find its columns, your recent rows' Company, Title and Status for the popup, a row before a popup change to check it still matches (and its Notes cell when you open its note), the hidden ID column when retrying a save, the spreadsheet's name so Settings can show which sheet you're connected to, and the spreadsheet's tab names if you renamed the sheet's tab; and creates a new sheet if you start one from Settings (or if your sheet is in the trash or deleted).
+Through the Google Sheets API: creates and formats the sheet when you connect, including a Summary tab whose cells are formulas over your own rows (written once, at creation); writes each logged application as a row (with a random ID, used only to avoid duplicates) in the Google Sheet this extension created; updates one cell (Status or Notes) when you change an application's status or note in the popup, or use the Logged notification's Undo; reads the sheet's header row to find its columns, your recent rows' Company, Title, Status and hidden ID for the popup, a row before a popup change to check it still matches (and its Notes cell when you open its note), the hidden ID column when retrying a save, the spreadsheet's name so Settings can show which sheet you're connected to, and the spreadsheet's tab names if you renamed the sheet's tab; and creates a new sheet if you start one from Settings (or if your sheet is in the trash or deleted).
+```
+
+Host permissions `https://*.myworkdayjobs.com/*` and
+`https://*.myworkdaysite.com/*` (added 2026-09-21):
+
+```text
+Workday's career sites, for one read: when you click the final Submit of a Workday application, the extension reads that one job's public details (title and location) from the same career site, to write the row. It is the same public page data anyone can see on the posting, and it is read in the extension's background rather than in the page because submitting navigates away immediately and a read started in the page would be cut off. Nothing is written to Workday, no other Workday page is read, no Workday account data is touched, and the read is made without your Workday session's cookies. The extension's content script already runs on these two domains; this permission only lets that one read happen.
 ```
 
 If the dashboard also asks about the content-script sites (they're
 declared under `content_scripts`, not `host_permissions`):
 
 ```text
-Content scripts run on https://www.linkedin.com/* and https://job-boards.greenhouse.io/*/jobs/*. LinkedIn moves between pages without reloading them, so its script is loaded on every LinkedIn page, but it acts only on job pages (/jobs/): it reads the job title, company, location and page URL when you click Easy Apply or Submit application, and nothing else.
+Content scripts run on https://www.linkedin.com/*, https://job-boards.greenhouse.io/*/jobs/*, https://*.myworkdayjobs.com/* and https://*.myworkdaysite.com/* (Workday career sites; never Workday's employee app). LinkedIn and Workday move between pages without reloading them, so their scripts are loaded on every page of those sites, but they act only on job pages: on LinkedIn and Greenhouse they read the job title, company, location and page URL when you click Easy Apply or Submit application; on Workday they read nothing as you browse, and when you click an application's final Submit they send that page's address, and the job title the page shows, to the extension, which reads that one job's public details from the same career site. Nothing else.
 ```
 
 ### Remote code

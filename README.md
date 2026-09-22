@@ -17,6 +17,9 @@ a new row.
   you to the company's own website aren't logged.
 - **Greenhouse job boards** on `job-boards.greenhouse.io`. Career sites
   that show Greenhouse jobs on the company's own domain aren't covered.
+- **Workday career sites** on `myworkdayjobs.com` and `myworkdaysite.com`.
+  The Company column is the site's name from its address (for example
+  "nvidia"), which you can change in your sheet.
 
 ## How it works
 
@@ -25,7 +28,8 @@ a new row.
    the sheet you're connected to from then on.
 2. Apply as usual. On LinkedIn the row is logged when you click Easy
    Apply; on Greenhouse, once the site confirms your application was
-   submitted, so an attempt the form rejects isn't logged.
+   submitted, so an attempt the form rejects isn't logged; on Workday, when
+   you click the application's final Submit.
 3. A "Logged" notification appears for about five seconds, with an Undo
    in case you didn't mean to apply.
 4. The extension's popup lists your 20 most recent applications, plus any
@@ -137,10 +141,14 @@ https://rynjung1.github.io/job-app-tracker/privacy.html
   sheet was deleted" notices.
 - `https://sheets.googleapis.com/*`: reads and writes your sheet through
   the Google Sheets API.
-- It runs on LinkedIn and on Greenhouse job boards. LinkedIn moves between
-  pages without reloading them, so its code is loaded on every LinkedIn
-  page, but it acts only on job pages, reading the job details when you
-  click Easy Apply or Submit.
+- `https://*.myworkdayjobs.com/*`, `https://*.myworkdaysite.com/*`: after
+  a Workday application's final Submit, reads that one job's public
+  details from the same career site, without your Workday cookies.
+- It runs on LinkedIn, Greenhouse job boards and Workday career sites.
+  LinkedIn and Workday move between pages without reloading them, so its
+  code is loaded on every page of those sites, but it acts only on job
+  pages: it reads the job details when you click Easy Apply or Submit
+  application; on Workday it reads nothing until the final Submit.
 
 ## For developers
 

@@ -10,6 +10,8 @@ import { buildRow } from '../lib/buildRow'
 import { LOG_ID_COLUMN } from '../lib/sheetTemplate'
 import { sanitizeRow } from '../lib/sanitize'
 import { parseJobPostingData } from '../lib/jobPayload'
+import { parseWorkdaySubmitPayload, workdayPostingFor } from './workdaySubmit'
+import { isTrustedJobSiteOrigin } from '../lib/trustedOrigins'
 import { REMOVED_KEYS } from '../lib/storageKeys'
 import { getSheetRef } from '../lib/sheetRef'
 import { addRecentApplication, cancelApplication, getRecentApplications } from '../lib/recentApplications'
@@ -23,7 +25,6 @@ import { getSheetStatus, SHEET_PROBLEM_NOTIFICATION_ID, showSheetProblemNotifica
 import { checkSheetInTrash } from './sheetHealth'
 import { sheetSwapInProgress } from './sheetSwap'
 
-const TRUSTED_ORIGINS = ['https://www.linkedin.com', 'https://job-boards.greenhouse.io']
 // This extension's own pages (popup, options) — used to distinguish an
 // internal RPC message from a content-script message. See the onMessage
 // listener below for why this is sender.origin, not sender.tab or
@@ -357,7 +358,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false
   }
 
-  if (!sender.origin || !TRUSTED_ORIGINS.includes(sender.origin)) {
+  // The job sites' origins (lib/trustedOrigins.ts): LinkedIn, Greenhouse,
+  // and since 2026-09-14 any Workday career-site tenant.
+  if (!isTrustedJobSiteOrigin(sender.origin)) {
     console.warn('[job-app-tracker] rejected message from unverified origin', sender.origin)
     return false
   }
@@ -371,6 +374,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false
     }
     handleJobApplicationLogged(payload)
+  }
+
+  // Workday's final Submit (2026-09-21): the page sends the address it was
+  // on, the background reads the job. See ./workdaySubmit.ts for why the
+  // read can't happen in the content script.
+  if (message?.type === 'WORKDAY_APPLICATION_SUBMITTED') {
+    const payload = parseWorkdaySubmitPayload(message.payload, sender.origin)
+    if (!payload) {
+      console.warn('[job-app-tracker] rejected a Workday submit message with an invalid payload')
+      return false
+    }
+    workdayPostingFor(payload).then((posting) => {
+      if (posting) handleJobApplicationLogged(posting)
+    })
+    return false
   }
 
   if (message?.type === 'JOB_APPLICATION_PENDING' || message?.type === 'JOB_APPLICATION_CONFIRMED') {
