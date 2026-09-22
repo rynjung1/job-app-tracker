@@ -240,15 +240,11 @@ Workday career sites (https://*.myworkdayjobs.com/*, https://*.myworkdaysite.com
 
 ### Test instructions, as submitted (500 characters max)
 
-Verbatim, as relayed on 2026-09-22. Username and Password were left empty
-— the extension needs no credentials of its own, only a Google account the
-reviewer already has.
-
-**A counting discrepancy, left unresolved rather than papered over:** the
-text below is **466 characters**; Ryan reported the box showing **497**.
-Either something was lost in relaying it here, or the dashboard counts
-differently. The box's own content is the authority, so before any
-resubmission, copy it back out of the dashboard and compare it with this.
+Verbatim, as Ryan pasted it on 2026-09-22: **466 characters**, comfortably
+under the 500 limit. Username and Password were left empty — the extension
+needs no credentials of its own, only a Google account the reviewer already
+has. As with every box here, what the dashboard holds is the authority; this
+file is the copy.
 
 ```text
 No credentials needed; any Google account works. Open Settings from the popup, click Connect Google Sheets, sign in: a formatted sheet is created in that account's Drive. On LinkedIn (English UI), click Easy Apply on any job and close the dialog: one row is logged and a "Logged" notification appears; the popup lists it, where the status chip and ⋯ menu edit the sheet. Workday logs only at a real application's final Submit, so it can't be tested without applying.
