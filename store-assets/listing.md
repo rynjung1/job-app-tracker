@@ -51,8 +51,12 @@ The store's summary comes from the manifest's `description`
 (`manifest.config.ts`), not from a dashboard field: the dashboard's
 listing fields have no separate summary, and Chrome's manifest docs
 limit `description` to 132 characters of plain text meant for both
-chrome://extensions and the Web Store. Since 2026-09-14 the manifest
-holds this exact text; keep the two identical.
+chrome://extensions and the Web Store. Since 2026-09-17 the manifest
+builds it from the same `SITES` list that defines the content scripts,
+so it can't name a site the build doesn't support
+(`scripts/package.mjs` fails the zip if it does). With three sites it
+takes the "— no manual data entry." form; the text below is what that
+produces today, so paste nothing by hand.
 
 ```text
 Automatically logs job applications to Google Sheets when you apply on LinkedIn, Greenhouse or Workday — no manual data entry.
